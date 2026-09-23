@@ -42,7 +42,7 @@ Local, SQLite, software keys:
 
 ```bash
 pip install -e ".[dev,hsm]"
-make test                                      # 40 tests; the HSM test runs if SoftHSM2 is installed
+make test                                      # 41 tests; the HSM test runs if SoftHSM2 is installed
 make run                                       # http://localhost:8080, admin key "admin-key"
 make demo                                      # seed teams, apps, certificates and some bad legacy certs
 ```
@@ -107,7 +107,9 @@ docs/            architecture, runbook, security model, HSM guide, roadmap, stan
 ## Documentation
 
 - [User guide](docs/guide/README.md): onboarding and every protocol with copy-paste examples
-- Knowledge base with interactive 3D protocol walkthroughs: served at `/kb` by the running server
+- Knowledge base with interactive 3D protocol walkthroughs (ACME, EST and SCEP, OCSP and CRL, platform tour): served at `/kb` by the running server; rebuild it with `python scripts/build_kb.py`
+
+![3D SCEP walkthrough in the knowledge base](docs/screenshots/kb-scep-3d.png)
 - [Architecture](docs/ARCHITECTURE.md): modules, trust model, request flow, deployment topology
 - [Runbook](docs/RUNBOOK.md): one section per alert, plus key ceremony and mass-revocation procedures
 - [Security model](docs/SECURITY.md): threats, controls, and the known gaps in this MVP
