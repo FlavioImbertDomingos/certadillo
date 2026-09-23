@@ -37,9 +37,11 @@ def tls_server(key, cert):
 
     d = tempfile.mkdtemp()
     kp, cp = f"{d}/k.pem", f"{d}/c.pem"
-    open(kp, "wb").write(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+    from pathlib import Path
+
+    Path(kp).write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
                                            serialization.NoEncryption()))
-    open(cp, "wb").write(cert.public_bytes(serialization.Encoding.PEM))
+    Path(cp).write_bytes(cert.public_bytes(serialization.Encoding.PEM))
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.load_cert_chain(cp, kp)
     sock = socket.socket()
