@@ -1,0 +1,84 @@
+# Idempotent: first run enrolls, later runs renew only inside the renewal
+# window, always with a fresh private key generated on the host.
+- name: Certificate directory
+  ansible.builtin.file:
+    path: "{{ certadillo_cert_dir }}"
+    state: directory
+    owner: "{{ certadillo_owner }}"
+    group: "{{ certadillo_group }}"
+    mode: "0750"
+
+- name: Read existing certificate metadata
+  ansible.builtin.slurp:
+    src: "{{ certadillo_cert_dir }}/meta.json"
+  register: _meta_raw
+  failed_when: false
+
+- name: Decide whether to enroll or renew
+  ansible.builtin.set_fact:
+    _meta: "{{ (_meta_raw.content | b64decode | from_json) if _meta_raw.content is defined else {} }}"
+
+- name: Work out remaining lifetime
+  ansible.builtin.set_fact:
+    _due: >-
+      {{ _meta == {} or
+         ((_meta.not_after | to_datetime('%Y-%m-%dT%H:%M:%S%z')).timestamp() - now(utc=true).timestamp())
+         < (certadillo_renew_fraction | float) *
+           ((_meta.not_after | to_datetime('%Y-%m-%dT%H:%M:%S%z')).timestamp()
+            - (_meta.not_before | to_datetime('%Y-%m-%dT%H:%M:%S%z')).timestamp()) }}
+
+- name: Enroll or renew
+  when: _due | bool
+  block:
+    - name: Generate a new private key on the host
+      community.crypto.openssl_privatekey:
+        path: "{{ certadillo_cert_dir }}/tls.key.next"
+        type: "{{ certadillo_key_type }}"
+        curve: secp256r1
+        size: 3072
+        mode: "0600"
+        owner: "{{ certadillo_owner }}"
+        force: true
+
+    - name: Build the CSR
+      community.crypto.openssl_csr_pipe:
+        privatekey_path: "{{ certadillo_cert_dir }}/tls.key.next"
+        common_name: "{{ certadillo_common_name }}"
+        subject_alt_name: "{{ certadillo_sans | map('regex_replace', '^', 'DNS:') | list }}"
+      register: _csr
+
+    - name: Request a new certificate
+      ansible.builtin.uri:
+        url: "{{ certadillo_server }}/api/v1/certificates{{ ('/' ~ _meta.id ~ '/renew') if _meta != {} else '' }}"
+        method: POST
+        headers: {X-API-Key: "{{ certadillo_api_key }}"}
+        body_format: json
+        body: "{{ {'csr_pem': _csr.csr} if _meta != {} else {'csr_pem': _csr.csr, 'validity_days': certadillo_validity_days} }}"
+        ca_path: "{{ certadillo_ca_bundle | default(omit, true) }}"
+        status_code: [201]
+      register: _issued
+      no_log: false
+
+    - name: Install certificate chain
+      ansible.builtin.copy:
+        dest: "{{ certadillo_cert_dir }}/tls.crt"
+        content: "{{ _issued.json.pem }}{{ _issued.json.chain_pem | default('') }}"
+        mode: "0644"
+        owner: "{{ certadillo_owner }}"
+        group: "{{ certadillo_group }}"
+
+    - name: Promote the new key
+      ansible.builtin.copy:
+        src: "{{ certadillo_cert_dir }}/tls.key.next"
+        dest: "{{ certadillo_cert_dir }}/tls.key"
+        remote_src: true
+        mode: "0600"
+        owner: "{{ certadillo_owner }}"
+        group: "{{ certadillo_group }}"
+      notify: certadillo reload services
+
+    - name: Save metadata for the next run
+      ansible.builtin.copy:
+        dest: "{{ certadillo_cert_dir }}/meta.json"
+        content: "{{ {'id': _issued.json.id, 'serial': _issued.json.serial, 'not_before': _issued.json.not_before, 'not_after': _issued.json.not_after} | to_nice_json }}"
+        mode: "0644"

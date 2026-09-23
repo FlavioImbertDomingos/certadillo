@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.certadillo/
+.venv/
+*.egg-info/
+dist/
+build/
+deploy/.env
+.lab-ca.crt
+.pytest_cache/
+.ruff_cache/

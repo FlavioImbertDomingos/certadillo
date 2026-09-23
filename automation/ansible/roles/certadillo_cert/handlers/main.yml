@@ -1,0 +1,5 @@
+- name: certadillo reload services
+  ansible.builtin.service:
+    name: "{{ item }}"
+    state: reloaded
+  loop: "{{ certadillo_reload_services }}"

@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Certadillo console</title>
+<link rel="icon" href="/static/dilly-rolled.svg">
+<style>
+:root{
+  --bg:#f6f8f8;--panel:#fff;--ink:#0f1f1d;--muted:#5b6b69;--line:#dfe6e5;
+  --teal:#0f766e;--teal-2:#14b8a6;--gold:#f59e0b;--red:#dc2626;--amber:#d97706;--blue:#2563eb;
+  --chip:#eef4f3;--shadow:0 1px 2px rgba(15,31,29,.06),0 4px 16px rgba(15,31,29,.05);
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0c1413;--panel:#131e1c;--ink:#e6efed;--muted:#94a8a5;--line:#23332f;--chip:#1b2a27;
+  --teal:#2dd4bf;--teal-2:#5eead4;--shadow:none}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{display:flex;align-items:center;gap:12px;padding:10px 20px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:5}
+header img{width:40px;height:31px}
+header h1{font-size:17px;margin:0;letter-spacing:.2px}
+header .sp{flex:1}
+header input{width:260px;max-width:40vw;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
+button{font:inherit;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:7px 12px;border-radius:8px;cursor:pointer}
+button.primary{background:var(--teal);border-color:var(--teal);color:#fff}
+@media (prefers-color-scheme:dark){button.primary{color:#062320}}
+button:disabled{opacity:.5;cursor:default}
+nav{display:flex;gap:4px;padding:10px 20px 0;overflow-x:auto}
+nav button{border:none;background:none;padding:8px 12px;border-bottom:2px solid transparent;border-radius:0;color:var(--muted)}
+nav button.on{color:var(--ink);border-bottom-color:var(--teal)}
+main{padding:16px 20px 60px;max-width:1280px;margin:0 auto}
+.hero{display:grid;grid-template-columns:220px 1fr;gap:18px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 18px;box-shadow:var(--shadow)}
+.hero img{width:100%;height:auto}
+.bubble{position:relative;background:var(--chip);border-radius:14px;padding:12px 16px;font-size:15px;max-width:640px}
+.bubble:before{content:"";position:absolute;left:-10px;top:22px;border:10px solid transparent;border-right-color:var(--chip);border-left:0}
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin:14px 0}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;box-shadow:var(--shadow)}
+.kpi b{display:block;font-size:24px;font-variant-numeric:tabular-nums}
+.kpi span{color:var(--muted);font-size:12px}
+.kpi.crit b{color:var(--red)}.kpi.warn b{color:var(--amber)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:14px;box-shadow:var(--shadow)}
+.card h2{font-size:15px;margin:0 0 10px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:600;font-size:12px}
+td.num{font-variant-numeric:tabular-nums;text-align:right}
+.pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;background:var(--chip)}
+.pill.critical,.pill.revoked,.pill.rejected{background:#fde2e2;color:#991b1b}
+.pill.warning,.pill.pending,.pill.pending_approval{background:#fef3c7;color:#92400e}
+.pill.active,.pill.ok,.pill.approved,.pill.valid{background:#d1fae5;color:#065f46}
+.pill.info,.pill.superseded{background:#e0e7ff;color:#3730a3}
+label{display:block;font-size:12px;color:var(--muted);margin:8px 0 3px}
+input,select,textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit}
+textarea{min-height:90px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+pre{background:var(--chip);border-radius:8px;padding:10px;overflow:auto;font-size:12px;margin:6px 0}
+.steps{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+.steps span{padding:4px 10px;border-radius:99px;background:var(--chip);color:var(--muted);font-size:12px}
+.steps span.on{background:var(--teal);color:#fff}
+.row{display:flex;gap:8px;align-items:end;flex-wrap:wrap}.row>*{flex:1;min-width:140px}
+.muted{color:var(--muted)}
+.err{color:var(--red);white-space:pre-wrap}
+.hide{display:none}
+.card{overflow-x:auto}.grid2>*{min-width:0}
+@media (max-width:760px){.hero{grid-template-columns:110px 1fr}.grid2{grid-template-columns:1fr}
+  header{flex-wrap:wrap;padding:10px 16px}#who{display:none}header input{width:auto;flex:1;max-width:none}
+  main,nav{padding-left:16px;padding-right:16px}}
+</style>
+</head>
+<body>
+<header>
+  <img src="/static/dilly.svg" alt="">
+  <h1>Certadillo</h1>
+  <span class="muted" id="who"></span>
+  <span class="sp"></span>
+  <input id="apikey" type="password" placeholder="API key" autocomplete="off">
+  <button id="connect" class="primary">Connect</button>
+</header>
+<nav id="tabs"></nav>
+<main>
+  <section id="view-overview">
+    <div class="hero">
+      <img id="mascot" src="/static/dilly.svg" alt="Dilly the armadillo">
+      <div class="bubble" id="bubble">Hi, I'm Dilly. Paste an API key above and I'll check on your certificates.</div>
+    </div>
+    <div class="kpis" id="kpis"></div>
+    <div class="grid2">
+      <div class="card"><h2>Open alerts</h2><div id="alerts" class="muted">Nothing loaded yet.</div></div>
+      <div class="card"><h2>Renewal due</h2><div id="expiring" class="muted">Nothing loaded yet.</div></div>
+    </div>
+  </section>
+
+  <section id="view-onboard" class="hide">
+    <div class="card">
+      <h2>Onboard an application</h2>
+      <div class="steps" id="steps"><span>1 Team</span><span>2 Application</span><span>3 Approval</span><span>4 Credentials</span></div>
+      <div id="ob-1">
+        <div class="row">
+          <div><label>Existing team</label><select id="ob-team"></select></div>
+        </div>
+        <details><summary class="muted" style="margin-top:8px;cursor:pointer">or create a team</summary>
+          <div class="row">
+            <div><label>Team name</label><input id="t-name" placeholder="payments-platform"></div>
+            <div><label>Contact email</label><input id="t-email" placeholder="payments-sre@bank.example"></div>
+          </div>
+          <div class="row">
+            <div><label>Chat channel</label><input id="t-chat" placeholder="#payments-sre"></div>
+            <div><label>Alert webhook (Slack or generic)</label><input id="t-hook" placeholder="https://hooks.slack.com/..."></div>
+            <div><label>Cost center</label><input id="t-cc" placeholder="CC-4411"></div>
+          </div>
+          <p><button id="t-create">Create team</button></p>
+        </details>
+        <p><button class="primary" id="ob-next1">Next</button></p>
+      </div>
+      <div id="ob-2" class="hide">
+        <div class="row">
+          <div><label>App name (lowercase, dashes)</label><input id="a-name" placeholder="card-auth-api"></div>
+          <div><label>Environment</label><select id="a-env"><option>dev</option><option>test</option><option>prod</option></select></div>
+          <div><label>Profile</label><select id="a-profile"></select></div>
+          <div><label>Data classification</label><select id="a-class"><option>internal</option><option>confidential</option><option>pci</option></select></div>
+        </div>
+        <label>Approved names (one per line: exact names, *.subdomain wildcards, spiffe:// patterns, or mail domains)</label>
+        <textarea id="a-domains" placeholder="*.cards.bank.internal"></textarea>
+        <p class="muted" id="a-hint"></p>
+        <p><button id="ob-back2">Back</button> <button class="primary" id="ob-next2">Submit</button></p>
+      </div>
+      <div id="ob-3" class="hide"><p id="ob-status"></p><p><button id="ob-refresh">Check status</button></p></div>
+      <div id="ob-4" class="hide">
+        <p>The app is active. Pick how it will enroll. Credentials are shown once.</p>
+        <p><button class="primary" id="cred-api">Create API / EST credential</button> <button id="cred-eab">Create ACME EAB credential</button></p>
+        <div id="cred-out"></div>
+      </div>
+      <p class="err" id="ob-err"></p>
+    </div>
+  </section>
+
+  <section id="view-inventory" class="hide">
+    <div class="card">
+      <div class="row">
+        <div><label>Status</label><select id="f-status"><option value="">any</option><option>active</option><option>revoked</option><option>superseded</option></select></div>
+        <div><label>Source</label><select id="f-source"><option value="">any</option><option>issued</option><option>discovered</option><option>imported</option></select></div>
+        <div><label>Search</label><input id="f-q" placeholder="name, serial, location"></div>
+      </div>
+    </div>
+    <div class="card"><div id="inv"></div></div>
+  </section>
+
+  <section id="view-approvals" class="hide"><div class="card"><h2>Approvals (maker-checker)</h2><div id="appr"></div></div></section>
+
+  <section id="view-discovery" class="hide">
+    <div class="card">
+      <h2>Discover TLS endpoints</h2>
+      <label>Targets: host:port, IP:port or CIDR:port, one per line</label>
+      <textarea id="d-targets" placeholder="10.20.0.0/28:443&#10;payments.bank.internal:8443"></textarea>
+      <p><button class="primary" id="d-run">Scan</button></p>
+      <div id="d-out"></div>
+    </div>
+  </section>
+
+  <section id="view-audit" class="hide">
+    <div class="card"><h2>Audit trail</h2><p id="audit-verify" class="muted"></p><div id="audit"></div></div>
+  </section>
+
+  <section id="view-reports" class="hide">
+    <div class="card"><h2>Crypto agility and PQC readiness</h2><div id="crypto"></div></div>
+    <div class="card"><h2>Exports</h2>
+      <p><button data-dl="/api/v1/reports/cbom" data-name="cbom.cdx.json">CycloneDX CBOM</button>
+      <button data-dl="/api/v1/reports/pci-inventory?format=csv" data-name="pci-4.2.1.1-inventory.csv">PCI DSS 4.2.1.1 inventory (CSV)</button>
+      <button data-dl="/api/v1/reports/crypto" data-name="crypto-report.json">Crypto report (JSON)</button></p>
+    </div>
+  </section>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let KEY = "";
+try { KEY = sessionStorage.getItem("cdl_key") || ""; } catch (e) {}
+$("#apikey").value = KEY;
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, {...opts, headers: {"X-API-Key": KEY, "Content-Type": "application/json", ...(opts.headers || {})}});
+  const text = await r.text();
+  let body; try { body = JSON.parse(text); } catch { body = text; }
+  if (!r.ok) {
+    const msg = body && body.violations ? body.violations.map(v => `${v.rule}: ${v.message}`).join("\n") : (body.message || body.detail || text);
+    throw new Error(msg);
+  }
+  return body;
+}
+
+const TABS = [["overview","Overview"],["onboard","Onboard"],["inventory","Inventory"],["approvals","Approvals"],["discovery","Discovery"],["audit","Audit"],["reports","Reports"]];
+$("#tabs").innerHTML = TABS.map(([k,v]) => `<button data-tab="${k}">${v}</button>`).join("");
+function show(tab) {
+  TABS.forEach(([k]) => { $("#view-"+k).classList.toggle("hide", k !== tab); });
+  document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
+  try { sessionStorage.setItem("cdl_tab", tab); } catch (e) {}
+  if (KEY) ({overview: loadOverview, onboard: loadOnboard, inventory: loadInventory, approvals: loadApprovals, audit: loadAudit, reports: loadReports}[tab] || (()=>{}))();
+}
+document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => show(b.dataset.tab));
+
+$("#connect").onclick = async () => {
+  KEY = $("#apikey").value.trim();
+  try { sessionStorage.setItem("cdl_key", KEY); } catch (e) {}
+  try { const me = await api("/api/v1/me"); $("#who").textContent = `${me.name} (${me.role})`; }
+  catch (e) { $("#who").textContent = "invalid key"; return; }
+  show(currentTab());
+};
+function currentTab(){ try { return sessionStorage.getItem("cdl_tab") || "overview"; } catch (e) { return "overview"; } }
+
+function pill(s){ return `<span class="pill ${esc(s)}">${esc(s)}</span>`; }
+function days(n){ return n < 0 ? `${-n}d ago` : `${n}d`; }
+function left(x){ return x.hours_left < 0 ? `${Math.ceil(-x.hours_left/24)}d ago` : x.hours_left < 48 ? `${x.hours_left}h` : `${x.days_left}d`; }
+
+async function loadOverview() {
+  const [s, alerts, exp] = await Promise.all([api("/api/v1/reports/summary"), api("/api/v1/alerts"), api("/api/v1/certificates?status=active&renewal_due=true")]);
+  const c = s.certificates, a = s.alerts;
+  const mood = s.health === "critical" ? "rolled" : s.health === "warning" ? "worried" : "";
+  $("#mascot").src = `/static/dilly${mood ? "-" + mood : ""}.svg`;
+  $("#bubble").textContent = s.health === "critical"
+    ? `I've rolled up. ${a.critical} critical alert${a.critical === 1 ? "" : "s"} need someone now; start with the list below.`
+    : s.health === "warning"
+    ? `${a.warning} thing${a.warning === 1 ? "" : "s"} to look at soon. Nothing is broken yet.`
+    : `All quiet. ${c.active} active certificates, ${Math.round(s.automation_coverage*100)}% issued through automation.`;
+  const k = [["Active certificates", c.active], ["Renewal overdue (critical)", c.renewal_critical, c.renewal_critical ? "crit":""], ["Renewal window open", c.renewal_warning, c.renewal_warning ? "warn":""],
+    ["Expired, still deployed", c.expired, c.expired ? "crit":""], ["Unmanaged (no owner)", c.unmanaged, c.unmanaged ? "warn":""],
+    ["Critical alerts", a.critical, a.critical ? "crit":""], ["Pending approvals", s.pending_approvals], ["Automated issuance", Math.round(s.automation_coverage*100) + "%"],
+    ["SSH certificates", s.ssh_certificates], ["Teams", s.teams]];
+  $("#kpis").innerHTML = k.map(([l,v,cl]) => `<div class="kpi ${cl||""}"><b>${esc(v)}</b><span>${esc(l)}</span></div>`).join("");
+  $("#alerts").innerHTML = alerts.length ? `<table><tr><th>Severity</th><th>Alert</th><th>Owner</th></tr>${alerts.slice(0,25).map(x =>
+    `<tr><td>${pill(x.severity)}</td><td><b>${esc(x.rule)}</b><br>${esc(x.summary)}</td><td>${esc(x.labels.team||"unowned")}</td></tr>`).join("")}</table>` : "No open alerts.";
+  $("#expiring").innerHTML = exp.length ? `<table><tr><th>Name</th><th>Location</th><th class="num">Left</th></tr>${exp.slice(0,25).map(x =>
+    `<tr><td>${esc(x.common_name)}</td><td>${esc(x.location||x.source)}</td><td class="num">${left(x)}</td></tr>`).join("")}</table>` : "Nothing is inside its renewal window.";
+}
+
+// ---------------- onboarding wizard
+let OB = {team: null, app: null, approval: null, profiles: {}};
+function step(n){ [1,2,3,4].forEach(i => $("#ob-"+i).classList.toggle("hide", i !== n)); document.querySelectorAll("#steps span").forEach((s,i) => s.classList.toggle("on", i === n-1)); $("#ob-err").textContent = ""; }
+async function loadOnboard(){
+  const [teams, profiles] = await Promise.all([api("/api/v1/teams"), api("/api/v1/profiles")]);
+  OB.profiles = profiles;
+  $("#ob-team").innerHTML = teams.map(t => `<option value="${t.id}">${esc(t.name)} (${t.apps} apps)</option>`).join("") || "<option value=''>no teams yet</option>";
+  $("#a-profile").innerHTML = Object.entries(profiles).map(([k,v]) => `<option value="${k}">${esc(k)}: ${esc(v.description)}</option>`).join("");
+  hint(); step(1);
+}
+function hint(){ const p = OB.profiles[$("#a-profile").value] || {}; const lim = p.max_validity_hours ? `${p.max_validity_hours}h` : `${p.max_validity_days}d`;
+  $("#a-hint").textContent = `Max validity ${lim}.` + (p.dual_control ? " Every issuance needs a second approver." : "") + ($("#a-env").value === "prod" ? " Production onboarding needs a second approver." : ""); }
+$("#a-profile").onchange = hint; $("#a-env").onchange = hint;
+$("#t-create").onclick = async () => { try {
+  const t = await api("/api/v1/teams", {method:"POST", body: JSON.stringify({name: $("#t-name").value, contact_email: $("#t-email").value, chat_channel: $("#t-chat").value || null, webhook_url: $("#t-hook").value || null, cost_center: $("#t-cc").value || null})});
+  await loadOnboard(); $("#ob-team").value = t.id; } catch (e) { $("#ob-err").textContent = e.message; } };
+$("#ob-next1").onclick = () => { OB.team = +$("#ob-team").value; if (OB.team) step(2); else $("#ob-err").textContent = "Pick or create a team first."; };
+$("#ob-back2").onclick = () => step(1);
+$("#ob-next2").onclick = async () => { try {
+  const app = await api("/api/v1/apps", {method:"POST", body: JSON.stringify({team_id: OB.team, name: $("#a-name").value.trim(), environment: $("#a-env").value, profile: $("#a-profile").value, data_classification: $("#a-class").value, allowed_domains: $("#a-domains").value.split(/\s+/).filter(Boolean)})});
+  OB.app = app; if (app.status === "active") step(4); else { step(3); obStatus(); } } catch (e) { $("#ob-err").textContent = e.message; } };
+async function obStatus(){ const a = await api(`/api/v1/apps/${OB.app.id}`); OB.app = a;
+  if (a.status === "active") return step(4);
+  $("#ob-status").innerHTML = `${esc(a.name)} is ${pill(a.status)}. Approval #${esc(OB.app.approval_id || "")} must be approved by someone other than ${esc(a.created_by)}.`; }
+$("#ob-refresh").onclick = obStatus;
+$("#cred-api").onclick = async () => { try {
+  const c = await api(`/api/v1/apps/${OB.app.id}/credentials`, {method:"POST"}); const base = location.origin;
+  $("#cred-out").innerHTML = `<label>API key (store it in your secrets manager)</label><pre>${esc(c.api_key)}</pre>
+  <label>CLI: request and auto-renew</label><pre>export CERTADILLO_SERVER=${esc(base)} CERTADILLO_API_KEY=${esc(c.api_key)}
+certadillo cert request --cn app.example --san app.example --out /etc/ssl/app
+certadillo cert renew-if-due --dir /etc/ssl/app   # run from a systemd timer</pre>
+  <label>EST (devices, appliances)</label><pre>curl --cacert root.pem -u client:${esc(c.api_key)} -H 'Content-Type: application/pkcs10' \\
+  --data-binary @csr.b64 ${esc(base)}/.well-known/est/simpleenroll</pre>`; } catch (e) { $("#ob-err").textContent = e.message; } };
+$("#cred-eab").onclick = async () => { try {
+  const c = await api(`/api/v1/apps/${OB.app.id}/acme-eab`, {method:"POST"});
+  $("#cred-out").innerHTML = `<label>ACME External Account Binding (single use)</label><pre>kid:  ${esc(c.kid)}\nhmac: ${esc(c.hmac_key)}</pre><label>certbot</label><pre>${esc(c.example)}</pre>
+  <label>cert-manager ClusterIssuer</label><pre>spec:
+  acme:
+    server: ${esc(location.origin)}/acme/directory
+    externalAccountBinding:
+      keyID: ${esc(c.kid)}
+      keySecretRef: {name: certadillo-eab, key: secret}
+    privateKeySecretRef: {name: certadillo-acme-account}
+    solvers: [{http01: {ingress: {}}}]</pre>`; } catch (e) { $("#ob-err").textContent = e.message; } };
+
+// ---------------- inventory
+let INV = [];
+async function loadInventory(){ INV = await api("/api/v1/certificates?limit=5000"); renderInv(); }
+function renderInv(){
+  const st = $("#f-status").value, so = $("#f-source").value, q = $("#f-q").value.toLowerCase();
+  const rows = INV.filter(x => (!st || x.status === st) && (!so || x.source === so) && (!q || [x.common_name, x.serial, x.location, (x.sans||[]).join(" ")].join(" ").toLowerCase().includes(q)));
+  $("#inv").innerHTML = `<p class="muted">${rows.length} of ${INV.length}</p><table><tr><th>Name</th><th>Status</th><th>Source</th><th>Key</th><th>Profile</th><th>Location</th><th class="num">Expires</th><th></th></tr>${rows.map(x =>
+    `<tr><td>${esc(x.common_name)}<br><span class="muted">${esc(x.serial.slice(0,16))}…</span></td><td>${pill(x.status)}</td><td>${esc(x.source)}${x.protocol ? " / "+esc(x.protocol) : ""}</td><td>${esc(x.key)}</td><td>${esc(x.profile||"")}</td><td>${esc(x.location||"")}</td><td class="num">${left(x)}</td>
+    <td>${x.status === "active" && x.source === "issued" ? `<button data-revoke="${x.id}">Revoke</button>` : ""}</td></tr>`).join("")}</table>`;
+  document.querySelectorAll("[data-revoke]").forEach(b => b.onclick = async () => {
+    const reason = prompt("Reason (key_compromise, superseded, cessation_of_operation, affiliation_changed)", "superseded"); if (!reason) return;
+    const change = prompt("Change ticket (required for prod unless key_compromise)", "") || null;
+    try { await api(`/api/v1/certificates/${b.dataset.revoke}/revoke`, {method:"POST", body: JSON.stringify({reason, change_ref: change})}); loadInventory(); } catch (e) { alert(e.message); } });
+}
+["#f-status","#f-source"].forEach(s => $(s).onchange = renderInv); $("#f-q").oninput = renderInv;
+
+// ---------------- approvals
+async function loadApprovals(){ const rows = await api("/api/v1/approvals");
+  $("#appr").innerHTML = rows.length ? `<table><tr><th>#</th><th>Action</th><th>Details</th><th>Requested by</th><th>Status</th><th></th></tr>${rows.map(r =>
+    `<tr><td>${r.id}</td><td>${esc(r.action)}</td><td><pre>${esc(JSON.stringify(r.payload))}</pre></td><td>${esc(r.requested_by)}</td><td>${pill(r.status)}${r.decided_by ? "<br>by " + esc(r.decided_by) : ""}</td>
+    <td>${r.status === "pending" ? `<button class="primary" data-ok="${r.id}">Approve</button> <button data-no="${r.id}">Reject</button>` : ""}</td></tr>`).join("")}</table>` : "No approval requests.";
+  document.querySelectorAll("[data-ok],[data-no]").forEach(b => b.onclick = async () => {
+    const id = b.dataset.ok || b.dataset.no, verb = b.dataset.ok ? "approve" : "reject";
+    try { await api(`/api/v1/approvals/${id}/${verb}`, {method:"POST", body: JSON.stringify({comment: null})}); loadApprovals(); } catch (e) { alert(e.message); } }); }
+
+// ---------------- discovery
+$("#d-run").onclick = async () => { $("#d-out").textContent = "Scanning…"; try {
+  const r = await api("/api/v1/discovery/scan", {method:"POST", body: JSON.stringify({targets: $("#d-targets").value.split(/\s+/).filter(Boolean)})});
+  $("#d-out").innerHTML = `<table><tr><th>Target</th><th>Result</th><th>Findings</th></tr>${r.map(x => `<tr><td>${esc(x.target)}</td><td>${x.error ? `<span class="muted">${esc(x.error)}</span>` : `${esc(x.common_name)} ${x.new ? pill("new") : ""}<br><span class="muted">expires ${esc(x.not_after.slice(0,10))}</span>`}</td><td>${(x.findings||[]).map(f => pill(f.rule)).join(" ")}</td></tr>`).join("")}</table>`;
+} catch (e) { $("#d-out").innerHTML = `<p class="err">${esc(e.message)}</p>`; } };
+
+// ---------------- audit
+async function loadAudit(){ const [v, rows] = await Promise.all([api("/api/v1/audit/verify"), api("/api/v1/audit?limit=200")]);
+  $("#audit-verify").innerHTML = v.valid ? `Hash chain verified over ${v.events} events. Head ${esc(v.head.slice(0,16))}…` : `<span class="err">Hash chain broken at event ${v.broken_at}.</span>`;
+  $("#audit").innerHTML = `<table><tr><th>Time (UTC)</th><th>Actor</th><th>Action</th><th>Target</th><th>Details</th></tr>${rows.map(e => `<tr><td>${esc(e.ts.slice(0,19).replace("T"," "))}</td><td>${esc(e.actor)}</td><td>${esc(e.action)}</td><td>${esc(e.target.length > 24 ? e.target.slice(0,24)+"…" : e.target)}</td><td class="muted">${esc(JSON.stringify(e.details).slice(0,140))}</td></tr>`).join("")}</table>`; }
+
+// ---------------- reports
+async function loadReports(){ const r = await api("/api/v1/reports/crypto");
+  $("#crypto").innerHTML = `<div class="kpis"><div class="kpi"><b>${r.active_certificates}</b><span>Active certificates</span></div><div class="kpi warn"><b>${r.quantum_vulnerable}</b><span>RSA/ECC (quantum-vulnerable)</span></div><div class="kpi"><b>${r.pqc_signed}</b><span>PQC-signed</span></div><div class="kpi"><b>${r.valid_past_2030_deprecation}</b><span>Valid past 2030</span></div></div>
+  <table><tr><th>CA</th><th>Algorithm</th><th>Key custody</th><th>Expires</th><th>Outlives 2035 cutoff</th></tr>${r.certificate_authorities.map(c => `<tr><td>${esc(c.ca)}</td><td>${esc(c.algorithm)}</td><td>${esc(c.signer)}</td><td>${esc(c.not_after.slice(0,10))}</td><td>${c.outlives_2035_cutoff ? pill("warning") : pill("ok")}</td></tr>`).join("")}</table>
+  <h2 style="margin-top:14px">Recommendations</h2><ul>${r.recommendations.map(x => `<li>${esc(x)}</li>`).join("")}</ul>`; }
+document.querySelectorAll("[data-dl]").forEach(b => b.onclick = async () => {
+  const r = await fetch(b.dataset.dl, {headers: {"X-API-Key": KEY}}); const blob = await r.blob();
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = b.dataset.name; a.click(); });
+
+show(currentTab());
+if (KEY) $("#connect").click();
+</script>
+</body>
+</html>

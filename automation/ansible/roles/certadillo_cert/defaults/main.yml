@@ -1,0 +1,15 @@
+# Where the Certadillo API lives and the app credential from onboarding.
+certadillo_server: "https://pki.bank.internal"
+certadillo_api_key: "{{ lookup('env', 'CERTADILLO_API_KEY') }}"
+certadillo_ca_bundle: ""            # path to the enterprise root for TLS to the API; empty = system store
+
+certadillo_common_name: "{{ inventory_hostname }}"
+certadillo_sans: ["{{ inventory_hostname }}"]
+certadillo_key_type: ECC             # ECC (P-256) or RSA (3072)
+certadillo_validity_days: 30
+
+certadillo_cert_dir: /etc/pki/certadillo
+certadillo_owner: root
+certadillo_group: root
+certadillo_renew_fraction: 0.33      # renew when less than a third of the lifetime is left
+certadillo_reload_services: []       # e.g. [nginx]

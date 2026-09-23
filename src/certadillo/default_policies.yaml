@@ -1,0 +1,76 @@
+# Certificate profiles. Every issuance path (REST, EST, ACME) goes through the
+# same policy engine, so a rule written here holds for every protocol.
+spiffe_trust_domain: bank.internal
+
+profiles:
+  tls-server:
+    description: Internal TLS server certificate
+    extended_key_usage: [server_auth]
+    default_validity_days: 30
+    max_validity_days: 90
+    require_dns_san: true
+    allow_wildcard: false
+    allowed_keys: {rsa_min_bits: 2048, ec_curves: [secp256r1, secp384r1]}
+    require_new_key_on_renewal: true
+
+  tls-client:
+    description: Client authentication for mTLS callers
+    extended_key_usage: [client_auth]
+    default_validity_days: 30
+    max_validity_days: 90
+    require_dns_san: false
+    allowed_keys: {rsa_min_bits: 2048, ec_curves: [secp256r1, secp384r1]}
+    require_new_key_on_renewal: true
+
+  mtls-service:
+    description: Service identity used as both TLS server and client
+    extended_key_usage: [server_auth, client_auth]
+    default_validity_days: 30
+    max_validity_days: 90
+    require_dns_san: true
+    allow_wildcard: false
+    allowed_keys: {rsa_min_bits: 2048, ec_curves: [secp256r1, secp384r1]}
+    require_new_key_on_renewal: true
+
+  spiffe-svid:
+    description: X.509-SVID for workload identity (SPIFFE)
+    extended_key_usage: [server_auth, client_auth]
+    default_validity_hours: 24
+    max_validity_hours: 72
+    require_spiffe_id: true
+    allowed_keys: {rsa_min_bits: 2048, ec_curves: [secp256r1, secp384r1]}
+    require_new_key_on_renewal: true
+
+  code-signing:
+    description: Code and artifact signing, dual control on every issuance
+    extended_key_usage: [code_signing]
+    default_validity_days: 365
+    max_validity_days: 365
+    require_dns_san: false
+    dual_control: true
+    allowed_keys: {rsa_min_bits: 3072, ec_curves: [secp384r1]}
+    require_new_key_on_renewal: true
+
+  smime:
+    description: S/MIME email signing and encryption
+    extended_key_usage: [email_protection]
+    default_validity_days: 365
+    max_validity_days: 730
+    require_email_san: true
+    allowed_keys: {rsa_min_bits: 2048, ec_curves: [secp256r1, secp384r1]}
+    require_new_key_on_renewal: false
+
+ssh:
+  user:
+    default_validity_hours: 8
+    max_validity_hours: 24
+  host:
+    default_validity_days: 30
+    max_validity_days: 90
+
+# CA/Browser Forum ballot SC-081v3: maximum validity for publicly trusted TLS.
+# Used to grade discovered public certificates and to plan automation.
+public_tls_schedule:
+  - {from: "2026-03-15", max_days: 200}
+  - {from: "2027-03-15", max_days: 100}
+  - {from: "2029-03-15", max_days: 47}

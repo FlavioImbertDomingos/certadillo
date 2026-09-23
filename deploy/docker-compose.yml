@@ -1,0 +1,69 @@
+# Full lab stack: Certadillo + PostgreSQL + Prometheus + Alertmanager + Grafana.
+#   cp deploy/.env.example deploy/.env   # then edit the keys
+#   docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
+# Console: http://localhost:8080   Grafana: http://localhost:3000   Prometheus: http://localhost:9090
+name: certadillo
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: certadillo
+      POSTGRES_USER: certadillo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-certadillo-dev}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U certadillo"]
+      interval: 5s
+      retries: 10
+
+  certadillo:
+    image: certadillo:local
+    build: ..
+    depends_on:
+      postgres: {condition: service_healthy}
+    environment:
+      CERTADILLO_DB_URL: postgresql+psycopg://certadillo:${POSTGRES_PASSWORD:-certadillo-dev}@postgres:5432/certadillo
+      CERTADILLO_BASE_URL: ${CERTADILLO_BASE_URL:-http://localhost:8080}
+      CERTADILLO_ORG_NAME: ${CERTADILLO_ORG_NAME:-Example Bank}
+      CERTADILLO_KEY_PASSPHRASE: ${CERTADILLO_KEY_PASSPHRASE:?set CERTADILLO_KEY_PASSPHRASE}
+      CERTADILLO_BOOTSTRAP_ADMIN_KEY: ${CERTADILLO_BOOTSTRAP_ADMIN_KEY:?set CERTADILLO_BOOTSTRAP_ADMIN_KEY}
+      CERTADILLO_BOOTSTRAP_APPROVER_KEY: ${CERTADILLO_BOOTSTRAP_APPROVER_KEY:?set CERTADILLO_BOOTSTRAP_APPROVER_KEY}
+      CERTADILLO_ALERT_INTERVAL: "60"
+      CERTADILLO_WEBHOOK_URLS: ${CERTADILLO_WEBHOOK_URLS:-}
+      CERTADILLO_SLACK_WEBHOOK_URLS: ${CERTADILLO_SLACK_WEBHOOK_URLS:-}
+      # Uncomment to keep CA keys in the bundled SoftHSM2 token (see docs/HSM.md)
+      # CERTADILLO_SIGNER: pkcs11
+      # CERTADILLO_PKCS11_LIB: /usr/lib/softhsm/libsofthsm2.so
+      # CERTADILLO_PKCS11_PIN: ${PKCS11_PIN}
+    volumes: [cadata:/var/lib/certadillo]
+    ports: ["${CERTADILLO_PORT:-8080}:8080"]
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=30d"]
+    volumes:
+      - ./prometheus:/etc/prometheus:ro
+    ports: ["9090:9090"]
+    depends_on: [certadillo, alertmanager]
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    volumes:
+      - ./alertmanager:/etc/alertmanager:ro
+    ports: ["9093:9093"]
+
+  grafana:
+    image: grafana/grafana:12.1.1
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports: ["3000:3000"]
+    depends_on: [prometheus]
+
+volumes:
+  pgdata: {}
+  cadata: {}

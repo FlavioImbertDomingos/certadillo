@@ -1,0 +1,30 @@
+# Route by severity and by the owning team label that Certadillo exports from
+# onboarding data. Replace the receivers with your PagerDuty / Slack / ServiceNow
+# integrations.
+route:
+  receiver: pki-ops
+  group_by: [alertname, team]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - matchers: [severity="critical"]
+      receiver: pki-oncall
+      repeat_interval: 1h
+    - matchers: [team=~".+"]
+      receiver: owning-team
+
+# Receivers are empty (alerts are visible in the Alertmanager UI) until you
+# add real integrations, for example:
+#   pagerduty_configs: [{routing_key: <secret>}]
+#   slack_configs: [{api_url: <secret>, channel: "#pki-alerts", send_resolved: true}]
+#   webhook_configs: [{url: https://servicenow-bridge.bank.internal/alertmanager}]
+receivers:
+  - name: pki-ops
+  - name: pki-oncall
+  - name: owning-team
+
+inhibit_rules:
+  - source_matchers: [alertname="CertificateExpired"]
+    target_matchers: [alertname=~"CertificateExpiringCritical|CertificateRenewalWindow"]
+    equal: [serial]

@@ -1,0 +1,100 @@
+# Certificate estate and PKI service alerts.
+# Expiry thresholds scale with certificate lifetime, matching the built-in
+# evaluator: warning when under min(30d, lifetime/3), critical under min(7d, lifetime/10).
+groups:
+  - name: certadillo-certificates
+    rules:
+      - alert: CertificateExpired
+        expr: certadillo_certificate_expiry_timestamp_seconds - time() <= 0
+        labels: {severity: critical}
+        annotations:
+          summary: "{{ $labels.common_name }}{{ with $labels.app }} (app {{ . }}){{ end }} has expired"
+          runbook_url: https://github.com/FlavioImbertDomingos/certadillo/blob/main/docs/RUNBOOK.md#certificateexpired
+
+      - alert: CertificateExpiringCritical
+        expr: |
+          (certadillo_certificate_expiry_timestamp_seconds - time() > 0)
+          and
+          (certadillo_certificate_expiry_timestamp_seconds - time()
+             < clamp_max(certadillo_certificate_lifetime_seconds / 10, 7 * 86400))
+        labels: {severity: critical}
+        annotations:
+          summary: "{{ $labels.common_name }}{{ with $labels.team }} (team {{ . }}){{ end }} expires in {{ $value | humanizeDuration }}"
+          runbook_url: https://github.com/FlavioImbertDomingos/certadillo/blob/main/docs/RUNBOOK.md#certificateexpiringsoon
+
+      - alert: CertificateRenewalWindow
+        expr: |
+          (certadillo_certificate_expiry_timestamp_seconds - time()
+             >= clamp_max(certadillo_certificate_lifetime_seconds / 10, 7 * 86400))
+          and
+          (certadillo_certificate_expiry_timestamp_seconds - time()
+             < clamp_max(certadillo_certificate_lifetime_seconds / 3, 30 * 86400))
+        for: 1h
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.common_name }}{{ with $labels.app }} (app {{ . }}){{ end }} is inside its renewal window and has not renewed"
+          runbook_url: https://github.com/FlavioImbertDomingos/certadillo/blob/main/docs/RUNBOOK.md#certificateexpiringsoon
+
+  - name: certadillo-pki-service
+    rules:
+      - alert: CAExpiringCritical
+        expr: certadillo_ca_expiry_timestamp_seconds - time() < 180 * 86400
+        labels: {severity: critical}
+        annotations:
+          summary: "CA {{ $labels.ca }} expires within 180 days; leaf lifetimes are already being cut short"
+          runbook_url: https://github.com/FlavioImbertDomingos/certadillo/blob/main/docs/RUNBOOK.md#caexpiring
+
+      - alert: CAExpiringWithinYear
+        expr: (certadillo_ca_expiry_timestamp_seconds - time() < 365 * 86400) and (certadillo_ca_expiry_timestamp_seconds - time() >= 180 * 86400)
+        labels: {severity: warning}
+        annotations:
+          summary: "CA {{ $labels.ca }} expires within a year; start the rollover ceremony"
+          runbook_url: https://github.com/FlavioImbertDomingos/certadillo/blob/main/docs/RUNBOOK.md#caexpiring
+
+      - alert: CRLStale
+        expr: time() - certadillo_crl_last_generated_timestamp_seconds{ca!="root-ca"} > 24 * 3600
+        labels: {severity: critical}
+        annotations:
+          summary: "CRL for {{ $labels.ca }} not published for {{ $value | humanizeDuration }}"
+          runbook_url: https://github.com/FlavioImbertDomingos/certadillo/blob/main/docs/RUNBOOK.md#crlstale
+
+      - alert: AuditChainBroken
+        expr: certadillo_audit_chain_valid == 0
+        labels: {severity: critical}
+        annotations:
+          summary: "Audit hash chain failed verification; treat as a security incident"
+          runbook_url: https://github.com/FlavioImbertDomingos/certadillo/blob/main/docs/RUNBOOK.md#auditchainbroken
+
+      - alert: IssuanceErrorsHigh
+        expr: |
+          sum(rate(certadillo_issuance_total{result="rejected"}[15m]))
+            / clamp_min(sum(rate(certadillo_issuance_total[15m])), 1e-9) > 0.25
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "More than 25% of certificate requests are being rejected by policy"
+          runbook_url: https://github.com/FlavioImbertDomingos/certadillo/blob/main/docs/RUNBOOK.md#issuanceerrorshigh
+
+      - alert: SigningLatencyHigh
+        expr: |
+          histogram_quantile(0.95, sum by (le, signer) (rate(certadillo_signing_duration_seconds_bucket[10m]))) > 0.5
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "p95 CA signing latency above 500ms on {{ $labels.signer }} (HSM saturation?)"
+          runbook_url: https://github.com/FlavioImbertDomingos/certadillo/blob/main/docs/RUNBOOK.md#signinglatencyhigh
+
+      - alert: CertadilloDown
+        expr: up{job="certadillo"} == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "Certadillo is not answering scrapes; OCSP, CRL and enrollment are affected"
+          runbook_url: https://github.com/FlavioImbertDomingos/certadillo/blob/main/docs/RUNBOOK.md#certadillodown
+
+      - alert: NotificationFailures
+        expr: increase(certadillo_notifications_total{result="error"}[30m]) > 0
+        labels: {severity: warning}
+        annotations:
+          summary: "Alert delivery to {{ $labels.channel }} is failing"
+          runbook_url: https://github.com/FlavioImbertDomingos/certadillo/blob/main/docs/RUNBOOK.md#notificationfailures

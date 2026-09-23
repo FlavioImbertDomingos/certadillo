@@ -1,0 +1,9 @@
+# ansible-playbook -i inventory.ini site.yml -e certadillo_server=https://pki.bank.internal
+# Needs: ansible-galaxy collection install community.crypto
+- hosts: web
+  become: true
+  roles:
+    - role: certadillo_cert
+      vars:
+        certadillo_sans: ["{{ inventory_hostname }}", "www.{{ inventory_hostname }}"]
+        certadillo_reload_services: [nginx]
