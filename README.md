@@ -21,6 +21,7 @@ Every row below has automated tests. "Interop" means a third-party client was ru
 | Policy engine | Key type and size, curves, SAN scope, wildcards, validity caps, forced key rotation on renewal, change ticket for prod revocations | `test_policy_violations`, `test_renewal_requires_new_key` |
 | ACME (RFC 8555) | EAB-bound accounts, http-01, orders, finalize, revoke; optional pre-validated RA scope mode | certbot interop: `scripts/interop-certbot.sh` |
 | EST (RFC 7030) | cacerts, simpleenroll, simplereenroll | `test_est_cacerts_and_enroll` |
+| SCEP (RFC 8894) | GetCACaps, GetCACert, PKIOperation with an RSA RA certificate; one-time challenge passwords bound to an app (the NDES/Intune pattern) | micromdm scepclient interop: `scripts/interop-scep.sh`, `tests/test_scep.py` |
 | SSH certificates | User and host certificates from an Ed25519 SSH CA, short-lived, source-address pinning | `test_ssh_user_and_host_certs` |
 | Workload identity | SPIFFE X.509-SVIDs (URI SAN, 24h default) and a SPIFFE trust bundle endpoint | `test_spiffe_svid_and_bundle` |
 | Code signing, S/MIME | Profiles with the right EKUs; code signing always needs a second approver | `test_code_signing_dual_control`, `test_smime_profile` |
@@ -33,7 +34,7 @@ Every row below has automated tests. "Interop" means a third-party client was ru
 | Automation | CLI (`cert request`, `cert renew-if-due`), Ansible role, PowerShell module, Python demo seeder | Ansible and PowerShell run against a live server |
 | Backends | Local CA and HashiCorp Vault / OpenBao PKI (`sign/:role`, `revoke`) | `test_vault_backend_contract` (mock) |
 
-Not built yet, with the design written down: SCEP, ACME dns-01 and ARI, Venafi / DigiCert / Keyfactor / AD CS connectors, a SPIRE UpstreamAuthority, a Helm chart, OIDC login for the console, and ML-DSA issuance (waiting on pyca/cryptography). See [docs/ROADMAP.md](docs/ROADMAP.md).
+Not built yet, with the design written down: ACME dns-01 and ARI, Venafi / DigiCert / Keyfactor / AD CS connectors, a SPIRE UpstreamAuthority, a Helm chart, OIDC login for the console, and ML-DSA issuance (waiting on pyca/cryptography). See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Quick start
 
@@ -41,7 +42,7 @@ Local, SQLite, software keys:
 
 ```bash
 pip install -e ".[dev,hsm]"
-make test                                      # 38 tests; the HSM test runs if SoftHSM2 is installed
+make test                                      # 40 tests; the HSM test runs if SoftHSM2 is installed
 make run                                       # http://localhost:8080, admin key "admin-key"
 make demo                                      # seed teams, apps, certificates and some bad legacy certs
 ```
@@ -88,7 +89,7 @@ src/certadillo/
   crypto/        Signer abstraction: software keys, PKCS#11 HSM, DER re-signing for HSM keys
   policy/        profile evaluation and certificate grading
   services.py    registration authority: onboarding, dual control, issue, renew, revoke, ingest
-  enrollment/    ACME and EST front ends
+  enrollment/    ACME, EST and SCEP front ends
   revocation/    OCSP responder
   discovery/     TLS scanner and inventory connectors
   alerting/      evaluator and notifiers (webhook, Slack, Jira, ServiceNow)
@@ -99,12 +100,14 @@ src/certadillo/
 Dockerfile       container image (SoftHSM2 and OpenSC included)
 deploy/          compose stack, Prometheus rules, Alertmanager, Grafana
 automation/      Ansible role, PowerShell module
-scripts/         demo seeder, certbot interop test
+scripts/         demo seeder, certbot and SCEP interop tests
 docs/            architecture, runbook, security model, HSM guide, roadmap, standards map
 ```
 
 ## Documentation
 
+- [User guide](docs/guide/README.md): onboarding and every protocol with copy-paste examples
+- Knowledge base with interactive 3D protocol walkthroughs: served at `/kb` by the running server
 - [Architecture](docs/ARCHITECTURE.md): modules, trust model, request flow, deployment topology
 - [Runbook](docs/RUNBOOK.md): one section per alert, plus key ceremony and mass-revocation procedures
 - [Security model](docs/SECURITY.md): threats, controls, and the known gaps in this MVP

@@ -2,7 +2,7 @@
 
 ## Goals
 
-1. One registration authority (RA) in front of every enrollment protocol, so a rule written once holds for REST, ACME, EST, the CLI and the console.
+1. One registration authority (RA) in front of every enrollment protocol, so a rule written once holds for REST, ACME, EST, SCEP, the CLI and the console.
 2. CA private keys never exist outside an HSM in production.
 3. Every certificate has an owner (team and app) before it is issued, and certificates found on the network get an owner after the fact.
 4. Short-lived certificates are the default. Renewal is automated, and alerts fire only when automation has failed.
@@ -15,13 +15,13 @@
 flowchart LR
   subgraph Clients
     A1[certbot / cert-manager / lego<br/>ACME]
-    A2[ATMs, network gear<br/>EST]
+    A2[ATMs, network gear, MDM<br/>EST, SCEP]
     A3[Ansible, PowerShell,<br/>CLI, CI pipelines<br/>REST]
     A4[Operators<br/>web console]
     A5[Workloads<br/>SPIFFE SVIDs]
   end
   subgraph Certadillo
-    E[Enrollment front ends<br/>acme.py, est.py, REST v1]
+    E[Enrollment front ends<br/>acme.py, est.py, scep.py, REST v1]
     RA[RA service layer<br/>services.py]
     P[Policy engine<br/>default_policies.yaml]
     DC[Dual control<br/>approvals]
@@ -54,7 +54,7 @@ flowchart LR
 
 ## Request flow: issuing a certificate
 
-1. The client authenticates. Apps use an API key minted at onboarding (REST, EST via HTTP Basic) or an ACME account bound to the app through a single-use External Account Binding credential. Humans use role-scoped keys (admin, approver, operator, auditor); OIDC is on the roadmap.
+1. The client authenticates. Apps use an API key minted at onboarding (REST, EST via HTTP Basic), an ACME account bound to the app through a single-use External Account Binding credential, or a one-time SCEP challenge password minted for the app. Humans use role-scoped keys (admin, approver, operator, auditor); OIDC is on the roadmap.
 2. The front end parses the protocol message and calls `Platform.request_certificate()`. Nothing else signs.
 3. The RA checks the app is active and that the requested profile is the one it was onboarded for.
 4. The policy engine evaluates the CSR: proof of possession, key algorithm and size, every SAN against the app's approved scope, wildcard rules, SPIFFE trust domain, validity caps, and on renewal that the key changed.
@@ -71,7 +71,8 @@ Root CA (P-384, 20 years, pathlen 1)          offline in production; online in t
       ├── SPIFFE X.509-SVIDs (24 hours default, 72 max)
       ├── S/MIME (1 year)
       ├── Code signing (1 year, dual control)
-      └── OCSP responder certificate (30 days, id-kp-OCSPSigning, ocsp-nocheck)
+      ├── OCSP responder certificate (30 days, id-kp-OCSPSigning, ocsp-nocheck)
+      └── SCEP RA certificate (RSA-3072, 1 year; SCEP key transport needs RSA)
 SSH CA (Ed25519)                               separate trust anchor for OpenSSH
 ```
 

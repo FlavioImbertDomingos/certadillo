@@ -6,7 +6,7 @@ Ordered by what a bank PKI team would ask for next. Each item names the interfac
 
 - ACME dns-01 (dnspython lookups, split-horizon aware) and ACME Renewal Information (RFC 9773) so clients renew on the server's schedule, which is how a mass revocation gets absorbed without an outage.
 - ACME key-change and account deactivation cleanup.
-- SCEP (RFC 8894) with a dynamic-challenge hook for Microsoft Intune and MDM tools. Either native, or by fronting micromdm/scep and calling `Platform.request_certificate()`.
+- SCEP follow-ups: GetCertInitial polling for dual-control profiles, RenewalReq signed by the current certificate, and an Intune validation webhook in front of the challenge store.
 - EST with TLS client authentication forwarded from the load balancer; `csrattrs` and `serverkeygen` for constrained devices.
 - CMP (RFC 9483 lightweight profile) for telecom and industrial gear.
 

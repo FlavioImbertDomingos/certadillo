@@ -102,13 +102,14 @@ class PolicyEngine:
         requested_days: int | None = None,
         requested_hours: int | None = None,
         previous_public_key_fp: str | None = None,
+        pop_verified: bool = False,
     ) -> Decision:
         from certadillo.crypto.signers import key_fingerprint
 
         prof = self.profile(profile_name)
         v: list[tuple[str, str]] = []
 
-        if not csr.is_signature_valid:
+        if not pop_verified and not csr.is_signature_valid:
             v.append(("csr_signature", "CSR signature does not verify (proof of possession failed)"))
 
         pub = csr.public_key()

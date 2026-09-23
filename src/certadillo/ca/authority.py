@@ -199,6 +199,43 @@ class CAService:
         ca.ocsp_cert_pem = pem(cert)
         ca.ocsp_key_ref = osigner.key_ref
 
+    def ensure_scep_ra(self, ca: CertificateAuthority):
+        """RSA registration-authority certificate for SCEP. SCEP clients encrypt
+        their request to it and it signs the CertRep; EC keys cannot do the
+        key transport SCEP needs, so it is RSA even when the CA is EC."""
+        now = datetime.now(timezone.utc)
+        if ca.scep_ra_cert_pem:
+            cert = x509.load_pem_x509_certificate(ca.scep_ra_cert_pem.encode())
+            if cert.not_valid_after_utc - now > timedelta(days=30):
+                return cert, self.ocsp_keystore.load(ca.scep_ra_key_ref).private_key
+        ca_cert = x509.load_pem_x509_certificate(ca.cert_pem.encode())
+        label = f"scep-ra-{ca.name}-{int(now.timestamp())}"
+        rsigner = self.ocsp_keystore.generate(label, "rsa-3072")
+        b = (
+            x509.CertificateBuilder()
+            .subject_name(self._name(f"SCEP RA {ca.name}"))
+            .issuer_name(ca_cert.subject)
+            .public_key(rsigner.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now - timedelta(minutes=5))
+            .not_valid_after(min(now + timedelta(days=365), ca_cert.not_valid_after_utc))
+            .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+            .add_extension(
+                x509.KeyUsage(
+                    digital_signature=True, content_commitment=False, key_encipherment=True,
+                    data_encipherment=False, key_agreement=False, key_cert_sign=False, crl_sign=False,
+                    encipher_only=False, decipher_only=False,
+                ),
+                critical=True,
+            )
+            .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_cert.public_key()), critical=False)
+        )
+        cert = sign_x509(b, self.signer_for(ca))
+        ca.scep_ra_cert_pem = pem(cert)
+        ca.scep_ra_key_ref = rsigner.key_ref
+        self.s.flush()
+        return cert, rsigner.private_key
+
     def chain(self, ca: CertificateAuthority) -> list[x509.Certificate]:
         out = []
         node = ca

@@ -1,4 +1,4 @@
-.PHONY: dev test lint run demo up down interop
+.PHONY: dev test lint run demo up down interop interop-scep
 
 dev:            ## install in editable mode with test and HSM extras
 	pip install -e ".[dev,hsm]"
@@ -23,3 +23,6 @@ down:
 
 interop:        ## real certbot against a real server (needs root for :80)
 	bash scripts/interop-certbot.sh
+
+interop-scep:   ## real SCEP client (micromdm scepclient) against a real server
+	bash scripts/interop-scep.sh

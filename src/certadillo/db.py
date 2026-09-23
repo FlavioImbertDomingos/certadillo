@@ -90,6 +90,8 @@ class CertificateAuthority(Base):
     crl_der: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     ocsp_cert_pem: Mapped[str | None] = mapped_column(Text, nullable=True)
     ocsp_key_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    scep_ra_cert_pem: Mapped[str | None] = mapped_column(Text, nullable=True)
+    scep_ra_key_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -215,6 +217,18 @@ class AcmeEab(Base):
     kid: Mapped[str] = mapped_column(String(64), primary_key=True)
     hmac_key_b64: Mapped[str] = mapped_column(String(128))
     app_id: Mapped[int] = mapped_column(ForeignKey("apps.id"))
+    used: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ScepChallenge(Base):
+    """One-time SCEP challenge password bound to an app (the NDES / Intune dynamic-challenge pattern)."""
+
+    __tablename__ = "scep_challenges"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    challenge_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    app_id: Mapped[int] = mapped_column(ForeignKey("apps.id"))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     used: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 

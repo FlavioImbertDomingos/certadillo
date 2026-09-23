@@ -176,6 +176,35 @@ class Platform:
         record(self.s, actor.name, "acme.eab.create", app.name, {"kid": kid})
         return {"kid": kid, "hmac_key": key}
 
+    def mint_scep_challenge(self, actor: Actor, app_id: int, ttl_minutes: int = 60) -> dict:
+        """One-time SCEP challenge password for a device enrolling into this app."""
+        from datetime import timedelta
+
+        from certadillo.db import ScepChallenge
+
+        actor.require("admin", "operator")
+        app = self.s.get(App, app_id)
+        if app is None:
+            raise NotFound("app not found")
+        if app.status != "active":
+            raise Forbidden(f"app is {app.status}")
+        raw = secrets.token_hex(16)
+        expires = datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes)
+        self.s.add(ScepChallenge(challenge_hash=hash_key(raw), app_id=app_id, expires_at=expires))
+        self.s.flush()
+        record(self.s, actor.name, "scep.challenge.create", app.name, {"expires": expires.isoformat()})
+        return {"challenge": raw, "expires": expires.isoformat()}
+
+    def redeem_scep_challenge(self, raw: str) -> App:
+        from certadillo.db import ScepChallenge, as_utc
+
+        ch = self.s.query(ScepChallenge).filter_by(challenge_hash=hash_key(raw)).one_or_none()
+        if ch is None or ch.used or as_utc(ch.expires_at) < datetime.now(timezone.utc):
+            raise Forbidden("SCEP challenge password is unknown, used or expired")
+        ch.used = True
+        self.s.flush()
+        return self.s.get(App, ch.app_id)
+
     # ------------------------------------------------------------- dual control
     def _request_approval(self, actor: Actor, action: str, payload: dict) -> ApprovalRequest:
         req = ApprovalRequest(action=action, payload=payload, requested_by=actor.name)
@@ -233,7 +262,10 @@ class Platform:
     # ------------------------------------------------------------- issuance
     def request_certificate(self, actor: Actor, app_id: int, csr_pem: str, profile: str | None = None,
                             days: int | None = None, hours: int | None = None, protocol: str = "rest",
-                            previous: Certificate | None = None) -> Certificate | ApprovalRequest:
+                            previous: Certificate | None = None,
+                            pop_verified: bool = False) -> Certificate | ApprovalRequest:
+        """pop_verified: the front end already checked the CSR signature over the
+        client's original encoding (SCEP clients that emit non-DER CSRs)."""
         app = self.s.get(App, app_id)
         if app is None:
             raise NotFound("app not found")
@@ -258,7 +290,7 @@ class Platform:
             raise PolicyError([("csr_format", "CSR is not valid PEM PKCS#10")]) from None
         prev_fp = spki_sha256(x509.load_pem_x509_certificate(previous.pem.encode())) if previous else None
         try:
-            decision = self.engine.evaluate(csr, profile, app.allowed_domains, days, hours, prev_fp)
+            decision = self.engine.evaluate(csr, profile, app.allowed_domains, days, hours, prev_fp, pop_verified)
         except PolicyError as e:
             ISSUANCE_TOTAL.labels(profile=profile, protocol=protocol, result="rejected").inc()
             for rule, _ in e.violations:

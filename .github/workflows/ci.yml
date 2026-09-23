@@ -40,6 +40,8 @@ jobs:
       - run: pip install -e . certbot
       - name: certbot http-01 -> issue, verify, OCSP, revoke, CRL
         run: sudo -E env "PATH=$PATH" bash scripts/interop-certbot.sh
+      - name: micromdm scepclient -> SCEP issue, challenge reuse and scope checks
+        run: PORT=8081 bash scripts/interop-scep.sh
 
   image:
     runs-on: ubuntu-latest

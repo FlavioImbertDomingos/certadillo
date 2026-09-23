@@ -28,7 +28,7 @@ from certadillo.config import Settings
 from certadillo.db import AlertState, App, ApprovalRequest, AuditEvent, Certificate, CertificateAuthority, Team, as_utc
 from certadillo.discovery.connectors import parse_pem_bundle
 from certadillo.discovery.scanner import scan
-from certadillo.enrollment import acme, est
+from certadillo.enrollment import acme, est, scep
 from certadillo.observability.logging import configure_logging, request_id
 from certadillo.observability.metrics import HTTP_SECONDS
 from certadillo.policy.engine import PolicyError
@@ -337,6 +337,14 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
                            f"--eab-hmac-key {cred['hmac_key']} -d <name>")
         return cred
 
+    @app.post("/api/v1/apps/{app_id}/scep-challenge", status_code=201, tags=["onboarding"])
+    def app_scep_challenge(app_id: int, request: Request, ttl_minutes: int = Query(60, ge=5, le=1440),
+                           p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        out = p.mint_scep_challenge(who, app_id, ttl_minutes)
+        p.commit()
+        out["server_url"] = str(request.base_url).rstrip("/") + "/scep"
+        return out
+
     @app.get("/api/v1/approvals", tags=["governance"])
     def list_approvals(status: str | None = None, p: Platform = Depends(platform), who: Actor = Depends(actor)):
         who.require("admin", "operator", "approver", "auditor")
@@ -599,6 +607,7 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
 
     app.include_router(est.router)
     app.include_router(acme.router)
+    app.include_router(scep.router)
 
     # ---------------------------------------------------------- web console
     static_dir = resources.files("certadillo").joinpath("web/static")

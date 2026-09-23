@@ -11,7 +11,7 @@ Which requirement each part of Certadillo covers. "Partial" means the platform s
 | RFC 7030 EST | `enrollment/est.py` (cacerts, simpleenroll, simplereenroll) | Done; serverkeygen and csrattrs not implemented |
 | RFC 8555 ACME | `enrollment/acme.py` (EAB, http-01, revoke) | Done, verified with certbot; dns-01, key-change planned |
 | RFC 9773 ACME Renewal Information | | Planned |
-| RFC 8894 SCEP | | Planned (Intune, MDM, legacy network gear) |
+| RFC 8894 SCEP | `enrollment/scep.py` (GetCACaps, GetCACert, PKIOperation/PKCSReq; RA certificate; one-time challenges) | Done, verified with micromdm scepclient; GetCertInitial polling and RenewalReq planned |
 | RFC 9525 service identity in TLS | Policy puts every name in SAN; CN is folded into SAN | Done |
 | SPIFFE X.509-SVID and trust bundle | `spiffe-svid` profile, `/pki/spiffe/bundle` | Done; SPIRE UpstreamAuthority planned |
 | OpenSSH certificate format (PROTOCOL.certkeys) | `ca/ssh.py` | Done |

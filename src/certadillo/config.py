@@ -45,6 +45,7 @@ class Settings:
     snow_user: str | None = field(default_factory=lambda: _env("SNOW_USER"))
     snow_password: str | None = field(default_factory=lambda: _env("SNOW_PASSWORD"))
     snow_assignment_group: str = field(default_factory=lambda: _env("SNOW_ASSIGNMENT_GROUP", "PKI Operations"))
+    scep_allow_des: bool = field(default_factory=lambda: (_env("SCEP_ALLOW_DES", "false") or "").lower() == "true")
     crl_interval_hours: int = field(default_factory=lambda: int(_env("CRL_INTERVAL_HOURS", "12") or 12))
     # Operations that require a second person (maker-checker).
     dual_control_actions: list[str] = field(

@@ -37,7 +37,8 @@ These are listed so nobody deploys the MVP to production thinking they are handl
 6. The SSH CA key is a software key. Move it to the HSM (OpenSSH supports PKCS#11 CA keys through `ssh-keygen -D`) or to Vault's SSH engine.
 7. The housekeeping loop runs in every replica. Run it in one replica or as a CronJob until leader election lands.
 8. Each HSM signature opens a new PKCS#11 session. Fine for hundreds of certificates a minute, not for bulk reissuance.
-9. `certadillo init` creates the root online. Production roots come from an offline key ceremony (see the runbook).
+9. SCEP challenges are single use and expire (default 60 minutes), and a failed request still consumes its challenge. Single-DES request envelopes are refused unless `CERTADILLO_SCEP_ALLOW_DES=true`; run SCEP behind HTTPS either way.
+10. `certadillo init` creates the root online. Production roots come from an offline key ceremony (see the runbook).
 
 ## Reporting a vulnerability
 
