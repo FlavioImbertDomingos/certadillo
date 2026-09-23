@@ -1,0 +1,55 @@
+<svg width="660" height="510" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 170" role="img" aria-labelledby="t">
+  <title id="t">Dilly, worried: something needs attention</title>
+  <defs>
+    <linearGradient id="shell" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2DD4BF"/>
+      <stop offset="1" stop-color="#0F766E"/>
+    </linearGradient>
+  </defs>
+  <!-- tail -->
+  <path d="M176 118 C192 120 204 128 212 140 C200 136 188 132 172 130 Z" fill="#E7B98A" stroke="#134E4A" stroke-width="3" stroke-linejoin="round"/>
+  <!-- back legs -->
+  <rect x="140" y="120" width="20" height="26" rx="9" fill="#E7B98A" stroke="#134E4A" stroke-width="3"/>
+  <rect x="70" y="122" width="20" height="24" rx="9" fill="#E7B98A" stroke="#134E4A" stroke-width="3"/>
+  <!-- shell -->
+  <path d="M52 128 C48 70 86 38 122 38 C160 38 186 70 182 128 Z" fill="url(#shell)" stroke="#134E4A" stroke-width="3.5" stroke-linejoin="round"/>
+  <!-- bands -->
+  <g fill="none" stroke="#134E4A" stroke-width="3" stroke-linecap="round">
+    <path d="M96 44 C88 70 86 100 90 128"/>
+    <path d="M118 39 C112 70 112 100 115 128"/>
+    <path d="M140 40 C138 70 138 100 140 128"/>
+    <path d="M161 50 C163 76 164 102 163 128"/>
+  </g>
+  <!-- band studs -->
+  <g fill="#99F6E4" opacity=".85">
+    <circle cx="80" cy="70" r="3"/><circle cx="76" cy="95" r="3"/><circle cx="104" cy="58" r="3"/>
+    <circle cx="101" cy="112" r="3"/><circle cx="151" cy="60" r="3"/><circle cx="152" cy="112" r="3"/>
+    <circle cx="172" cy="80" r="3"/><circle cx="173" cy="106" r="3"/>
+  </g>
+  <!-- keyhole badge -->
+  <circle cx="127" cy="84" r="17" fill="#FBBF24" stroke="#134E4A" stroke-width="3"/>
+  <circle cx="127" cy="80" r="5.5" fill="#134E4A"/>
+  <path d="M123.5 83 L130.5 83 L132 95 L122 95 Z" fill="#134E4A"/>
+  <!-- shell rim -->
+  <path d="M48 128 L186 128" stroke="#134E4A" stroke-width="5" stroke-linecap="round"/>
+  <!-- front legs -->
+  <rect x="112" y="124" width="20" height="24" rx="9" fill="#E7B98A" stroke="#134E4A" stroke-width="3"/>
+  <!-- head -->
+  <path d="M60 96 C58 82 44 76 32 84 C22 90 10 104 6 114 C4 120 8 124 14 123 C26 121 40 124 52 126 C62 122 64 108 60 96 Z" fill="#F2D3A7" stroke="#134E4A" stroke-width="3.5" stroke-linejoin="round"/>
+  <!-- ears -->
+  <path d="M46 84 C42 66 46 54 54 50 C58 62 58 74 54 86 Z" fill="#F2D3A7" stroke="#134E4A" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M49 80 C47 68 49 60 53 57 C55 65 55 73 52 81 Z" fill="#F9A8D4"/>
+  <!-- nose -->
+  <ellipse cx="8.5" cy="116" rx="4.5" ry="4" fill="#134E4A"/>
+  <!-- eye -->
+  <circle cx="38" cy="98" r="8" fill="#fff" stroke="#134E4A" stroke-width="2.5"/>
+  <circle cx="36" cy="99" r="4.5" fill="#134E4A"/>
+  <circle cx="34.5" cy="97" r="1.6" fill="#fff"/>
+  <!-- cheek + smile -->
+  <ellipse cx="42" cy="113" rx="5" ry="3" fill="#F9A8D4" opacity=".8"/>
+  <path d="M19 120 C22 116 25 116 27 119 C29 122 32 122 34 118" fill="none" stroke="#134E4A" stroke-width="2.5" stroke-linecap="round"/>
+  <!-- brow -->
+  <path d="M29 86 L44 90" stroke="#134E4A" stroke-width="3" stroke-linecap="round"/>
+  <!-- sweat drop -->
+  <path d="M66 62 C60 72 60 78 66 80 C72 78 72 72 66 62 Z" fill="#7DD3FC" stroke="#0369A1" stroke-width="2"/>
+</svg>

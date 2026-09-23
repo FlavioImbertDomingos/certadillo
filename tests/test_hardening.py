@@ -53,7 +53,8 @@ def test_admin_cannot_approve_through_a_minted_approver(client):
 
 def test_app_credentials_cannot_read_the_estate(client):
     app_id, h = onboard(client)
-    for path in ("/api/v1/apps", "/api/v1/teams", "/api/v1/approvals", "/api/v1/alerts", "/api/v1/cas",
+    assert client.get("/api/v1/approvals", headers=h).json() == []  # filtered to its own app
+    for path in ("/api/v1/apps", "/api/v1/teams", "/api/v1/alerts", "/api/v1/cas",
                  "/api/v1/reports/summary", "/api/v1/reports/cbom", "/api/v1/reports/pci-inventory",
                  "/api/v1/audit", "/api/v1/audit/verify"):
         assert client.get(path, headers=h).status_code == 403, path

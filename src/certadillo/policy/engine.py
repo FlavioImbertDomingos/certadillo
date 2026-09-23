@@ -179,6 +179,10 @@ class PolicyEngine:
         if cn and not prof.get("require_spiffe_id") and ekus & {"server_auth", "client_auth"} and cn not in dns:
             if not domain_allowed(cn, allowed_domains):
                 v.append(("cn_scope", f"CN {cn} is outside the app's approved domains"))
+            elif cn.startswith("*.") and not prof.get("allow_wildcard", False):
+                v.append(("wildcard", f"wildcard {cn} not allowed"))
+            else:
+                dns = [cn, *dns]  # RFC 9525: identities belong in the SAN
 
         if "max_validity_hours" in prof:
             hours = requested_hours or prof["default_validity_hours"]

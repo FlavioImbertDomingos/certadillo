@@ -285,8 +285,10 @@ def handle_pki_operation(p: Platform, der: bytes) -> bytes:
     return build_cert_rep(ra_cert, ra_key, txid, nonce, SUCCESS, envelope=envelope)
 
 
-@router.api_route("/scep", methods=["GET", "POST"])
-@router.api_route("/scep/pkiclient.exe", methods=["GET", "POST"], include_in_schema=False)
+@router.get("/scep", operation_id="scep_get")
+@router.post("/scep", operation_id="scep_post")
+@router.get("/scep/pkiclient.exe", include_in_schema=False)
+@router.post("/scep/pkiclient.exe", include_in_schema=False)
 async def scep(request: Request, p: Platform = Depends(platform)):
     op = request.query_params.get("operation", "")
     if op == "GetCACaps":

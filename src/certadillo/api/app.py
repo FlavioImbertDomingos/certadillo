@@ -14,7 +14,7 @@ from importlib import resources
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 from fastapi import Depends, FastAPI, Query, Request, Response
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, Field
@@ -347,11 +347,13 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
 
     @app.get("/api/v1/approvals", tags=["governance"])
     def list_approvals(status: str | None = None, p: Platform = Depends(platform), who: Actor = Depends(actor)):
-        who.require("admin", "operator", "approver", "auditor")
         q = p.s.query(ApprovalRequest)
         if status:
             q = q.filter_by(status=status)
-        return [approval_json(r) for r in q.order_by(ApprovalRequest.id.desc())]
+        rows = q.order_by(ApprovalRequest.id.desc()).all()
+        if who.role == "app":  # an app sees only requests about itself
+            rows = [r for r in rows if r.payload.get("app_id") == who.app_id]
+        return [approval_json(r) for r in rows]
 
     @app.post("/api/v1/approvals/{approval_id}/approve", tags=["governance"])
     def approve(approval_id: int, body: DecisionIn | None = None, p: Platform = Depends(platform),
@@ -611,6 +613,12 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
 
     # ---------------------------------------------------------- web console
     static_dir = resources.files("certadillo").joinpath("web/static")
+
+    @app.get("/kb", include_in_schema=False)
+    def kb_redirect():
+        return RedirectResponse("/kb/")
+
+    app.mount("/kb", StaticFiles(directory=str(static_dir.joinpath("kb")), html=True), name="kb")
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
     @app.get("/", include_in_schema=False)

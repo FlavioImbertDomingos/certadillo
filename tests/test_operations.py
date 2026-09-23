@@ -227,3 +227,15 @@ def test_rescan_retires_replaced_endpoint_cert(client):
     assert rows == {"active", "superseded"}
     client.post("/api/v1/alerts/evaluate", headers=ADMIN)
     assert "CertificateExpired" not in {a["rule"] for a in client.get("/api/v1/alerts", headers=ADMIN).json()}
+
+
+def test_knowledge_base_is_served(client):
+    r = client.get("/kb", follow_redirects=False)
+    assert r.status_code in (301, 302, 307) and r.headers["location"].endswith("/kb/")
+    r = client.get("/kb/")
+    assert r.status_code == 200 and "kb-app.js" in r.text and "vendor/three.min.js" in r.text
+    content = client.get("/kb/kb-content.js").text
+    for slug in ("acme", "est", "scep", "ssh", "revocation", "onboarding", "tour-acme", "troubleshooting"):
+        assert f'"slug": "{slug}"' in content, slug
+    assert client.get("/kb/scenes-data.js").status_code == 200
+    assert client.get("/kb/vendor/three.min.js").status_code == 200

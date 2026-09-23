@@ -47,9 +47,11 @@ class Settings:
     snow_assignment_group: str = field(default_factory=lambda: _env("SNOW_ASSIGNMENT_GROUP", "PKI Operations"))
     scep_allow_des: bool = field(default_factory=lambda: (_env("SCEP_ALLOW_DES", "false") or "").lower() == "true")
     crl_interval_hours: int = field(default_factory=lambda: int(_env("CRL_INTERVAL_HOURS", "12") or 12))
-    # Operations that require a second person (maker-checker).
+    # Settings-driven maker-checker actions. Sub-CA creation always needs a
+    # second person, and per-profile issuance approval is the profile's
+    # `dual_control: true` flag.
     dual_control_actions: list[str] = field(
-        default_factory=lambda: _list("DUAL_CONTROL") or ["onboard_prod_app", "issue_code_signing", "create_ca"]
+        default_factory=lambda: _list("DUAL_CONTROL") or ["onboard_prod_app"]
     )
 
     def __post_init__(self) -> None:

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Certadillo knowledge base</title>
+<link rel="icon" href="img/dilly-rolled.svg">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="kb.css">
+</head>
+<body>
+<header class="kb-top">
+  <button id="kb-menu" class="kb-menu" type="button" aria-label="Open navigation">Menu</button>
+  <a class="kb-brand" href="#home"><img src="img/dilly.svg" alt=""><div><b>Certadillo</b><span>Knowledge base</span></div></a>
+  <div class="kb-search"><input id="kb-q" type="search" placeholder="Search the docs ( / )" aria-label="Search the docs" autocomplete="off">
+  <div id="kb-results" class="kb-results" hidden></div></div>
+</header>
+<div class="kb-shell">
+  <nav id="kb-nav" class="kb-nav" aria-label="Documentation"></nav>
+  <main id="kb-main" class="kb-main"></main>
+</div>
+<script src="vendor/three.min.js"></script>
+<script>window.CERTADILLO_KB_ASSETS = "img/";</script>
+<script src="scenes-engine.js"></script>
+<script src="scenes-data.js"></script>
+<script src="kb-content.js"></script>
+<script src="kb-app.js"></script>
+</body>
+</html>

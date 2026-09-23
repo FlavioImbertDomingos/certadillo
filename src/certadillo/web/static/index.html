@@ -20,6 +20,7 @@ header{display:flex;align-items:center;gap:12px;padding:10px 20px;border-bottom:
 header img{width:40px;height:31px}
 header h1{font-size:17px;margin:0;letter-spacing:.2px}
 header .sp{flex:1}
+header .kb-link{color:var(--teal);text-decoration:none;font-weight:600;white-space:nowrap}
 header input{width:260px;max-width:40vw;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
 button{font:inherit;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:7px 12px;border-radius:8px;cursor:pointer}
 button.primary{background:var(--teal);border-color:var(--teal);color:#fff}
@@ -73,6 +74,7 @@ pre{background:var(--chip);border-radius:8px;padding:10px;overflow:auto;font-siz
   <h1>Certadillo</h1>
   <span class="muted" id="who"></span>
   <span class="sp"></span>
+  <a href="/kb/" class="kb-link">Knowledge base</a>
   <input id="apikey" type="password" placeholder="API key" autocomplete="off">
   <button id="connect" class="primary">Connect</button>
 </header>

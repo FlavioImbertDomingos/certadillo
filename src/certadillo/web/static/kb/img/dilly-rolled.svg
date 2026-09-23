@@ -1,0 +1,31 @@
+<svg width="660" height="510" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 170" role="img" aria-labelledby="t">
+  <title id="t">Dilly, rolled up: critical alert</title>
+  <defs>
+    <radialGradient id="ball" cx=".38" cy=".32" r=".75">
+      <stop offset="0" stop-color="#2DD4BF"/>
+      <stop offset="1" stop-color="#0F766E"/>
+    </radialGradient>
+  </defs>
+  <ellipse cx="110" cy="158" rx="58" ry="7" fill="#0f172a" opacity=".12"/>
+  <circle cx="110" cy="92" r="62" fill="url(#ball)" stroke="#134E4A" stroke-width="3.5"/>
+  <g fill="none" stroke="#134E4A" stroke-width="3" stroke-linecap="round">
+    <path d="M62 54 C84 70 94 110 84 150"/>
+    <path d="M84 36 C108 60 116 108 108 154"/>
+    <path d="M112 30 C134 58 142 106 134 152"/>
+    <path d="M142 38 C160 64 166 100 158 136"/>
+  </g>
+  <g fill="#99F6E4" opacity=".85">
+    <circle cx="70" cy="92" r="3"/><circle cx="97" cy="70" r="3"/><circle cx="124" cy="120" r="3"/><circle cx="152" cy="80" r="3"/>
+  </g>
+  <!-- tail tip and ear peeking out -->
+  <path d="M160 128 C172 132 178 140 180 150 C170 146 162 142 154 136 Z" fill="#E7B98A" stroke="#134E4A" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M56 70 C44 58 42 46 46 38 C56 44 62 54 64 64 Z" fill="#F2D3A7" stroke="#134E4A" stroke-width="3" stroke-linejoin="round"/>
+  <!-- shield keyhole -->
+  <path d="M110 64 L132 72 C132 96 124 110 110 118 C96 110 88 96 88 72 Z" fill="#FBBF24" stroke="#134E4A" stroke-width="3" stroke-linejoin="round"/>
+  <circle cx="110" cy="84" r="5.5" fill="#134E4A"/>
+  <path d="M106.5 87 L113.5 87 L115 100 L105 100 Z" fill="#134E4A"/>
+  <!-- alert marks -->
+  <g stroke="#DC2626" stroke-width="4" stroke-linecap="round">
+    <path d="M184 34 L178 52"/><path d="M198 48 L186 60"/><path d="M168 26 L168 44"/>
+  </g>
+</svg>

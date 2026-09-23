@@ -193,7 +193,8 @@ def directory(request: Request):
     }
 
 
-@router.api_route("/new-nonce", methods=["GET", "HEAD"])
+@router.get("/new-nonce", operation_id="acme_new_nonce_get")
+@router.head("/new-nonce", operation_id="acme_new_nonce_head")
 def nonce(request: Request, p: Platform = Depends(platform)):
     return _resp(p, request, status=200 if request.method == "HEAD" else 204)
 
