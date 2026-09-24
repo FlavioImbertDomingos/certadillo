@@ -6,6 +6,9 @@ Certadillo is an open source PKI and certificate lifecycle platform for regulate
 
 It was built as a reference implementation of what a bank's certificate management service needs: one registration authority in front of every protocol, dual control on sensitive operations, CA keys in an HSM, a tamper-evident audit trail, and reports an auditor can use (PCI DSS v4.0 4.2.1.1 inventory, a CycloneDX crypto bill of materials).
 
+> **See it running: [certadillo.com](https://certadillo.com)**
+> The demo is live and open to anyone. It opens on a read-only auditor view, so you can browse the console, the inventory dashboard, the alerts and the 3D protocol walkthroughs without signing in or installing anything. Have a look around.
+
 ![Console overview](docs/screenshots/ui-overview.png)
 
 ## Try it
@@ -32,6 +35,9 @@ Every row below has automated tests. "Interop" means a third-party client was ru
 | EST (RFC 7030) | cacerts, csrattrs, simpleenroll, simplereenroll, serverkeygen; client certificates forwarded by the load balancer; IDevID bootstrap with manufacturer CAs per app | GlobalSign estclient through nginx: `scripts/interop-est.sh`, `tests/test_est_phase2.py` |
 | SCEP (RFC 8894) | PKCSReq with one-time challenges or an Intune-style validation webhook, RenewalReq signed by the current certificate, PENDING and CertPoll for dual-control profiles, RSA RA certificate | micromdm scepclient interop incl. polling: `scripts/interop-scep.sh`, `tests/test_scep*.py` |
 | CMP (RFC 9483 lightweight profile) | ir, cr, kur, p10cr, certConf, implicitConfirm, pollReq, rr, genm; MAC with one-time secrets or signature protection | OpenSSL `cmp` client: `tests/test_cmp.py` |
+| AD CS template audit | Reads Microsoft AD CS templates and CA config (LDAP or offline export) and flags ESC1-4, 6, 8, 9, 11, 13, 15, 16; SD parser cross-checked against impacket | `tests/test_adcs.py` |
+| Windows logon | Smart-card / PKINIT logon certificates with UPN otherName and the SID security extension (KB5014754 strong mapping); SID from the directory, disabled accounts refused, admin accounts under dual control | `tests/test_windows_logon.py` |
+| AD CS as a backend | `issuer: adcs` hands approved requests to a domain-joined gateway (certreq / certutil) and posts the result back; revoke and inventory too; Certadillo stays the RA | `tests/test_adcs_gateway.py` |
 | SSH certificates | User and host certificates from an Ed25519 SSH CA, short-lived, source-address pinning | `test_ssh_user_and_host_certs` |
 | Workload identity | SPIFFE X.509-SVIDs (URI SAN, 24h default) and a SPIFFE trust bundle endpoint | `test_spiffe_svid_and_bundle` |
 | Code signing, S/MIME | Profiles with the right EKUs; code signing always needs a second approver | `test_code_signing_dual_control`, `test_smime_profile` |
@@ -44,7 +50,7 @@ Every row below has automated tests. "Interop" means a third-party client was ru
 | Automation | CLI (`cert request`, `cert renew-if-due`), Ansible role, PowerShell module, Python demo seeder | Ansible and PowerShell run against a live server |
 | Backends | Local CA and HashiCorp Vault / OpenBao PKI (`sign/:role`, `revoke`) | `test_vault_backend_contract` (mock) |
 
-Not built yet, with the design written down: public ACME CAs as issuers, Venafi / DigiCert / Keyfactor / AD CS connectors, a keycensus import, a SPIRE UpstreamAuthority, a Helm chart, OIDC login for the console, and ML-DSA issuance (waiting on pyca/cryptography). See [docs/ROADMAP.md](docs/ROADMAP.md).
+Not built yet, with the design written down: public ACME CAs as issuers, Venafi / DigiCert / Keyfactor connectors, a keycensus import, Windows auto-enrollment through CEP/CES, zero-trust login with tokens from an external IdP (Entra ID / HashiCorp Vault) instead of local API keys, a SPIRE UpstreamAuthority, a Helm chart, and ML-DSA issuance (waiting on pyca/cryptography). See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Quick start
 
@@ -52,7 +58,7 @@ Local, SQLite, software keys:
 
 ```bash
 pip install -e ".[dev,hsm]"
-make test                                      # 71 tests; the HSM test runs if SoftHSM2 is installed
+make test                                      # 111 tests; the HSM test runs if SoftHSM2 is installed
 make run                                       # http://localhost:8080, admin key "admin-key"
 make demo                                      # seed teams, apps, certificates and some bad legacy certs
 ```
