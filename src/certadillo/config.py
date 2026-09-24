@@ -16,6 +16,17 @@ def _list(name: str) -> list[str]:
     return [v.strip() for v in raw.split(",") if v.strip()]
 
 
+def _pairs(name: str) -> dict[str, str]:
+    """Parse "a=b;c=d" into {a: b, c: d}."""
+    out: dict[str, str] = {}
+    for item in (_env(name, "") or "").split(";"):
+        if "=" in item:
+            k, v = item.split("=", 1)
+            if k.strip() and v.strip():
+                out[k.strip()] = v.strip()
+    return out
+
+
 @dataclass
 class Settings:
     data_dir: Path = field(default_factory=lambda: Path(_env("DATA_DIR", "./.certadillo")))
@@ -65,6 +76,22 @@ class Settings:
     est_trusted_proxies: list[str] = field(default_factory=lambda: _list("EST_TRUSTED_PROXIES"))
     # or: a secret the load balancer adds as X-Certadillo-Proxy-Auth (works behind uvicorn's proxy headers)
     est_proxy_secret: str | None = field(default_factory=lambda: _env("EST_PROXY_SECRET"))
+    # Zero-trust access: validate short-lived OIDC/JWT tokens from an external
+    # IdP instead of (or alongside) local API keys. Set a provider preset, or
+    # the issuer and JWKS URI directly. Nothing here is a stored credential.
+    oidc_provider: str | None = field(default_factory=lambda: _env("OIDC_PROVIDER"))  # entra | vault | generic
+    oidc_issuer: str | None = field(default_factory=lambda: _env("OIDC_ISSUER"))
+    oidc_jwks_uri: str | None = field(default_factory=lambda: _env("OIDC_JWKS_URI"))
+    oidc_audience: str | None = field(default_factory=lambda: _env("OIDC_AUDIENCE"))
+    oidc_algorithms: list[str] = field(default_factory=lambda: _list("OIDC_ALGORITHMS") or ["RS256", "ES256"])
+    oidc_username_claim: str = field(default_factory=lambda: _env("OIDC_USERNAME_CLAIM", "sub"))
+    oidc_role_claim: str = field(default_factory=lambda: _env("OIDC_ROLE_CLAIM", "roles"))
+    oidc_app_claim: str = field(default_factory=lambda: _env("OIDC_APP_CLAIM", "app"))
+    # "claimvalue=role;claimvalue=role", e.g. "PKI-Admins=admin;PKI-Approvers=approver"
+    oidc_role_map: dict[str, str] = field(default_factory=lambda: _pairs("OIDC_ROLE_MAP"))
+    oidc_clock_skew: int = field(default_factory=lambda: int(_env("OIDC_CLOCK_SKEW", "60") or 60))
+    oidc_entra_tenant: str | None = field(default_factory=lambda: _env("OIDC_ENTRA_TENANT"))
+    oidc_vault_issuer: str | None = field(default_factory=lambda: _env("OIDC_VAULT_ISSUER"))
     # AD CS template audit: the live LDAP collector reads the Configuration
     # naming context. Read-only; a bind account with default domain read is enough.
     adcs_ldap_url: str | None = field(default_factory=lambda: _env("ADCS_LDAP_URL"))

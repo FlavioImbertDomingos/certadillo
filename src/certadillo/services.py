@@ -69,6 +69,9 @@ class Platform:
         self.ssh = SSHCA(session, settings, policies)
         # Windows-logon SID lookups. Injectable for tests; built from settings otherwise.
         self.directory_resolver = None
+        # OIDC JWKS client. None uses the real PyJWKClient (fetches the IdP's keys);
+        # tests inject a client backed by a local key.
+        self._jwk_client = None
 
     def commit(self) -> None:
         self.s.commit()
@@ -106,6 +109,44 @@ class Platform:
             if app is None or app.status != "active":
                 return None
         return Actor(p.name, p.role, p.app_id)
+
+    def authenticate_request(self, cred) -> Actor | None:
+        """Run the credential through the authenticator chain (OIDC token, then
+        API key). The first authenticator to return an Actor wins."""
+        from certadillo.auth import build_authenticators
+
+        for auth in build_authenticators(self.settings, jwk_client=self._jwk_client):
+            actor = auth.authenticate(cred, self)
+            if actor is not None:
+                return actor
+        return None
+
+    def actor_from_token(self, subject: str, role: str, app_ref) -> Actor | None:
+        """Build an Actor from validated token claims. For an app role, the app
+        claim must resolve to an active onboarded app, or the token is refused
+        (fail closed). The audit actor is the IdP subject."""
+        name = f"idp:{subject}"
+        if role != "app":
+            return Actor(name=name, role=role, app_id=None)
+        if app_ref is None:
+            self.note_auth_failure("oidc", f"app token for {subject!r} carries no {self.settings.oidc_app_claim} claim")
+            return None
+        app = None
+        if isinstance(app_ref, int) or (isinstance(app_ref, str) and app_ref.isdigit()):
+            app = self.s.get(App, int(app_ref))
+        if app is None:
+            app = self.s.query(App).filter_by(name=str(app_ref)).one_or_none()
+        if app is None or app.status != "active":
+            self.note_auth_failure("oidc", f"app token names app {app_ref!r} which is not an active app")
+            return None
+        return Actor(name=name, role="app", app_id=app.id)
+
+    def note_auth_failure(self, kind: str, detail: str) -> None:
+        """A rejected credential. Logged, not written to the hash-chained audit
+        trail, because the caller is unauthenticated."""
+        import logging
+
+        logging.getLogger("certadillo.auth").warning("auth rejected (%s): %s", kind, detail)
 
     # ------------------------------------------------------------- onboarding
     def create_team(self, actor: Actor, name: str, contact_email: str, chat_channel: str | None = None,

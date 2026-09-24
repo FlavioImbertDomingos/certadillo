@@ -35,7 +35,7 @@ from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.hazmat.primitives.serialization import pkcs7
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
-from certadillo.api.deps import _raw_key, platform
+from certadillo.api.deps import _credential, platform
 from certadillo.audit.log import record
 from certadillo.db import App, Certificate, CertificateAuthority, EstTrustAnchor
 from certadillo.policy.engine import PolicyError
@@ -147,7 +147,7 @@ def identify(p: Platform, request: Request) -> tuple[Actor, Certificate | None, 
             app = p.s.get(App, anchor.app_id)
             if app is not None and app.status == "active":
                 return Actor(f"est-idevid:{cert.subject.rfc4514_string()[:80]}", "app", app.id), None, "idevid"
-    a = p.authenticate(_raw_key(request))
+    a = p.authenticate_request(_credential(request))
     if a is None:
         raise HTTPException(401, "authenticate with a client certificate or HTTP Basic (the app credential)",
                             headers={"WWW-Authenticate": 'Basic realm="certadillo-est"'})
