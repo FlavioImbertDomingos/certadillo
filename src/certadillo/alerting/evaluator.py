@@ -14,7 +14,16 @@ from cryptography import x509
 
 from certadillo.alerting.notifiers import Alert, SlackNotifier, WebhookNotifier, deliver
 from certadillo.audit.log import verify_chain
-from certadillo.db import AlertState, App, ApprovalRequest, Certificate, CertificateAuthority, Team, as_utc
+from certadillo.db import (
+    AlertState,
+    App,
+    ApprovalRequest,
+    Certificate,
+    CertificateAuthority,
+    RenewalCampaign,
+    Team,
+    as_utc,
+)
 from certadillo.policy.engine import grade_certificate
 
 RUNBOOK = os.environ.get("CERTADILLO_RUNBOOK_URL", "https://github.com/FlavioImbertDomingos/certadillo/blob/main/docs/RUNBOOK.md#")
@@ -108,6 +117,19 @@ def evaluate(session, settings, policies: dict) -> list[Alert]:
         out.append(Alert(_fp("audit"), "AuditChainBroken", "critical",
                          f"audit hash chain broken at event {chain['broken_at']}", {},
                          runbook=RUNBOOK + "auditchainbroken"))
+
+    for camp in session.query(RenewalCampaign).filter_by(status="active").all():
+        if now > as_utc(camp.window_end):
+            from certadillo.enrollment.ari import campaign_status
+
+            st = campaign_status(session, camp)
+            left = st["counts"]["remaining"]
+            if left:
+                owners = sorted({c["team"] for c in st["certificates"] if c["state"] == "remaining" and c["team"]})
+                out.append(Alert(_fp("campaign", camp.id), "RenewalCampaignOverdue", "critical",
+                                 f"renewal campaign '{camp.name}' passed its deadline with {left} certificate(s) "
+                                 f"not replaced" + (f" (teams: {', '.join(owners)})" if owners else ""),
+                                 {"campaign": camp.id}, runbook=RUNBOOK + "renewalcampaignoverdue"))
 
     for req in session.query(ApprovalRequest).filter_by(status="pending").all():
         if now - as_utc(req.created_at) > timedelta(hours=24):

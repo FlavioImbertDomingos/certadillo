@@ -5,10 +5,16 @@ External Account Binding is mandatory: every ACME account belongs to an
 onboarded app, so the RA scope (allowed domains, profile, environment) set
 during onboarding applies to ACME orders too.
 
-Challenge modes (`CERTADILLO_ACME_CHALLENGE`):
-  http-01    fetch http://<name>/.well-known/acme-challenge/<token> (default)
+Challenges (`CERTADILLO_ACME_CHALLENGE`):
+  http-01    (default) each authorization offers http-01 and dns-01; wildcard
+             names get dns-01 only, as RFC 8555 requires. dns-01 lookups go to
+             the resolvers configured per zone (acme_dns.py, split-horizon).
   ra-scope   skip the network check for names already inside the app's
              approved domain scope; ownership was proven at onboarding
+
+Also implemented: ARI renewal information (RFC 9773) with the `replaces`
+order field, account key rollover, and account and authorization
+deactivation.
 """
 from __future__ import annotations
 
@@ -32,6 +38,7 @@ from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import JSONResponse
 
 from certadillo.api.deps import platform
+from certadillo.audit.log import record
 from certadillo.db import (
     AcmeAccount,
     AcmeAuthz,
@@ -43,6 +50,7 @@ from certadillo.db import (
     CertificateAuthority,
     as_utc,
 )
+from certadillo.enrollment import acme_dns, ari
 from certadillo.policy.engine import PolicyError, domain_allowed
 from certadillo.services import Actor, Platform
 
@@ -136,7 +144,7 @@ def _problem(p: Platform, request: Request, e: AcmeError) -> Response:
     )
 
 
-async def _parse(p: Platform, request: Request, need_jwk: bool = False):
+async def _parse(p: Platform, request: Request, need_jwk: bool = False, allow_jwk: bool = False):
     try:
         body = json.loads(await request.body())
         protected = json.loads(b64u_dec(body["protected"]))
@@ -154,7 +162,7 @@ async def _parse(p: Platform, request: Request, need_jwk: bool = False):
     signing_input = f"{body['protected']}.{payload_raw}".encode()
     account = None
     if "jwk" in protected:
-        if not need_jwk:
+        if not (need_jwk or allow_jwk):
             raise AcmeError("malformed", "use kid for this request")
         key = jwk_to_key(protected["jwk"])
     elif "kid" in protected:
@@ -162,8 +170,10 @@ async def _parse(p: Platform, request: Request, need_jwk: bool = False):
             raise AcmeError("malformed", "newAccount requires jwk")
         acct_id = protected["kid"].rstrip("/").rsplit("/", 1)[-1]
         account = p.s.get(AcmeAccount, int(acct_id)) if acct_id.isdigit() else None
-        if account is None or account.status != "valid":
+        if account is None:
             raise AcmeError("accountDoesNotExist", "unknown account", 400)
+        if account.status != "valid":
+            raise AcmeError("unauthorized", f"account is {account.status}", 401)
         key = jwk_to_key(account.jwk)
     else:
         raise AcmeError("malformed", "jwk or kid required")
@@ -189,6 +199,7 @@ def directory(request: Request):
         "newOrder": f"{b}/new-order",
         "revokeCert": f"{b}/revoke-cert",
         "keyChange": f"{b}/key-change",
+        "renewalInfo": f"{b}/renewal-info",
         "meta": {"externalAccountRequired": True, "website": str(request.base_url)},
     }
 
@@ -208,6 +219,8 @@ async def new_account(request: Request, p: Platform = Depends(platform)):
         tp = thumbprint(jwk)
         existing = p.s.query(AcmeAccount).filter_by(thumbprint=tp).one_or_none()
         if existing:
+            if existing.status != "valid":
+                raise AcmeError("unauthorized", f"the account for this key is {existing.status}", 401)
             return _resp(p, request, _acct_json(existing, request), 200, f"{base(request)}/acct/{existing.id}")
         if payload.get("onlyReturnExisting"):
             raise AcmeError("accountDoesNotExist", "no account for this key")
@@ -227,12 +240,28 @@ async def new_account(request: Request, p: Platform = Depends(platform)):
         acct = AcmeAccount(thumbprint=tp, jwk=jwk, app_id=cred.app_id, contact=payload.get("contact", []))
         p.s.add(acct)
         p.s.flush()
-        from certadillo.audit.log import record
-
         record(p.s, f"acme:{acct.id}", "acme.account.create", f"app:{cred.app_id}", {"thumbprint": tp, "eab_kid": cred.kid})
         return _resp(p, request, _acct_json(acct, request), 201, f"{base(request)}/acct/{acct.id}")
     except AcmeError as e:
         return _problem(p, request, e)
+
+
+def deactivate_account(p: Platform, acct: AcmeAccount) -> dict:
+    """RFC 8555 7.3.6: the account is gone for good, and so are its open
+    authorizations and orders."""
+    acct.status = "deactivated"
+    orders = p.s.query(AcmeOrder).filter(AcmeOrder.account_id == acct.id,
+                                         AcmeOrder.status.in_(("pending", "ready", "processing"))).all()
+    authz_n = 0
+    for o in orders:
+        o.status, o.error = "invalid", "account deactivated"
+        for a in p.s.query(AcmeAuthz).filter_by(order_id=o.id).all():
+            if a.status in ("pending", "valid"):
+                a.status = "deactivated"
+                authz_n += 1
+    record(p.s, f"acme:{acct.id}", "acme.account.deactivate", f"app:{acct.app_id}",
+           {"orders_closed": len(orders), "authorizations_deactivated": authz_n})
+    return {"orders": len(orders), "authorizations": authz_n}
 
 
 def _acct_json(a: AcmeAccount, request: Request) -> dict:
@@ -246,7 +275,10 @@ async def account(acct_id: int, request: Request, p: Platform = Depends(platform
         if acct.id != acct_id:
             raise AcmeError("unauthorized", "not your account", 403)
         if payload and payload.get("status") == "deactivated":
-            acct.status = "deactivated"
+            deactivate_account(p, acct)
+        elif payload and "contact" in payload:
+            acct.contact = list(payload["contact"])
+            record(p.s, f"acme:{acct.id}", "acme.account.update", f"app:{acct.app_id}", {"contact": acct.contact})
         return _resp(p, request, _acct_json(acct, request))
     except AcmeError as e:
         return _problem(p, request, e)
@@ -279,29 +311,59 @@ async def new_order(request: Request, p: Platform = Depends(platform)):
         idents = payload.get("identifiers", [])
         if not idents or any(i.get("type") != "dns" for i in idents):
             raise AcmeError("unsupportedIdentifier", "only dns identifiers are supported")
-        names = sorted({i["value"].lower() for i in idents})
-        outside = [n for n in names if not domain_allowed(n, app.allowed_domains)]
-        if outside:
-            from certadillo.audit.log import record
-
-            record(p.s, who.name, "certificate.rejected", app.name,
-                   {"protocol": "acme", "violations": [["san_scope", n] for n in outside]})
+        names = sorted({i["value"].lower().rstrip(".") for i in idents})
+        violations = [["san_scope", n] for n in names if not domain_allowed(n, app.allowed_domains)]
+        wild = [n for n in names if n.startswith("*.")]
+        if any("*" in n[2:] for n in wild) or any("*" in n for n in names if not n.startswith("*.")):
+            raise AcmeError("rejectedIdentifier", "a wildcard is only allowed as the whole leftmost label")
+        if wild and not p.engine.profile(app.profile).get("allow_wildcard", False):
+            violations += [["wildcard", n] for n in wild]
+        if violations:
+            record(p.s, who.name, "certificate.rejected", app.name, {"protocol": "acme", "violations": violations})
             p.commit()
-            raise AcmeError("rejectedIdentifier", f"outside app scope: {', '.join(outside)}", 403)
-        order = AcmeOrder(account_id=acct.id, identifiers=names, expires=datetime.now(timezone.utc) + timedelta(hours=8))
+            detail = "; ".join(f"{n}: {'outside app scope' if r == 'san_scope' else 'wildcards not allowed for profile ' + app.profile}"
+                               for r, n in violations)
+            raise AcmeError("rejectedIdentifier", detail, 403)
+        replaced = None
+        if payload.get("replaces"):
+            replaced = _check_replaces(p, acct, payload["replaces"])
+        order = AcmeOrder(account_id=acct.id, identifiers=names, expires=datetime.now(timezone.utc) + timedelta(hours=8),
+                          replaces=payload.get("replaces"), replaces_cert_id=replaced.id if replaced else None)
         p.s.add(order)
         p.s.flush()
         ra_scope = os.environ.get("CERTADILLO_ACME_CHALLENGE", "http-01") == "ra-scope"
         for n in names:
             status = "valid" if ra_scope else "pending"
-            p.s.add(AcmeAuthz(order_id=order.id, identifier=n, token=secrets.token_urlsafe(32), status=status,
-                              challenge_status=status))
+            is_wild = n.startswith("*.")
+            p.s.add(AcmeAuthz(order_id=order.id, identifier=n[2:] if is_wild else n, wildcard=is_wild,
+                              token=secrets.token_urlsafe(32), status=status, challenge_status=status,
+                              challenge_type="ra-scope" if ra_scope else None))
         if ra_scope:
             order.status = "ready"
         p.s.flush()
         return _resp(p, request, _order_json(order, p, request), 201, f"{base(request)}/order/{order.id}")
     except AcmeError as e:
         return _problem(p, request, e)
+
+
+def _check_replaces(p: Platform, acct: AcmeAccount, value: str) -> Certificate:
+    """RFC 9773 section 5: the certificate an order replaces must belong to
+    the same app and must not already be replaced."""
+    try:
+        row = ari.find_by_cert_id(p.s, value)
+    except ValueError as e:
+        raise AcmeError("malformed", f"replaces: {e}") from None
+    if row is None or row.app_id != acct.app_id:
+        raise AcmeError("malformed", "replaces: no certificate with this CertID for this account's app")
+    if row.status == "superseded" or row.replaced_by:
+        raise AcmeError("alreadyReplaced", "this certificate has already been replaced", 409)
+    open_order = (p.s.query(AcmeOrder)
+                  .filter(AcmeOrder.replaces_cert_id == row.id, AcmeOrder.status.in_(("pending", "ready", "processing")),
+                          AcmeOrder.expires > datetime.now(timezone.utc))
+                  .first())
+    if open_order is not None:
+        raise AcmeError("alreadyReplaced", f"order {open_order.id} is already replacing this certificate", 409)
+    return row
 
 
 def _own_order(p: Platform, acct: AcmeAccount, order_id: int, live: bool = False) -> AcmeOrder:
@@ -328,26 +390,52 @@ async def get_order(order_id: int, request: Request, p: Platform = Depends(platf
 @router.post("/authz/{authz_id}")
 async def get_authz(authz_id: int, request: Request, p: Platform = Depends(platform)):
     try:
-        _, _, acct = await _parse(p, request)
+        _, payload, acct = await _parse(p, request)
         a = p.s.get(AcmeAuthz, authz_id)
         if a is None:
             raise AcmeError("unauthorized", "authorization not found", 404)
         o = _own_order(p, acct, a.order_id)
+        if payload and payload.get("status") == "deactivated":
+            # RFC 8555 7.5.2: a client gives up an authorization it no longer wants
+            if a.status not in ("pending", "valid"):
+                raise AcmeError("malformed", f"authorization is {a.status}")
+            a.status = "deactivated"
+            if o.status in ("pending", "ready"):
+                o.status, o.error = "invalid", "an authorization was deactivated"
+            record(p.s, f"acme:{acct.id}", "acme.authz.deactivate", a.identifier, {"order": o.id})
         return _resp(p, request, _authz_json(a, o, request))
     except AcmeError as e:
         return _problem(p, request, e)
 
 
+def _challenge_types(a: AcmeAuthz) -> list[str]:
+    if a.challenge_type == "ra-scope":
+        return ["http-01"]
+    return ["dns-01"] if a.wildcard else ["http-01", "dns-01"]
+
+
 def _authz_json(a: AcmeAuthz, o: AcmeOrder, request: Request) -> dict:
-    ch = {"type": "http-01", "url": f"{base(request)}/chall/{a.id}", "token": a.token, "status": a.challenge_status}
-    if a.validated_at:
-        ch["validated"] = as_utc(a.validated_at).isoformat().replace("+00:00", "Z")
-    return {
+    challenges = []
+    for t in _challenge_types(a):
+        # a challenge that was not the one attempted stays pending (RFC 8555 7.1.4)
+        attempted = a.challenge_type in (t, "ra-scope") or (a.challenge_type is None and t == "http-01"
+                                                           and a.challenge_status != "pending")
+        status = a.challenge_status if attempted else "pending"
+        ch = {"type": t, "url": f"{base(request)}/chall/{a.id}/{t}", "token": a.token, "status": status}
+        if attempted and a.validated_at:
+            ch["validated"] = as_utc(a.validated_at).isoformat().replace("+00:00", "Z")
+        if attempted and a.error:
+            ch["error"] = {"type": ERR + ("dns" if t == "dns-01" else "incorrectResponse"), "detail": a.error}
+        challenges.append(ch)
+    d = {
         "status": a.status,
         "expires": as_utc(o.expires).isoformat().replace("+00:00", "Z"),
         "identifier": {"type": "dns", "value": a.identifier},
-        "challenges": [ch],
+        "challenges": challenges,
     }
+    if a.wildcard:
+        d["wildcard"] = True
+    return d
 
 
 def http01_fetch(domain: str, token: str) -> str:
@@ -357,32 +445,64 @@ def http01_fetch(domain: str, token: str) -> str:
     return r.text.strip()
 
 
+def dns01_lookup(name: str, settings) -> tuple[list[str], str]:
+    """TXT values at name and the DNS view that answered. Overridable in tests."""
+    return acme_dns.lookup_txt(name, settings)
+
+
+def _validate(p: Platform, a: AcmeAuthz, acct: AcmeAccount, ctype: str) -> tuple[bool, str | None]:
+    if ctype == "http-01":
+        expected = f"{a.token}.{acct.thumbprint}"
+        try:
+            got = http01_fetch(a.identifier, a.token)
+        except Exception as e:  # noqa: BLE001
+            return False, f"fetching http://{a.identifier}/.well-known/acme-challenge/{a.token}: {e}"
+        if hmac.compare_digest(got.encode("utf-8", "replace"), expected.encode()):
+            return True, None
+        return False, "the response did not match the key authorization"
+    expected = acme_dns.key_authorization_digest(a.token, acct.thumbprint)
+    qname = f"_acme-challenge.{a.identifier}"
+    try:
+        values, view = dns01_lookup(qname, p.settings)
+    except acme_dns.DnsLookupError as e:
+        return False, str(e)
+    if any(hmac.compare_digest(v.encode(), expected.encode()) for v in values):
+        return True, None
+    return False, f"no TXT record at {qname} matches the key authorization ({len(values)} found in the {view} view)"
+
+
 @router.post("/chall/{authz_id}")
-async def challenge(authz_id: int, request: Request, p: Platform = Depends(platform)):
+async def challenge_legacy(authz_id: int, request: Request, p: Platform = Depends(platform)):
+    """Challenge URL from before dns-01 support; always http-01."""
+    return await challenge(authz_id, "http-01", request, p)
+
+
+@router.post("/chall/{authz_id}/{ctype}")
+async def challenge(authz_id: int, ctype: str, request: Request, p: Platform = Depends(platform)):
     try:
         _, _, acct = await _parse(p, request)
         a = p.s.get(AcmeAuthz, authz_id)
-        if a is None:
+        if a is None or ctype not in _challenge_types(a):
             raise AcmeError("unauthorized", "challenge not found", 404)
         o = _own_order(p, acct, a.order_id, live=True)
-        if a.challenge_status == "pending":
-            expected = f"{a.token}.{acct.thumbprint}"
-            try:
-                # off the event loop: a slow or hostile target must not stall OCSP and enrollment
-                got = await asyncio.to_thread(http01_fetch, a.identifier, a.token)
-            except Exception as e:  # noqa: BLE001
-                got = f"error: {e}"
-            if hmac.compare_digest(got.encode("utf-8", "replace"), expected.encode()):
+        if a.challenge_status == "pending" and a.status == "pending":
+            # off the event loop: a slow or hostile target must not stall OCSP and enrollment
+            ok, why = await asyncio.to_thread(_validate, p, a, acct, ctype)
+            a.challenge_type = ctype
+            if ok:
                 a.challenge_status = a.status = "valid"
                 a.validated_at = datetime.now(timezone.utc)
+                a.error = None
             else:
                 a.challenge_status = a.status = "invalid"
+                a.error = why
                 o.status = "invalid"
+                o.error = f"{a.identifier}: {why}"
             siblings = p.s.query(AcmeAuthz).filter_by(order_id=o.id).all()
             if all(s.status == "valid" for s in siblings) and o.status == "pending":
                 o.status = "ready"
         p.s.flush()
-        body = _authz_json(a, o, request)["challenges"][0]
+        body = next(c for c in _authz_json(a, o, request)["challenges"] if c["type"] == ctype)
         return _resp(p, request, body, up=f"{base(request)}/authz/{a.id}")
     except AcmeError as e:
         return _problem(p, request, e)
@@ -411,9 +531,12 @@ async def finalize(order_id: int, request: Request, p: Platform = Depends(platfo
             raise AcmeError("badCSR", f"CSR names {names} do not match order {o.identifiers}")
         who = _app_actor(p, acct)
         o.status = "processing"
+        previous = p.s.get(Certificate, o.replaces_cert_id) if o.replaces_cert_id else None
+        if previous is not None and previous.status != "active":
+            previous = None  # revoked meanwhile: issue a fresh one without the renewal link
         try:
             result = p.request_certificate(who, who.app_id, csr.public_bytes(serialization.Encoding.PEM).decode(),
-                                           protocol="acme")
+                                           protocol="acme", previous=previous)
         except PolicyError as e:
             o.status = "invalid"
             o.error = str(e)
@@ -446,21 +569,128 @@ async def get_cert(cert_id: int, request: Request, p: Platform = Depends(platfor
 @router.post("/revoke-cert")
 async def revoke_cert(request: Request, p: Platform = Depends(platform)):
     try:
-        _, payload, acct = await _parse(p, request)
+        protected, payload, acct = await _parse(p, request, allow_jwk=True)
         cert = x509.load_der_x509_certificate(b64u_dec(payload["certificate"]))
-        row = p.s.query(Certificate).filter_by(serial_hex=format(cert.serial_number, "x")).one_or_none()
-        if row is None or row.app_id != acct.app_id:
+        row = p.s.query(Certificate).filter_by(fingerprint_sha256=cert.fingerprint(hashes.SHA256()).hex()).one_or_none()
+        if row is None:
+            raise AcmeError("unauthorized", "certificate not issued here", 403)
+        if acct is None:
+            # RFC 8555 7.6: signed with the certificate's own key, e.g. after the account key is lost
+            if thumbprint(protected["jwk"]) != thumbprint(_pub_jwk(cert.public_key())):
+                raise AcmeError("unauthorized", "the JWS key is not the certificate's key", 403)
+            who = Actor(f"acme:cert-key:{row.serial_hex}", "app", row.app_id)
+        elif row.app_id != acct.app_id:
             raise AcmeError("unauthorized", "certificate not issued to this account's app", 403)
+        else:
+            who = _app_actor(p, acct)
         if row.status == "revoked":
             raise AcmeError("alreadyRevoked", "certificate already revoked")
         codes = {0: "unspecified", 1: "key_compromise", 3: "affiliation_changed", 4: "superseded",
                  5: "cessation_of_operation"}
-        p.revoke(_app_actor(p, acct), row.id, codes.get(payload.get("reason", 0), "unspecified"))
+        reason = payload.get("reason", 0)
+        if reason not in codes:
+            raise AcmeError("badRevocationReason", f"reason code {reason} is not accepted")
+        p.revoke(who, row.id, codes[reason])
         return _resp(p, request)
     except AcmeError as e:
         return _problem(p, request, e)
 
 
+def _pub_jwk(pub) -> dict:
+    nums = pub.public_numbers()
+    if isinstance(pub, ec.EllipticCurvePublicKey):
+        size = (pub.curve.key_size + 7) // 8
+        crv = {"secp256r1": "P-256", "secp384r1": "P-384"}.get(pub.curve.name, pub.curve.name)
+        return {"kty": "EC", "crv": crv, "x": b64u(nums.x.to_bytes(size, "big")), "y": b64u(nums.y.to_bytes(size, "big"))}
+    return {"kty": "RSA", "n": b64u(nums.n.to_bytes((nums.n.bit_length() + 7) // 8, "big")),
+            "e": b64u(nums.e.to_bytes((nums.e.bit_length() + 7) // 8, "big"))}
+
+
 @router.post("/key-change")
 async def key_change(request: Request, p: Platform = Depends(platform)):
-    return _problem(p, request, AcmeError("malformed", "key rollover is not implemented yet; create a new account", 501))
+    """Account key rollover (RFC 8555 7.3.5). The outer JWS is signed by the
+    current key; its payload is an inner JWS signed by the new key."""
+    try:
+        protected, inner, acct = await _parse(p, request)
+        try:
+            iprot = json.loads(b64u_dec(inner["protected"]))
+            ipayload = json.loads(b64u_dec(inner["payload"]))
+            isig = b64u_dec(inner["signature"])
+        except Exception:
+            raise AcmeError("malformed", "payload must be a flattened JWS signed by the new key") from None
+        if "jwk" not in iprot or "kid" in iprot:
+            raise AcmeError("malformed", "the inner JWS must carry the new key as jwk")
+        if "nonce" in iprot:
+            raise AcmeError("malformed", "the inner JWS must not have a nonce")
+        if iprot.get("url") != protected.get("url"):
+            raise AcmeError("malformed", "inner and outer url differ")
+        new_key = jwk_to_key(iprot["jwk"])
+        verify_jws_sig(iprot.get("alg", ""), new_key, f"{inner['protected']}.{inner['payload']}".encode(), isig)
+        if ipayload.get("account") != protected.get("kid"):
+            raise AcmeError("malformed", "inner payload account does not match the outer kid")
+        old = ipayload.get("oldKey") or {}
+        try:
+            old_tp = thumbprint(old)
+        except KeyError:
+            raise AcmeError("malformed", "oldKey is not a JWK") from None
+        if old_tp != acct.thumbprint:
+            raise AcmeError("unauthorized", "oldKey is not this account's current key", 401)
+        new_tp = thumbprint(iprot["jwk"])
+        clash = p.s.query(AcmeAccount).filter_by(thumbprint=new_tp).one_or_none()
+        if clash is not None:
+            p.s.rollback()
+            fresh = new_nonce(p)
+            p.commit()
+            return JSONResponse({"type": ERR + "conflict", "detail": "the new key already belongs to an account",
+                                 "status": 409}, status_code=409, media_type="application/problem+json",
+                                headers={"Replay-Nonce": fresh, "Location": f"{base(request)}/acct/{clash.id}"})
+        acct.jwk, acct.thumbprint = iprot["jwk"], new_tp
+        record(p.s, f"acme:{acct.id}", "acme.account.key_change", f"app:{acct.app_id}",
+               {"old_thumbprint": old_tp, "new_thumbprint": new_tp})
+        return _resp(p, request, _acct_json(acct, request))
+    except AcmeError as e:
+        return _problem(p, request, e)
+
+
+# ---------------------------------------------------------------- ARI (RFC 9773)
+@router.get("/renewal-info/{cert_id}")
+def renewal_info(cert_id: str, p: Platform = Depends(platform)):
+    try:
+        row = ari.find_by_cert_id(p.s, cert_id)
+    except ValueError as e:
+        return JSONResponse({"type": ERR + "malformed", "detail": str(e), "status": 400}, 400,
+                            media_type="application/problem+json")
+    if row is None:
+        return JSONResponse({"type": ERR + "malformed", "detail": "no certificate with this CertID", "status": 404},
+                            404, media_type="application/problem+json")
+    start, end, explanation = ari.suggested_window(p.s, row)
+    body = {"suggestedWindow": {"start": start.isoformat().replace("+00:00", "Z"),
+                                "end": end.isoformat().replace("+00:00", "Z")}}
+    if explanation:
+        body["explanationURL"] = explanation
+    retry = p.settings.ari_retry_after_seconds
+    if p.s.get(ari.RenewalAdvice, row.id) is not None:
+        retry = min(retry, 3600)  # during a campaign, check back hourly
+    return JSONResponse(body, headers={"Retry-After": str(retry), "Cache-Control": f"public, max-age={retry}"})
+
+
+# ---------------------------------------------------------------- cleanup
+def housekeeping(session, now: datetime | None = None) -> dict:
+    """Expire stale orders and authorizations, drop spent state."""
+    now = now or datetime.now(timezone.utc)
+    expired = 0
+    for o in session.query(AcmeOrder).filter(AcmeOrder.status.in_(("pending", "ready", "processing")),
+                                             AcmeOrder.expires < now).all():
+        o.status, o.error = "invalid", o.error or "order expired"
+        for a in session.query(AcmeAuthz).filter_by(order_id=o.id, status="pending").all():
+            a.status = "expired"
+        expired += 1
+    old = now - timedelta(days=30)
+    purged = 0
+    for o in session.query(AcmeOrder).filter(AcmeOrder.status == "invalid", AcmeOrder.expires < old).all():
+        session.query(AcmeAuthz).filter_by(order_id=o.id).delete()
+        session.delete(o)
+        purged += 1
+    nonces = session.query(AcmeNonce).filter(AcmeNonce.created_at < now - timedelta(hours=1)).delete()
+    session.flush()
+    return {"orders_expired": expired, "orders_purged": purged, "nonces_dropped": nonces}

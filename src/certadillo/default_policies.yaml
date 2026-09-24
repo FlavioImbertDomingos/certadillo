@@ -13,6 +13,16 @@ profiles:
     allowed_keys: {rsa_min_bits: 2048, ec_curves: [secp256r1, secp384r1]}
     require_new_key_on_renewal: true
 
+  tls-wildcard:
+    description: Wildcard TLS server certificate; over ACME the name must be proven with dns-01
+    extended_key_usage: [server_auth]
+    default_validity_days: 30
+    max_validity_days: 90
+    require_dns_san: true
+    allow_wildcard: true
+    allowed_keys: {rsa_min_bits: 2048, ec_curves: [secp256r1, secp384r1]}
+    require_new_key_on_renewal: true
+
   tls-client:
     description: Client authentication for mTLS callers
     extended_key_usage: [client_auth]

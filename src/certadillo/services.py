@@ -258,6 +258,11 @@ class Platform:
             parent = self.ca.get(p["parent"])
             self.ca.create_subordinate(parent, p["name"], years=p.get("years", 5))
             record(self.s, req.decided_by, "ca.create", p["name"], {"parent": p["parent"], "approval": req.id})
+        elif req.action == "campaign_revoke_remaining":
+            n = self._campaign_revoke(Actor(req.requested_by, "operator"), p["campaign_id"], "remaining",
+                                      p.get("change_ref"))
+            p["revoked"] = n
+            req.payload = p
 
     # ------------------------------------------------------------- issuance
     def request_certificate(self, actor: Actor, app_id: int, csr_pem: str, profile: str | None = None,
@@ -366,6 +371,52 @@ class Platform:
         REVOCATIONS.labels(reason=reason).inc()
         record(self.s, actor.name, "certificate.revoke", row.serial_hex, {"reason": reason, "change_ref": change_ref})
         return row
+
+    # ------------------------------------------------------------- renewal campaigns (ARI)
+    def create_campaign(self, actor: Actor, name: str, reason: str, criteria: dict, renew_within_hours: int = 24,
+                        explanation_url: str | None = None, revocation_reason: str = "superseded",
+                        immediate: bool = False):
+        from certadillo.ca.authority import REASONS
+        from certadillo.enrollment import ari
+
+        actor.require("admin", "operator")
+        if revocation_reason not in REASONS:
+            raise ValueError(f"unknown revocation reason {revocation_reason}")
+        return ari.create_campaign(self.s, actor.name, name, reason, criteria, renew_within_hours, explanation_url,
+                                   revocation_reason, immediate)
+
+    def campaign_revoke(self, actor: Actor, campaign_id: int, which: str, change_ref: str | None = None):
+        """which = 'replaced': revoke certificates that already have a successor,
+        so nothing breaks. which = 'remaining': the hard cutoff for everything
+        else, which can take services down, so it needs a second person."""
+        actor.require("admin", "operator")
+        if which == "remaining":
+            return self._request_approval(actor, "campaign_revoke_remaining",
+                                          {"campaign_id": campaign_id, "change_ref": change_ref})
+        return self._campaign_revoke(actor, campaign_id, which, change_ref)
+
+    def _campaign_revoke(self, actor: Actor, campaign_id: int, which: str, change_ref: str | None) -> int:
+        from certadillo.db import RenewalAdvice, RenewalCampaign, as_utc
+        from certadillo.enrollment import ari
+
+        camp = self.s.get(RenewalCampaign, campaign_id)
+        if camp is None:
+            raise NotFound("campaign not found")
+        since = as_utc(camp.created_at)
+        n = 0
+        for adv in self.s.query(RenewalAdvice).filter_by(campaign_id=camp.id).all():
+            c = self.s.get(Certificate, adv.certificate_id)
+            if c.status == "revoked":
+                continue
+            has_successor = ari.replacement_for(self.s, c, since) is not None
+            if (which == "replaced") != has_successor:
+                continue
+            self.revoke(actor, c.id, camp.revocation_reason, change_ref)
+            adv.revoked_by_campaign = True
+            n += 1
+        record(self.s, actor.name, f"renewal_campaign.revoke_{which}", f"campaign:{camp.id}",
+               {"revoked": n, "reason": camp.revocation_reason, "change_ref": change_ref})
+        return n
 
     # ------------------------------------------------------------- SSH
     def issue_ssh(self, actor: Actor, public_key: str, cert_type: str, principals: list[str], key_id: str,

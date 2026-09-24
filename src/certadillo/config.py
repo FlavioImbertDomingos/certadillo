@@ -47,6 +47,22 @@ class Settings:
     snow_assignment_group: str = field(default_factory=lambda: _env("SNOW_ASSIGNMENT_GROUP", "PKI Operations"))
     scep_allow_des: bool = field(default_factory=lambda: (_env("SCEP_ALLOW_DES", "false") or "").lower() == "true")
     crl_interval_hours: int = field(default_factory=lambda: int(_env("CRL_INTERVAL_HOURS", "12") or 12))
+    # ACME dns-01: resolvers used for _acme-challenge lookups. ACME_DNS_VIEWS maps
+    # zones to resolvers for split-horizon DNS, longest suffix wins:
+    #   "bank.internal=10.1.0.53,10.2.0.53;example.com=1.1.1.1"
+    acme_dns_resolvers: list[str] = field(default_factory=lambda: _list("ACME_DNS_RESOLVERS"))
+    acme_dns_views: str = field(default_factory=lambda: _env("ACME_DNS_VIEWS", "") or "")
+    acme_dns_timeout: float = field(default_factory=lambda: float(_env("ACME_DNS_TIMEOUT", "8") or 8))
+    # ARI (RFC 9773): how often clients should poll renewalInfo
+    ari_retry_after_seconds: int = field(default_factory=lambda: int(_env("ARI_RETRY_AFTER", "21600") or 21600))
+    # SCEP validation webhook (Intune-style): called before a challenge is accepted,
+    # then notified of success or failure. Used by apps with options.scep_validation = "webhook".
+    scep_validation_url: str | None = field(default_factory=lambda: _env("SCEP_VALIDATION_URL"))
+    scep_validation_token: str | None = field(default_factory=lambda: _env("SCEP_VALIDATION_TOKEN"))
+    # EST behind a TLS-terminating load balancer: the client certificate arrives in a
+    # header, which is trusted only from these proxy addresses (CIDRs).
+    est_client_cert_header: str = field(default_factory=lambda: _env("EST_CLIENT_CERT_HEADER", "") or "")
+    est_trusted_proxies: list[str] = field(default_factory=lambda: _list("EST_TRUSTED_PROXIES"))
     # Settings-driven maker-checker actions. Sub-CA creation always needs a
     # second person, and per-profile issuance approval is the profile's
     # `dual_control: true` flag.

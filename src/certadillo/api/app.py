@@ -109,6 +109,20 @@ class ImportIn(BaseModel):
     app_id: int | None = None
 
 
+class CampaignIn(BaseModel):
+    name: str = Field(min_length=3, max_length=120)
+    reason: str = Field(min_length=3)
+    criteria: dict
+    renew_within_hours: int = Field(default=24, ge=1, le=720)
+    explanation_url: str | None = None
+    revocation_reason: str = "superseded"
+    immediate: bool = False
+
+
+class ChangeRefIn(BaseModel):
+    change_ref: str | None = None
+
+
 class SubCAIn(BaseModel):
     name: str = Field(pattern=r"^[a-z0-9-]+$")
     parent: str = "root-ca"
@@ -172,9 +186,10 @@ def approval_json(r: ApprovalRequest) -> dict:
 
 # ------------------------------------------------------------------ background jobs
 def run_housekeeping() -> dict:
-    """Publish CRLs that are due, then evaluate alerts."""
+    """Publish CRLs that are due, clean up protocol state, then evaluate alerts."""
     rt = get_runtime()
     with rt.platform() as p:
+        acme.housekeeping(p.s)
         now = datetime.now(timezone.utc)
         for ca in p.s.query(CertificateAuthority).filter_by(is_root=False).all():
             last = as_utc(ca.crl_last_generated)
@@ -438,6 +453,83 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
         record(p.s, who.name, "certificate.assign", c.serial_hex, {"app_id": body.app_id})
         p.commit()
         return cert_json(c)
+
+    @app.get("/api/v1/certificates/{cert_id}/renewal-info", tags=["certificates"])
+    def cert_renewal_info(cert_id: int, p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        """The ARI window for any certificate issued here, for clients that do not speak ACME."""
+        from certadillo.enrollment import ari
+
+        c = p.s.get(Certificate, cert_id)
+        if c is None or c.source != "issued" or (who.role == "app" and c.app_id != who.app_id):
+            raise NotFound("certificate not found")
+        start, end, why = ari.suggested_window(p.s, c)
+        return {"cert_id": ari.cert_id(x509.load_pem_x509_certificate(c.pem.encode())),
+                "suggested_window": {"start": start.isoformat(), "end": end.isoformat()},
+                "explanation_url": why, "renew_now": datetime.now(timezone.utc) >= start}
+
+    # ---------------------------------------------------------- renewal campaigns (ARI)
+    @app.post("/api/v1/renewal-campaigns", status_code=201, tags=["renewal campaigns"])
+    def create_campaign(body: CampaignIn, p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        from certadillo.enrollment import ari
+
+        camp = p.create_campaign(who, **body.model_dump())
+        p.commit()
+        out = ari.campaign_status(p.s, camp)
+        out["warnings"] = ari.campaign_warnings(body.renew_within_hours, p.settings.ari_retry_after_seconds)
+        return out
+
+    @app.get("/api/v1/renewal-campaigns", tags=["renewal campaigns"])
+    def list_campaigns(p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        from certadillo.db import RenewalCampaign
+        from certadillo.enrollment import ari
+
+        who.require("admin", "operator", "approver", "auditor")
+        out = []
+        for camp in p.s.query(RenewalCampaign).order_by(RenewalCampaign.id.desc()).all():
+            st = ari.campaign_status(p.s, camp)
+            st.pop("certificates")
+            out.append(st)
+        return out
+
+    @app.get("/api/v1/renewal-campaigns/{campaign_id}", tags=["renewal campaigns"])
+    def get_campaign(campaign_id: int, p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        from certadillo.db import RenewalCampaign
+        from certadillo.enrollment import ari
+
+        who.require("admin", "operator", "approver", "auditor")
+        camp = p.s.get(RenewalCampaign, campaign_id)
+        if camp is None:
+            raise NotFound("campaign not found")
+        return ari.campaign_status(p.s, camp)
+
+    @app.post("/api/v1/renewal-campaigns/{campaign_id}/revoke-replaced", tags=["renewal campaigns"])
+    def campaign_revoke_replaced(campaign_id: int, body: ChangeRefIn, p: Platform = Depends(platform),
+                                 who: Actor = Depends(actor)):
+        n = p.campaign_revoke(who, campaign_id, "replaced", body.change_ref)
+        p.commit()
+        return {"revoked": n}
+
+    @app.post("/api/v1/renewal-campaigns/{campaign_id}/revoke-remaining", status_code=202, tags=["renewal campaigns"])
+    def campaign_revoke_remaining(campaign_id: int, body: ChangeRefIn, p: Platform = Depends(platform),
+                                  who: Actor = Depends(actor)):
+        req = p.campaign_revoke(who, campaign_id, "remaining", body.change_ref)
+        p.commit()
+        return {"status": "pending_approval", "approval_id": req.id}
+
+    @app.post("/api/v1/renewal-campaigns/{campaign_id}/close", tags=["renewal campaigns"])
+    def close_campaign(campaign_id: int, p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        from certadillo.audit.log import record
+        from certadillo.db import RenewalCampaign
+        from certadillo.enrollment import ari
+
+        who.require("admin", "operator")
+        camp = p.s.get(RenewalCampaign, campaign_id)
+        if camp is None:
+            raise NotFound("campaign not found")
+        camp.status = "closed"
+        record(p.s, who.name, "renewal_campaign.close", f"campaign:{camp.id}", {})
+        p.commit()
+        return ari.campaign_status(p.s, camp)
 
     # ---------------------------------------------------------- SSH
     @app.get("/api/v1/ssh/ca", tags=["ssh"], response_class=PlainTextResponse)
