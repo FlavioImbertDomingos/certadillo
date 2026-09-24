@@ -121,4 +121,4 @@ docs/            architecture, runbook, security model, HSM guide, roadmap, stan
 
 Apache-2.0. Dilly the armadillo is original artwork in this repository, under the same license.
 
-Built by Flavio Domingos with AI-assisted development (Claude).
+Built by Flavio Domingos.

@@ -10,3 +10,4 @@ deploy/.env
 .pytest_cache/
 .ruff_cache/
 build/
+.DS_Store
