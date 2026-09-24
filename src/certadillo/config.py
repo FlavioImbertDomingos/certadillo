@@ -63,6 +63,8 @@ class Settings:
     # header, which is trusted only from these proxy addresses (CIDRs).
     est_client_cert_header: str = field(default_factory=lambda: _env("EST_CLIENT_CERT_HEADER", "") or "")
     est_trusted_proxies: list[str] = field(default_factory=lambda: _list("EST_TRUSTED_PROXIES"))
+    # or: a secret the load balancer adds as X-Certadillo-Proxy-Auth (works behind uvicorn's proxy headers)
+    est_proxy_secret: str | None = field(default_factory=lambda: _env("EST_PROXY_SECRET"))
     # Settings-driven maker-checker actions. Sub-CA creation always needs a
     # second person, and per-profile issuance approval is the profile's
     # `dual_control: true` flag.

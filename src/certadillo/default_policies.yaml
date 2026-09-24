@@ -24,13 +24,16 @@ profiles:
     require_new_key_on_renewal: true
 
   tls-client:
-    description: Client authentication for mTLS callers
+    description: Client authentication for mTLS callers and devices
     extended_key_usage: [client_auth]
     default_validity_days: 30
     max_validity_days: 90
     require_dns_san: false
     allowed_keys: {rsa_min_bits: 2048, ec_curves: [secp256r1, secp384r1]}
     require_new_key_on_renewal: true
+    # EST /serverkeygen: devices that cannot make a key get one from the server
+    # over TLS. The key is not stored. Leave off for anything that can generate its own.
+    allow_server_keygen: true
 
   mtls-service:
     description: Service identity used as both TLS server and client

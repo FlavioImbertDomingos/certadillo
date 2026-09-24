@@ -205,6 +205,35 @@ class Platform:
         self.s.flush()
         return self.s.get(App, ch.app_id)
 
+    def add_est_trust_anchor(self, actor: Actor, app_id: int, name: str, cert_pem: str):
+        actor.require("admin", "operator")
+        app = self.s.get(App, app_id)
+        if app is None:
+            raise NotFound("app not found")
+        try:
+            ca = x509.load_pem_x509_certificate(cert_pem.encode())
+        except ValueError:
+            raise ValueError("cert_pem is not a PEM certificate") from None
+        try:
+            if not ca.extensions.get_extension_for_class(x509.BasicConstraints).value.ca:
+                raise ValueError("the trust anchor must be a CA certificate")
+        except x509.ExtensionNotFound:
+            raise ValueError("the trust anchor must be a CA certificate") from None
+        payload = {"app_id": app_id, "name": name, "cert_pem": cert_pem}
+        if app.environment == "prod":
+            return self._request_approval(actor, "add_est_trust_anchor", payload)
+        return self._add_trust_anchor(actor.name, payload)
+
+    def _add_trust_anchor(self, who: str, p: dict) -> dict:
+        from certadillo.db import EstTrustAnchor
+
+        ta = EstTrustAnchor(app_id=p["app_id"], name=p["name"], cert_pem=p["cert_pem"], created_by=who)
+        self.s.add(ta)
+        self.s.flush()
+        subject = x509.load_pem_x509_certificate(p["cert_pem"].encode()).subject.rfc4514_string()
+        record(self.s, who, "est.trust_anchor.add", f"app:{p['app_id']}", {"name": p["name"], "subject": subject})
+        return {"id": ta.id, "name": ta.name, "subject": subject}
+
     # ------------------------------------------------------------- dual control
     def _request_approval(self, actor: Actor, action: str, payload: dict) -> ApprovalRequest:
         req = ApprovalRequest(action=action, payload=payload, requested_by=actor.name)
@@ -258,6 +287,8 @@ class Platform:
             parent = self.ca.get(p["parent"])
             self.ca.create_subordinate(parent, p["name"], years=p.get("years", 5))
             record(self.s, req.decided_by, "ca.create", p["name"], {"parent": p["parent"], "approval": req.id})
+        elif req.action == "add_est_trust_anchor":
+            self._add_trust_anchor(req.requested_by, p)
         elif req.action == "campaign_revoke_remaining":
             n = self._campaign_revoke(Actor(req.requested_by, "operator"), p["campaign_id"], "remaining",
                                       p.get("change_ref"))

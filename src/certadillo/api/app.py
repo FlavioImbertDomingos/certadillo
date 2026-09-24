@@ -123,6 +123,11 @@ class ChangeRefIn(BaseModel):
     change_ref: str | None = None
 
 
+class TrustAnchorIn(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    cert_pem: str
+
+
 class SubCAIn(BaseModel):
     name: str = Field(pattern=r"^[a-z0-9-]+$")
     parent: str = "root-ca"
@@ -177,7 +182,7 @@ def app_json(a: App) -> dict:
 
 
 def approval_json(r: ApprovalRequest) -> dict:
-    payload = {k: v for k, v in r.payload.items() if k != "csr_pem"}
+    payload = {k: v for k, v in r.payload.items() if not k.endswith("_pem")}
     return {
         "id": r.id, "action": r.action, "payload": payload, "requested_by": r.requested_by, "status": r.status,
         "decided_by": r.decided_by, "comment": r.comment, "created_at": as_utc(r.created_at).isoformat(),
@@ -359,6 +364,25 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
         p.commit()
         out["server_url"] = str(request.base_url).rstrip("/") + "/scep"
         return out
+
+    @app.post("/api/v1/apps/{app_id}/est-trust-anchors", status_code=201, tags=["onboarding"])
+    def add_trust_anchor(app_id: int, body: TrustAnchorIn, p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        """Let devices with a manufacturer (IDevID) certificate from this CA enroll into the app over EST.
+        For production apps this needs a second person."""
+        out = p.add_est_trust_anchor(who, app_id, body.name, body.cert_pem)
+        p.commit()
+        if isinstance(out, ApprovalRequest):
+            return JSONResponse({"status": "pending_approval", "approval_id": out.id}, 202)
+        return out
+
+    @app.get("/api/v1/apps/{app_id}/est-trust-anchors", tags=["onboarding"])
+    def list_trust_anchors(app_id: int, p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        from certadillo.db import EstTrustAnchor
+
+        who.require("admin", "operator", "approver", "auditor")
+        return [{"id": t.id, "name": t.name, "subject": x509.load_pem_x509_certificate(t.cert_pem.encode()).subject.rfc4514_string(),
+                 "created_by": t.created_by, "created_at": as_utc(t.created_at).isoformat()}
+                for t in p.s.query(EstTrustAnchor).filter_by(app_id=app_id)]
 
     @app.get("/api/v1/approvals", tags=["governance"])
     def list_approvals(status: str | None = None, p: Platform = Depends(platform), who: Actor = Depends(actor)):
