@@ -32,7 +32,8 @@ class Settings:
     data_dir: Path = field(default_factory=lambda: Path(_env("DATA_DIR", "./.certadillo")))
     db_url: str | None = field(default_factory=lambda: _env("DB_URL"))
     policy_file: str | None = field(default_factory=lambda: _env("POLICY_FILE"))
-    # software | pkcs11
+    # software | pkcs11 | vault-transit (where new CA keys are generated; existing keys
+    # keep loading from wherever their key_ref says they live)
     signer: str = field(default_factory=lambda: _env("SIGNER", "software"))
     key_passphrase: str = field(default_factory=lambda: _env("KEY_PASSPHRASE", "change-me-dev-only"))
     pkcs11_lib: str | None = field(default_factory=lambda: _env("PKCS11_LIB"))
@@ -107,6 +108,12 @@ class Settings:
     vault_addr: str | None = field(default_factory=lambda: _env("VAULT_ADDR"))
     vault_token: str | None = field(default_factory=lambda: _env("VAULT_TOKEN"))
     vault_namespace: str | None = field(default_factory=lambda: _env("VAULT_NAMESPACE"))
+    # a file Vault Agent keeps a fresh token in; read on every call, preferred over VAULT_TOKEN
+    vault_token_file: str | None = field(default_factory=lambda: _env("VAULT_TOKEN_FILE"))
+    vault_cacert: str | None = field(default_factory=lambda: _env("VAULT_CACERT"))  # CA bundle for Vault's TLS
+    # CA keys in Vault Transit (CERTADILLO_SIGNER=vault-transit): key name is <prefix><CA name>
+    vault_signer_mount: str = field(default_factory=lambda: _env("VAULT_SIGNER_MOUNT", "transit") or "transit")
+    vault_key_prefix: str = field(default_factory=lambda: _env("VAULT_KEY_PREFIX", "certadillo-") or "certadillo-")
     vault_transit_mount: str = field(default_factory=lambda: _env("VAULT_TRANSIT_MOUNT", "transit") or "transit")
     vault_transit_key: str = field(default_factory=lambda: _env("VAULT_TRANSIT_KEY", "certadillo-fields") or "certadillo-fields")
     # Name constraints written into new issuing and subordinate CAs (RFC 5280

@@ -21,6 +21,15 @@ jobs:
           python-version: ${{ matrix.python }}
       - name: SoftHSM2 for the PKCS#11 tests
         run: sudo apt-get update && sudo apt-get install -y softhsm2
+      - name: HashiCorp Vault for the Transit signer tests (checksum-verified)
+        env:
+          VAULT_VERSION: "2.1.1"
+        run: |
+          cd /tmp
+          curl -fsSLO "https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_linux_amd64.zip"
+          curl -fsSLO "https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_SHA256SUMS"
+          grep "linux_amd64.zip" "vault_${VAULT_VERSION}_SHA256SUMS" | sha256sum -c -
+          unzip -q "vault_${VAULT_VERSION}_linux_amd64.zip" vault && sudo mv vault /usr/local/bin/ && vault version
       - run: pip install -e ".[dev,hsm]" ruff
       - run: ruff check .
       - run: pytest

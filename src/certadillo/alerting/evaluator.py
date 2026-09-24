@@ -121,6 +121,7 @@ def evaluate(session, settings, policies: dict) -> list[Alert]:
                          runbook=RUNBOOK + "auditchainbroken"))
 
     out.extend(_integrity_alerts(session, settings, now))
+    out.extend(_ca_key_alerts(session, settings, policies))
 
     for camp in session.query(RenewalCampaign).filter_by(status="active").all():
         if now > as_utc(camp.window_end):
@@ -161,6 +162,26 @@ def evaluate(session, settings, policies: dict) -> list[Alert]:
 
 
 PRIVILEGED_ROLES = {"admin", "approver", "gateway"}
+
+
+def _ca_key_alerts(session, settings, policies) -> list[Alert]:
+    """CA keys held outside the process (Vault, HSM) that cannot sign, or whose
+    protection was weakened. Software keys are always loadable and skipped."""
+    from certadillo.db import CertificateAuthority
+    from certadillo.runtime import get_runtime
+
+    if not session.query(CertificateAuthority).filter(~CertificateAuthority.key_ref.like("file:%")).first():
+        return []
+    from certadillo.ca.authority import CAService
+
+    ca_service = CAService(session, get_runtime().keystore, settings, policies)
+    out = []
+    for h in ca_service.key_health():
+        if h["backend"] != "file" and not h["ok"]:
+            out.append(Alert(_fp("cakey", h["ca"]), "CAKeyUnhealthy", "critical",
+                             f"CA {h['ca']} ({h['backend']}): " + "; ".join(h["problems"]),
+                             {"ca": h["ca"], "backend": h["backend"]}, runbook=RUNBOOK + "cakeyunhealthy"))
+    return out
 
 
 def _integrity_alerts(session, settings, now) -> list[Alert]:

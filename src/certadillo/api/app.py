@@ -781,6 +781,12 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
                         "not_after": c.not_valid_after_utc.isoformat(), "crl_number": ca.crl_number})
         return out
 
+    @app.get("/api/v1/cas/keys", tags=["ca"])
+    def ca_keys(p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        """Where each CA key lives and whether it is reachable and intact (a live check for Vault-held keys)."""
+        who.require("admin", "operator", "auditor")
+        return p.ca.key_health()
+
     @app.post("/api/v1/cas", status_code=202, tags=["ca"])
     def create_sub_ca(body: SubCAIn, p: Platform = Depends(platform), who: Actor = Depends(actor)):
         who.require("admin")

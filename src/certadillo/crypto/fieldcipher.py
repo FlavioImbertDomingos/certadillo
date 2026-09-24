@@ -52,22 +52,22 @@ class FieldCipher:
         key = HKDF(algorithm=hashes.SHA256(), length=32, salt=b"certadillo-fields",
                    info=b"v1").derive(settings.key_passphrase.encode())
         self._local = Fernet(base64.urlsafe_b64encode(key))
-        if self.mode == "vault" and not (settings.vault_addr and settings.vault_token):
-            raise CipherError("CERTADILLO_FIELD_CIPHER=vault needs CERTADILLO_VAULT_ADDR and CERTADILLO_VAULT_TOKEN")
+        self._vault_client = None
+        if self.mode == "vault":
+            from certadillo.crypto.vault import VaultClient, VaultError
+
+            try:
+                self._vault_client = VaultClient.from_settings(settings, http=http)
+            except VaultError as exc:
+                raise CipherError(f"CERTADILLO_FIELD_CIPHER=vault: {exc}") from exc
 
     # ------------------------------------------------------------------ vault transit
     def _vault(self, op: str, key: str, body: dict) -> dict:
-        s = self._settings
-        headers = {"X-Vault-Token": s.vault_token}
-        if s.vault_namespace:
-            headers["X-Vault-Namespace"] = s.vault_namespace
-        http = self._http or httpx.Client(timeout=10)
-        url = f"{s.vault_addr.rstrip('/')}/v1/{s.vault_transit_mount}/{op}/{key}"
+        from certadillo.crypto.vault import VaultError
+
         try:
-            r = http.post(url, json=body, headers=headers)
-            r.raise_for_status()
-            return r.json()["data"]
-        except (httpx.HTTPError, KeyError, ValueError) as exc:
+            return self._vault_client.request("POST", f"{self._settings.vault_transit_mount}/{op}/{key}", body)["data"]
+        except (VaultError, KeyError) as exc:
             raise CipherError(f"Vault Transit {op} failed: {exc}") from exc
 
     # ------------------------------------------------------------------ api

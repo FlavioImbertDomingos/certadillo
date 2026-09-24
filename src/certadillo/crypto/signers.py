@@ -231,9 +231,52 @@ def key_fingerprint(pub) -> str:
     return hashlib.sha256(der).hexdigest()
 
 
+class RoutingKeyStore:
+    """New CA keys are generated in the configured backend (CERTADILLO_SIGNER);
+    existing keys load from wherever their key_ref says they live. That lets a
+    software-backed issuing CA keep working while a new one is created in an HSM
+    or in Vault, so a deployment can move its CA keys without a flag day."""
+
+    def __init__(self, settings):
+        self.settings = settings
+        self._stores: dict[str, object] = {}
+        self._lock = threading.Lock()
+        self.generator = self._store(settings.signer if settings.signer in ("pkcs11", "vault-transit") else "file")
+
+    @property
+    def kind(self) -> str:
+        return getattr(self.generator, "kind", "software")
+
+    def _store(self, scheme: str):
+        with self._lock:
+            if scheme not in self._stores:
+                s = self.settings
+                if scheme == "file":
+                    self._stores[scheme] = SoftwareKeyStore(s.data_dir / "keys", s.key_passphrase)
+                elif scheme == "pkcs11":
+                    if not (s.pkcs11_lib and s.pkcs11_pin):
+                        raise RuntimeError("CERTADILLO_PKCS11_LIB and CERTADILLO_PKCS11_PIN are required for pkcs11 keys")
+                    self._stores[scheme] = Pkcs11KeyStore(s.pkcs11_lib, s.pkcs11_token, s.pkcs11_pin)
+                elif scheme == "vault-transit":
+                    from certadillo.crypto.vault_signer import VaultTransitKeyStore
+
+                    self._stores[scheme] = VaultTransitKeyStore.from_settings(s)
+                else:
+                    raise RuntimeError(f"unknown key scheme {scheme!r}")
+            return self._stores[scheme]
+
+    def generate(self, name: str, alg: str = "ec-p384"):
+        return self.generator.generate(name, alg)
+
+    def load(self, key_ref: str):
+        scheme = key_ref.split(":", 1)[0]
+        return self._store(scheme).load(key_ref)
+
+    def store_for(self, key_ref: str):
+        return self._store(key_ref.split(":", 1)[0])
+
+
 def build_keystore(settings):
-    if settings.signer == "pkcs11":
-        if not (settings.pkcs11_lib and settings.pkcs11_pin):
-            raise RuntimeError("CERTADILLO_PKCS11_LIB and CERTADILLO_PKCS11_PIN are required for the pkcs11 signer")
-        return Pkcs11KeyStore(settings.pkcs11_lib, settings.pkcs11_token, settings.pkcs11_pin)
-    return SoftwareKeyStore(settings.data_dir / "keys", settings.key_passphrase)
+    if settings.signer not in ("software", "pkcs11", "vault-transit"):
+        raise RuntimeError(f"CERTADILLO_SIGNER must be software, pkcs11 or vault-transit, not {settings.signer!r}")
+    return RoutingKeyStore(settings)

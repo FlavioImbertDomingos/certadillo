@@ -88,6 +88,32 @@ class CAService:
             raise ValueError(f"CA {parent.name} has pathlen 0 and cannot issue subordinate CAs")
         return pl
 
+    def key_health(self) -> list[dict]:
+        """For each CA: where its key lives and whether it is reachable and intact.
+        For Vault-held keys this is a live call, so an expired token, an
+        unreachable Vault, a trimmed key version, or a key someone made
+        exportable shows up here before the next signature fails."""
+        out = []
+        for ca in self.s.query(CertificateAuthority).order_by(CertificateAuthority.id):
+            backend = ca.key_ref.split(":", 1)[0]
+            row = {"ca": ca.name, "backend": backend, "key_ref": ca.key_ref, "ok": True, "problems": []}
+            try:
+                self.signer_for(ca)
+                if backend == "vault-transit":
+                    h = self.keystore.store_for(ca.key_ref).health(ca.key_ref)
+                    row["vault"] = h
+                    if not h["version_present"]:
+                        row["problems"].append(f"key version {h['version']} is no longer in Vault")
+                    if h["exportable"]:
+                        row["problems"].append("the Vault key has been made exportable")
+                    if h["deletion_allowed"]:
+                        row["problems"].append("deletion is allowed on the Vault key")
+            except Exception as exc:  # noqa: BLE001 - report every failure mode, not only Vault's
+                row["problems"].append(str(exc)[:300])
+            row["ok"] = not row["problems"]
+            out.append(row)
+        return out
+
     def _name_constraints(self) -> x509.NameConstraints | None:
         """Name constraints for new subordinate CAs, from CERTADILLO_CA_PERMITTED_DNS,
         _EXCLUDED_DNS and _PERMITTED_EMAIL. A stolen key for a constrained CA
@@ -101,7 +127,17 @@ class CAService:
         return x509.NameConstraints(permitted_subtrees=permitted or None, excluded_subtrees=excluded or None)
 
     def signer_for(self, ca: CertificateAuthority):
-        return self.keystore.load(ca.key_ref)
+        signer = self.keystore.load(ca.key_ref)
+        # The key behind key_ref must be the one in the CA certificate. For an
+        # external key (HSM, Vault) this catches a key replaced or re-created
+        # outside Certadillo before anything is signed with it.
+        spki = serialization.PublicFormat.SubjectPublicKeyInfo
+        cert_pub = x509.load_pem_x509_certificate(ca.cert_pem.encode()).public_key()
+        if signer.public_key().public_bytes(serialization.Encoding.DER, spki) != \
+                cert_pub.public_bytes(serialization.Encoding.DER, spki):
+            raise RuntimeError(f"the key behind {ca.key_ref} does not match CA {ca.name}'s certificate; "
+                               "refusing to sign")
+        return signer
 
     def _name(self, cn: str) -> x509.Name:
         return x509.Name(
