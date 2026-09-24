@@ -22,7 +22,7 @@ Then open `http://154.53.47.199:8080`, paste a key and press Connect. The knowle
 
 ## Updates
 
-Commit, then run the same command. Data, CA keys and secrets are kept; the five newest releases stay on disk for rollback.
+Commit, then run the same command. Data, CA keys and secrets are kept; the five newest releases stay on disk for rollback, and the database is dumped to `/opt/certadillo/backups/pre-<commit>.sql.gz` before each upgrade (five kept). New tables and columns are added at startup.
 
 ## Useful commands on the server
 

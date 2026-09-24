@@ -64,7 +64,7 @@ git archive --format=tar HEAD | ssh "$TARGET" "set -e
   ln -sfn '$APP_DIR/releases/$REV' '$APP_DIR/app'"
 
 echo "==> Building and starting (first build takes a few minutes)"
-ssh "$TARGET" "APP_DIR='$APP_DIR' BASE_URL='$BASE_URL' BIND='${BIND:-}' NO_BUILD='${NO_BUILD:-0}' \
+ssh "$TARGET" "APP_DIR='$APP_DIR' REV='$REV' BASE_URL='$BASE_URL' BIND='${BIND:-}' NO_BUILD='${NO_BUILD:-0}' \
   TRAEFIK_DOMAIN='$TRAEFIK_DOMAIN' TRAEFIK_NETWORK='${TRAEFIK_NETWORK:-}' TRAEFIK_CERTRESOLVER='${TRAEFIK_CERTRESOLVER:-}' bash -s" <<'REMOTE'
 set -euo pipefail
 cd "$APP_DIR"
@@ -95,6 +95,13 @@ if [ -n "$TRAEFIK_DOMAIN" ]; then
 fi
 F="-f app/deploy/server/docker-compose.yml"
 grep -q '^CERTADILLO_DOMAIN=' .env && F="$F -f app/deploy/server/docker-compose.traefik.yml"
+# back up the database before an upgrade; the five newest dumps are kept
+if docker ps --format '{{.Names}}' | grep -q '^certadillo-postgres-1$'; then
+  mkdir -p backups
+  docker exec certadillo-postgres-1 pg_dump -U certadillo certadillo | gzip > "backups/pre-$REV.sql.gz"
+  echo "database backed up to $APP_DIR/backups/pre-$REV.sql.gz"
+  ls -1t backups/pre-*.sql.gz | tail -n +6 | xargs -r rm -f
+fi
 BUILD=--build; [ "$NO_BUILD" = "1" ] && BUILD=
 docker compose $F --env-file .env -p certadillo up -d $BUILD
 for _ in $(seq 90); do curl -fsS http://127.0.0.1:8080/healthz >/dev/null 2>&1 && break; sleep 2; done
