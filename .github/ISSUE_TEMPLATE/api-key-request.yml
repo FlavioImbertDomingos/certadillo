@@ -1,0 +1,30 @@
+name: API key request
+description: Ask for an API key for the demo at certadillo.com
+title: "API key request: "
+labels: ["api-key"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Keys are sent privately by email and never posted here. Demo keys are read-only (auditor role) unless you ask for more.
+  - type: textarea
+    id: purpose
+    attributes:
+      label: What do you want to try?
+      description: For example, browse the inventory and reports, or enroll a certificate with ACME, EST or SCEP.
+    validations:
+      required: true
+  - type: dropdown
+    id: access
+    attributes:
+      label: Access
+      options:
+        - Read-only (browse, reports, audit log)
+        - Enrollment for a sandbox app (request and revoke certificates)
+    validations:
+      required: true
+  - type: input
+    id: contact
+    attributes:
+      label: Where should the key go?
+      description: An email address, or leave this empty and write to manager@pulseai.systems with this issue's number.

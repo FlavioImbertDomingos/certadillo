@@ -2,11 +2,19 @@
 
 # Certadillo
 
-Certadillo is an open source PKI and certificate lifecycle platform for regulated shops. It runs an internal CA hierarchy, enrolls certificates over REST, ACME, EST and SSH, keeps an inventory of every certificate it issued or found on the network, and tells the owning team before anything expires. Dilly, the armadillo on top, rolls into a ball when something is critical.
+Certadillo is an open source PKI and certificate lifecycle platform for regulated shops. It runs an internal CA hierarchy, enrolls certificates over REST, ACME, EST, SCEP and SSH, keeps an inventory of every certificate it issued or found on the network, and tells the owning team before anything expires. Dilly, the armadillo on top, rolls into a ball when something is critical.
 
 It was built as a reference implementation of what a bank's certificate management service needs: one registration authority in front of every protocol, dual control on sensitive operations, CA keys in an HSM, a tamper-evident audit trail, and reports an auditor can use (PCI DSS v4.0 4.2.1.1 inventory, a CycloneDX crypto bill of materials).
 
 ![Console overview](docs/screenshots/ui-overview.png)
+
+## Try it
+
+- Live demo: [certadillo.com](https://certadillo.com), loaded with demo teams, apps, certificates, a few weak legacy certificates and the alerts they raise.
+- Documentation and 3D protocol walkthroughs: [certadillo.com/kb](https://certadillo.com/kb/)
+- API reference (OpenAPI): [certadillo.com/docs](https://certadillo.com/docs)
+
+The console and the API need an API key. To get one, [open an issue](https://github.com/FlavioImbertDomingos/certadillo/issues/new?template=api-key-request.yml) saying what you want to try. Keys are sent privately by email, never posted in the issue, so either leave an address in the issue or write to manager@pulseai.systems with the issue number. Demo keys are read-only unless you ask for more.
 
 ## What works today
 
@@ -107,7 +115,7 @@ docs/            architecture, runbook, security model, HSM guide, roadmap, stan
 ## Documentation
 
 - [User guide](docs/guide/README.md): onboarding and every protocol with copy-paste examples
-- Knowledge base with interactive 3D protocol walkthroughs (ACME, EST and SCEP, OCSP and CRL, platform tour): served at `/kb` by the running server; rebuild it with `python scripts/build_kb.py`
+- [Knowledge base](https://certadillo.com/kb/) with interactive 3D protocol walkthroughs (ACME, EST and SCEP, OCSP and CRL, platform tour): also served at `/kb` by any running server; rebuild it with `python scripts/build_kb.py`
 
 ![3D SCEP walkthrough in the knowledge base](docs/screenshots/kb-scep-3d.png)
 - [Architecture](docs/ARCHITECTURE.md): modules, trust model, request flow, deployment topology
