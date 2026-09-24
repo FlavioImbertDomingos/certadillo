@@ -16,12 +16,14 @@ flowchart LR
   subgraph Clients
     A1[certbot / cert-manager / lego<br/>ACME]
     A2[ATMs, network gear, MDM<br/>EST, SCEP]
+    A6[Telecom and OT devices<br/>CMP]
     A3[Ansible, PowerShell,<br/>CLI, CI pipelines<br/>REST]
     A4[Operators<br/>web console]
     A5[Workloads<br/>SPIFFE SVIDs]
   end
   subgraph Certadillo
-    E[Enrollment front ends<br/>acme.py, est.py, scep.py, REST v1]
+    E[Enrollment front ends<br/>acme.py, est.py, scep.py, cmp.py, REST v1]
+    ARI[Renewal campaigns<br/>ari.py]
     RA[RA service layer<br/>services.py]
     P[Policy engine<br/>default_policies.yaml]
     DC[Dual control<br/>approvals]
@@ -39,7 +41,8 @@ flowchart LR
   DB[(PostgreSQL)]
   PR[Prometheus] --> AM[Alertmanager] --> OC[PagerDuty / Slack /<br/>ServiceNow]
   G[Grafana] --> PR
-  A1 & A2 & A3 & A4 & A5 --> E --> RA
+  A1 & A2 & A3 & A4 & A5 & A6 --> E --> RA
+  ARI --> E
   RA --> P
   RA --> DC
   RA --> CA --> BK
@@ -54,11 +57,11 @@ flowchart LR
 
 ## Request flow: issuing a certificate
 
-1. The client authenticates. Apps use an API key minted at onboarding (REST, EST via HTTP Basic), an ACME account bound to the app through a single-use External Account Binding credential, or a one-time SCEP challenge password minted for the app. Humans use role-scoped keys (admin, approver, operator, auditor); OIDC is on the roadmap.
-2. The front end parses the protocol message and calls `Platform.request_certificate()`. Nothing else signs.
+1. The client authenticates. Apps use an API key minted at onboarding (REST, EST via HTTP Basic), an ACME account bound to the app through a single-use External Account Binding credential, a one-time SCEP challenge (or one an MDM issued, checked by a webhook), a one-time CMP secret, a manufacturer certificate from a CA registered for the app (EST), or a current certificate issued here (EST re-enrollment, SCEP RenewalReq, CMP). Humans use role-scoped keys (admin, approver, operator, auditor); OIDC is on the roadmap.
+2. The front end parses the protocol message and calls `Platform.request_certificate()`, with a PKCS#10 CSR or, for CMP, a CRMF template whose proof of possession it has already checked (`TemplateRequest`). Nothing else signs.
 3. The RA checks the app is active and that the requested profile is the one it was onboarded for.
 4. The policy engine evaluates the CSR: proof of possession, key algorithm and size, every SAN against the app's approved scope, wildcard rules, SPIFFE trust domain, validity caps, and on renewal that the key changed.
-5. If the profile needs dual control (code signing), the request becomes an approval. A different principal with the approver role must approve it before anything is signed.
+5. If the profile needs dual control (code signing), the request becomes an approval. A different principal with the approver role must approve it before anything is signed. Protocols that can wait tell the client to come back: EST answers 202, SCEP PENDING, CMP `waiting` with `pollRep`.
 6. The CA service builds the certificate (AIA with OCSP and caIssuers, CDP, SKI/AKI, profile EKUs) and hands the to-be-signed bytes to the signer. For HSM keys the builder signs with a throwaway key of the same algorithm, the real signature is computed on the HSM over the TBS bytes, and the DER is rebuilt (`crypto/der.py`). The result is verified in tests against both EC and RSA keys and against SoftHSM2.
 7. The certificate row and its audit event are committed in one transaction, then metrics are updated. Policy rejections, including ACME orders outside the app's scope, are audited too.
 
@@ -121,7 +124,7 @@ Clients ───▶ │ LB (mTLS for EST) ─▶ Certadillo API ×N │── P
 Offline root: air-gapped HSM, used in ceremonies only.
 ```
 
-The API is stateless apart from the database, so it scales horizontally. The housekeeping loop (CRL publishing and alert evaluation) should run on one replica; set `CERTADILLO_ALERT_INTERVAL` high on the others or run `certadillo alerts run` as a Kubernetes CronJob. Leader election is on the roadmap.
+The API is stateless apart from the database, so it scales horizontally. The housekeeping loop (CRL publishing, ACME and CMP cleanup, alert evaluation) should run on one replica; set `CERTADILLO_ALERT_INTERVAL` high on the others or run `certadillo alerts run` as a Kubernetes CronJob. Leader election is on the roadmap.
 
 ## Extension points
 

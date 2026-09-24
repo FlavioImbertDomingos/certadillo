@@ -2,7 +2,7 @@
 
 ## Policy rules
 
-A rejected request returns every rule that failed (REST: `422`, EST: `400` with the text, ACME: `badCSR` or `rejectedIdentifier`, SCEP: a FAILURE CertRep plus an audit event). Each rejection is also written to the audit trail as `certificate.rejected`.
+A rejected request returns every rule that failed (REST: `422`, EST: `400` with the text, ACME: `badCSR` or `rejectedIdentifier`, SCEP: a FAILURE CertRep plus an audit event, CMP: a rejection with the rules in the status text). Each rejection is also written to the audit trail as `certificate.rejected`.
 
 | Rule | What it means | Fix |
 | --- | --- | --- |
@@ -39,7 +39,17 @@ A rejected request returns every rule that failed (REST: `422`, EST: `400` with 
 
 **ACME `externalAccountRequired`.** Register with `--eab-kid` and `--eab-hmac-key` from `POST /api/v1/apps/{id}/acme-eab`. Each EAB works once.
 
-**ACME challenge stays `invalid`.** Certadillo fetches `http://<name>/.well-known/acme-challenge/<token>` from where it runs. Check DNS and firewalls from the Certadillo host, or use `CERTADILLO_ACME_CHALLENGE=ra-scope` for internal-only names.
+**ACME http-01 stays `invalid`.** Certadillo fetches `http://<name>/.well-known/acme-challenge/<token>` from where it runs. Check DNS and firewalls from the Certadillo host, switch the client to dns-01, or use `CERTADILLO_ACME_CHALLENGE=ra-scope` for internal-only names.
+
+**ACME dns-01 stays `invalid`.** The challenge error names the record and the DNS view that answered. `does not exist in the default view` usually means the zone is internal and has no entry in `CERTADILLO_ACME_DNS_VIEWS`. `no TXT record ... matches` means the record is missing, stale, or was written to a different view than the one Certadillo asks; query that view's resolver with `dig TXT _acme-challenge.<name>`.
+
+**ACME `alreadyReplaced`.** The order's `replaces` names a certificate that was already renewed, or another open order is renewing it. Drop `replaces`, or finish the other order.
+
+**A client does not renew during a campaign.** It checks ARI again only after `Retry-After` (up to 6 hours) and on its own schedule. See [how long clients take to notice](19-renewal-campaigns.md#how-long-clients-take-to-notice).
+
+**EST 401 with a client certificate.** The header from the load balancer was ignored: the request lacked `X-Certadillo-Proxy-Auth` or did not come from `CERTADILLO_EST_TRUSTED_PROXIES`, or the certificate is revoked, superseded, expired, or from an issuer that is not registered. The log line `client certificate header ignored` means the first case.
+
+**CMP `signerNotTrusted`.** For a MAC-protected message the reference is unknown, used or expired; mint a new secret. For a signed one, the certificate is not current (after `kur`, sign with the new one).
 
 **SCEP FAILURE with `badRequest`.** Read the reason in the audit trail; the [SCEP page](07-scep.md#troubleshooting) lists the usual ones.
 

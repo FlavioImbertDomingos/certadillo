@@ -31,12 +31,14 @@ PAGES = [
     ("onboarding", "guide/03-onboarding.md", "Start", "Onboarding", None),
     ("rest", "guide/04-rest-api.md", "Protocols", "REST API and CLI", None),
     ("acme", "guide/05-acme.md", "Protocols", "ACME", "acme"),
-    ("est", "guide/06-est.md", "Protocols", "EST", "devices"),
+    ("est", "guide/06-est.md", "Protocols", "EST", "estlb"),
     ("scep", "guide/07-scep.md", "Protocols", "SCEP", "devices"),
+    ("cmp", "guide/18-cmp.md", "Protocols", "CMP", "cmp"),
     ("ssh", "guide/08-ssh.md", "Protocols", "SSH certificates", None),
     ("spiffe", "guide/09-workload-identity.md", "Protocols", "Workload identity", None),
     ("code-signing", "guide/10-code-signing-smime.md", "Protocols", "Code signing and S/MIME", None),
     ("revocation", "guide/11-revocation.md", "Operate", "Revocation: OCSP and CRL", "revocation"),
+    ("campaigns", "guide/19-renewal-campaigns.md", "Operate", "Renewal campaigns (ARI)", "ari"),
     ("discovery", "guide/12-discovery-inventory.md", "Operate", "Discovery and inventory", None),
     ("alerting", "guide/13-alerting-observability.md", "Operate", "Alerting and observability", None),
     ("automation", "guide/14-automation.md", "Operate", "Automation", None),
@@ -45,7 +47,10 @@ PAGES = [
     ("troubleshooting", "guide/17-troubleshooting.md", "Operate", "Troubleshooting", None),
     ("tour-platform", None, "3D walkthroughs", "Platform tour", "platform"),
     ("tour-acme", None, "3D walkthroughs", "ACME end to end", "acme"),
+    ("tour-ari", None, "3D walkthroughs", "dns-01 and a renewal campaign", "ari"),
     ("tour-devices", None, "3D walkthroughs", "EST and SCEP devices", "devices"),
+    ("tour-estlb", None, "3D walkthroughs", "EST behind a load balancer", "estlb"),
+    ("tour-cmp", None, "3D walkthroughs", "CMP for industrial devices", "cmp"),
     ("tour-revocation", None, "3D walkthroughs", "OCSP and CRL", "revocation"),
     ("architecture", "ARCHITECTURE.md", "Reference", "Architecture", None),
     ("security", "SECURITY.md", "Reference", "Security model", None),
@@ -64,10 +69,22 @@ TOURS = {
                   "certbot against Certadillo, from the EAB credential to the downloaded chain, including what an "
                   "out-of-scope order looks like. Every payload is what the real endpoints send.",
                   "acme"),
+    "tour-ari": ("dns-01 and a renewal campaign",
+                 "A wildcard proven through the internal DNS view, then a suspected key exposure: ARI moves every "
+                 "renewal window forward, clients replace their certificates, and only then are the old ones revoked.",
+                 "campaigns"),
     "tour-devices": ("EST and SCEP devices",
                      "An ATM enrolling over EST and a branch router over SCEP, with the one-time challenge, the "
-                     "encrypted envelopes and a replay attempt that fails.",
+                     "encrypted envelopes, a replay that fails, renewal and a request that waits for an approver.",
                      "scep"),
+    "tour-estlb": ("EST behind a load balancer",
+                   "A router bootstraps with its factory certificate through nginx, re-enrolls with the certificate "
+                   "alone, and a forged header gets nowhere. Plus a sensor that has its key made for it.",
+                   "est"),
+    "tour-cmp": ("CMP for industrial devices",
+                 "A PLC enrolls with a one-time secret, confirms, updates its key, waits for an approver for a "
+                 "firmware-signing certificate, and revokes one of its own certificates.",
+                 "cmp"),
     "tour-revocation": ("OCSP and CRL",
                         "A key leaks, the certificate is revoked, and both revocation paths tell relying parties within "
                         "the same request. Then the housekeeping that keeps them fresh.",
@@ -117,7 +134,9 @@ def home_html(pages: list[dict]) -> str:
              ("onboarding", "Onboard an app", "Team, scope, approval, credentials"),
              ("acme", "ACME", "certbot, cert-manager, lego"),
              ("scep", "SCEP", "Intune, routers, one-time challenges"),
-             ("est", "EST", "ATMs and appliances"),
+             ("est", "EST", "ATMs, appliances, IDevID bootstrap"),
+             ("cmp", "CMP", "Telecom and industrial gear"),
+             ("campaigns", "Renewal campaigns", "Replace first, revoke second"),
              ("ssh", "SSH certificates", "Short-lived access, no authorized_keys"),
              ("revocation", "Revocation", "OCSP and CRL"),
              ("troubleshooting", "Troubleshooting", "Every policy error explained")]
@@ -126,7 +145,7 @@ def home_html(pages: list[dict]) -> str:
         '<article class="kb-page"><div class="kb-hero"><img src="img/dilly.svg" alt="Dilly, the Certadillo armadillo">'
         '<div class="kb-prose"><div class="kb-eyebrow">Certadillo knowledge base</div>'
         "<h1>Certificates for every client, one set of rules</h1>"
-        "<p>How to onboard an application, get certificates over REST, ACME, EST, SCEP and SSH, revoke them, and "
+        "<p>How to onboard an application, get certificates over REST, ACME, EST, SCEP, CMP and SSH, revoke them, and "
         "run the platform. The 3D walkthroughs show each protocol message by message, with the real payloads.</p>"
         "</div></div>"
         '<div class="kb-prose"><h2 style="border:0;margin-top:0">3D walkthroughs</h2></div>'

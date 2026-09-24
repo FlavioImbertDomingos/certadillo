@@ -88,8 +88,16 @@ All settings are environment variables.
 | `CERTADILLO_BOOTSTRAP_ADMIN_KEY` / `_APPROVER_KEY` | | first principals |
 | `CERTADILLO_AUTO_INIT_CA` | `true` | create the hierarchy on first start |
 | `CERTADILLO_DUAL_CONTROL` | `onboard_prod_app` | settings-driven maker-checker actions |
-| `CERTADILLO_ACME_CHALLENGE` | `http-01` | or `ra-scope` |
+| `CERTADILLO_ACME_CHALLENGE` | `http-01` | `http-01` offers http-01 and dns-01; `ra-scope` skips the network check |
+| `CERTADILLO_ACME_DNS_VIEWS` | | split-horizon resolvers per zone, `zone=ip[:port],...;zone=...` |
+| `CERTADILLO_ACME_DNS_RESOLVERS` | host resolv.conf | resolvers for names in no view |
+| `CERTADILLO_ACME_DNS_TIMEOUT` | `8` | seconds per dns-01 lookup |
+| `CERTADILLO_ARI_RETRY_AFTER` | `21600` | seconds ACME clients wait between ARI checks |
 | `CERTADILLO_SCEP_ALLOW_DES` | `false` | accept single-DES SCEP envelopes |
+| `CERTADILLO_SCEP_VALIDATION_URL` / `_TOKEN` | | validation webhook for apps with `scep_validation: webhook` |
+| `CERTADILLO_EST_CLIENT_CERT_HEADER` | | header carrying the client certificate from the load balancer |
+| `CERTADILLO_EST_PROXY_SECRET` | | shared secret the load balancer sends as `X-Certadillo-Proxy-Auth` |
+| `CERTADILLO_EST_TRUSTED_PROXIES` | | or: CIDRs the load balancer connects from |
 | `CERTADILLO_CRL_INTERVAL_HOURS` | `12` | CRL re-signing interval |
 | `CERTADILLO_ALERT_INTERVAL` | `300` | seconds between housekeeping runs |
 | `CERTADILLO_EXPIRY_WARNING_DAYS` / `_CRITICAL_DAYS` | `30` / `7` | caps for the lifetime-scaled thresholds |
@@ -97,6 +105,22 @@ All settings are environment variables.
 | `CERTADILLO_JIRA_URL` / `_USER` / `_TOKEN` / `_PROJECT` | project `PKI` | Jira issues for critical alerts |
 | `CERTADILLO_SNOW_URL` / `_USER` / `_PASSWORD` / `_ASSIGNMENT_GROUP` | group `PKI Operations` | ServiceNow incidents |
 | `CERTADILLO_RUNBOOK_URL` | GitHub runbook | base URL for alert runbook links |
+
+## Per-app protocol settings
+
+Some protocol behaviour is set per app, not globally:
+
+| Setting | How | Page |
+| --- | --- | --- |
+| SCEP challenges from an MDM | `PUT /api/v1/apps/{id}/options` with `{"scep_validation": "webhook"}` | [SCEP](07-scep.md) |
+| Manufacturer (IDevID) CAs for EST | `POST /api/v1/apps/{id}/est-trust-anchors` (approval for prod apps) | [EST](06-est.md) |
+| One-time CMP secrets | `POST /api/v1/apps/{id}/cmp-secret` | [CMP](18-cmp.md) |
+| One-time SCEP challenges | `POST /api/v1/apps/{id}/scep-challenge` | [SCEP](07-scep.md) |
+| ACME account credentials | `POST /api/v1/apps/{id}/acme-eab` | [ACME](05-acme.md) |
+
+## Database upgrades
+
+On start, Certadillo creates missing tables and adds missing nullable columns to existing ones, so moving to a newer version needs no manual migration for additive changes. Anything else will come with a migration and a note in the release.
 
 ## Audit
 

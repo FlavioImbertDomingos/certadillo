@@ -181,7 +181,9 @@ def cert_request(server, api_key, cn, san, spiffe_id, key_type, days, out):
 @click.option("--fraction", default=0.33, help="renew when less than this share of lifetime remains")
 @click.option("--force", is_flag=True)
 def cert_renew(server, api_key, directory, fraction, force):
-    """Renew with a new key once the certificate passes 2/3 of its lifetime."""
+    """Renew with a new key once the certificate passes 2/3 of its lifetime,
+    or earlier when the server's renewal window (ARI) says so, e.g. during a
+    renewal campaign."""
     from cryptography import x509
 
     meta = json.loads((directory / "meta.json").read_text())
@@ -189,7 +191,16 @@ def cert_renew(server, api_key, directory, fraction, force):
     now = datetime.now(timezone.utc)
     life = current.not_valid_after_utc - current.not_valid_before_utc
     left = current.not_valid_after_utc - now
-    if not force and left > life * fraction:
+    server_says = False
+    try:
+        info = _client(server, api_key).get(f"/api/v1/certificates/{meta['id']}/renewal-info")
+        if info.status_code == 200 and info.json().get("renew_now"):
+            server_says = True
+            why = info.json().get("explanation_url")
+            click.echo("the server asks for renewal now" + (f": {why}" if why else ""))
+    except Exception:  # noqa: BLE001, S110 - an older server or a network blip: fall back to the lifetime rule
+        pass
+    if not force and not server_says and left > life * fraction:
         click.echo(f"not due: {left.days}d left of {life.days}d")
         return
     cn_attr = current.subject.get_attributes_for_oid(x509.NameOID.COMMON_NAME)

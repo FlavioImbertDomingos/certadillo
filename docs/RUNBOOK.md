@@ -82,9 +82,23 @@ Run with at least two custodians and an auditor, on an offline machine with the 
 5. Sign an initial root CRL (30 days) and schedule the next CRL ceremony before it expires.
 6. Store the root HSM and backups in separate safes.
 
+## RenewalCampaignOverdue
+
+A renewal campaign passed its deadline with certificates that were not replaced. The alert names the teams.
+
+1. `GET /api/v1/renewal-campaigns/{id}` lists the remaining certificates with app, team, protocol and expiry.
+2. Ask each team why their client did not renew. Usual causes: the client does not check ARI (renew by hand or with `certadillo cert renew-if-due`), it has not checked yet (`Retry-After` up to 6 hours plus its own schedule), or its renewals fail policy (look for `certificate.rejected` in the audit trail).
+3. Decide with the incident owner: extend by starting a new campaign for the remainder with a later deadline, or accept the outage risk and request the cutoff with `revoke-remaining` (a second person approves it).
+
 ## Mass revocation after a key compromise
 
-1. Identify the scope: all certificates of an app (`GET /api/v1/certificates?app_id=N&status=active`) or of a CA.
-2. Revoke with `reason=key_compromise` (no change ticket required for this reason). OCSP reflects it at once; a new CRL is published on every revoke.
-3. Push new certificates through the app's automation, forcing a new key.
-4. If an issuing CA key is compromised: stop issuance, revoke the CA at the root (ceremony), stand up a new issuing CA, reissue everything. Budget for this in advance; it is why leaf lifetimes are short.
+Revoking first takes every affected service down until someone installs a new certificate. When time allows, replace first and revoke second:
+
+1. **Scope it.** All certificates of an app, a profile, a CA, a key type, or a list of serials. Try the criteria with a short campaign on a test app first if unsure.
+2. **Start a renewal campaign** with those criteria (`POST /api/v1/renewal-campaigns`), a deadline, an `explanation_url` for the teams, and `revocation_reason: key_compromise`. For a confirmed compromise use `"immediate": true` so ACME clients renew on their next check. See [Renewal campaigns](guide/19-renewal-campaigns.md).
+3. **Tell the owners.** The campaign status lists teams per certificate; non-ACME clients need their owners to renew (EST re-enroll, SCEP RenewalReq, CMP kur, REST renew, or the CLI/Ansible, which follow the ARI window).
+4. **Revoke as replacements land.** `revoke-replaced` revokes every certificate that already has a successor; run it as often as you like. OCSP answers at once and the CRL is re-signed on every call.
+5. **Cut off at the deadline.** `revoke-remaining` needs a second person. `RenewalCampaignOverdue` fires until the campaign is done or closed.
+6. **If an issuing CA key is compromised:** stop issuance from it, stand up a new issuing CA (dual control), run the campaign with `"ca": "<old CA>"` so everything is reissued from the new one, then revoke the old CA at the root (ceremony). Budget for this in advance; it is why leaf lifetimes are short.
+
+When there is no time at all (a key is being used by an attacker right now), revoke immediately with `reason=key_compromise` (no change ticket needed) and accept the outage; start the campaign in parallel so the owners have a clear list.

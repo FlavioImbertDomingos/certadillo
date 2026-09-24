@@ -40,8 +40,18 @@ jobs:
       - run: pip install -e . certbot
       - name: certbot http-01 -> issue, verify, OCSP, revoke, CRL
         run: sudo -E env "PATH=$PATH" bash scripts/interop-certbot.sh
-      - name: micromdm scepclient -> SCEP issue, challenge reuse and scope checks
+      - name: micromdm scepclient -> SCEP issue, challenge reuse, scope checks, PENDING and polling
         run: PORT=8081 bash scripts/interop-scep.sh
+      - name: certbot dns-01 wildcard, ARI-driven renewal, unregister
+        run: PORT=8082 bash scripts/interop-acme-dns.sh
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+      - name: GlobalSign estclient through nginx -> enroll, re-enroll by certificate, serverkeygen, IDevID
+        run: |
+          sudo apt-get install -y nginx
+          go install github.com/globalsign/est/cmd/estclient@latest
+          sudo -E env "PATH=$PATH:$(go env GOPATH)/bin" PORT=8083 bash scripts/interop-est.sh
 
   image:
     runs-on: ubuntu-latest

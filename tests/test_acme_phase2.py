@@ -437,3 +437,36 @@ def test_old_database_gets_new_columns(tmp_path):
     db.init_db(f"sqlite:///{path}")
     cols = {r[1] for r in sqlite3.connect(path).execute("PRAGMA table_info(acme_authz)")}
     assert {"wildcard", "challenge_type", "error"} <= cols
+
+
+def test_cli_renews_when_a_campaign_asks(client, monkeypatch, tmp_path):
+    from click.testing import CliRunner
+
+    from certadillo import cli
+
+    class Wrap:  # the CLI's httpx client, routed to the in-process test app
+        def __init__(self, key):
+            self.h = {"X-API-Key": key}
+
+        def get(self, path, **kw):
+            return client.get(path, headers=self.h, **kw)
+
+        def post(self, path, **kw):
+            return client.post(path, headers=self.h, **kw)
+
+    monkeypatch.setattr(cli, "_client", lambda server, key: Wrap(key))
+    app_id, h = onboard(client, "batch-jobs", profile="tls-client", domains=["*.batch.bank.internal"])
+    key = h["X-API-Key"]
+    run = CliRunner()
+    r = run.invoke(cli.main, ["cert", "request", "--server", "x", "--api-key", key, "--cn", "job1.batch.bank.internal",
+                              "--out", str(tmp_path)])
+    assert r.exit_code == 0, r.output
+    r = run.invoke(cli.main, ["cert", "renew-if-due", "--server", "x", "--api-key", key, "--dir", str(tmp_path)])
+    assert "not due" in r.output
+    client.post("/api/v1/renewal-campaigns", headers=ADMIN, json={
+        "name": "batch rotation", "reason": "retire batch keys", "criteria": {"app_ids": [app_id]},
+        "renew_within_hours": 12, "explanation_url": "https://status.bank.example/pki"})
+    r = run.invoke(cli.main, ["cert", "renew-if-due", "--server", "x", "--api-key", key, "--dir", str(tmp_path)])
+    assert "asks for renewal now: https://status.bank.example/pki" in r.output, r.output
+    rows = client.get("/api/v1/certificates", headers=ADMIN).json()
+    assert sorted(c["status"] for c in rows if c["app_id"] == app_id) == ["active", "superseded"]

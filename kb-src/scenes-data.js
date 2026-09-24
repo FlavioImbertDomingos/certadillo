@@ -267,6 +267,30 @@
           { from: "scep", to: "db", label: "audit: rejected", kind: "reject", effect: "store" },
           { from: "scep", to: "router", label: "FAILURE badRequest", kind: "reject" }
         ]
+      },
+      {
+        phase: "SCEP", title: "Renewal signed by the current certificate",
+        body: "Before expiry the router sends RenewalReq (messageType 17), signed with its current certificate instead of a throwaway one. No challenge is needed: the signature is the authentication. The name must stay the same, the key must be new, and the old certificate is superseded.",
+        payload: "GetCACaps: POSTPKIOperation Renewal SHA-256 SHA-512 AES SCEPStandard\n\nPKIOperation SignedData (signed by CN=rtr-0042, issued by issuing-ca-1) {\n  messageType=17 (RenewalReq), content: EnvelopedData(CSR, new key) -> RA }\n-> CertRep SUCCESS   old serial: superseded",
+        moves: [
+          { from: "router", to: "scep", label: "RenewalReq", sub: "signed by current cert", kind: "secret" },
+          { from: "scep", to: "ra", label: "current cert + same name", effect: "check", dilly: "happy" },
+          { from: "ra", to: "ca", label: "sign", effect: "sign" },
+          { from: "scep", to: "router", label: "CertRep SUCCESS", kind: "secret" }
+        ]
+      },
+      {
+        phase: "SCEP", title: "PENDING until a second person approves",
+        body: "For a profile under dual control the first answer is PENDING. The device polls with CertPoll (or, like micromdm scepclient, by sending the same request again). Only the key that made the request gets the answer, once an approver has decided.",
+        payload: "CertRep {pkiStatus=3 (PENDING)}          approval #58 created\n... 30 s ...\nCertPoll {messageType=20, transactionID=<same>}   -> PENDING\nPOST /api/v1/approvals/58/approve   (approver)\nCertPoll -> CertRep {pkiStatus=0 (SUCCESS)} + certificate",
+        moves: [
+          { from: "router", to: "scep", label: "PKCSReq (dual control)", kind: "secret" },
+          { from: "scep", to: "db", label: "approval #58", kind: "response", effect: "store", dilly: "worried" },
+          { from: "scep", to: "router", label: "PENDING", kind: "response" },
+          { from: "mdm", to: "ra", label: "approver: approve", effect: "check" },
+          { from: "router", to: "scep", label: "CertPoll" },
+          { from: "scep", to: "router", label: "SUCCESS + certificate", kind: "secret", dilly: "happy" }
+        ]
       }
     ]
   });
@@ -477,6 +501,337 @@
         moves: [
           { from: "prom", to: "db", label: "scrape /metrics" },
           { from: "db", to: "prom", label: "gauges by team", kind: "response", effect: "check" }
+        ]
+      }
+    ]
+  });
+
+  // ------------------------------------------------------------------ dns-01 + ARI
+  S.register({
+    id: "ari",
+    title: "dns-01, wildcards and a renewal campaign (ARI)",
+    dilly: "ra",
+    chainAt: "db",
+    chainOffset: [1.2, 0.2],
+    camera: { theta: 0.3, phi: 1.1, radius: 21.0 },
+    actors: [
+      { id: "operator", kind: "person", label: "PKI operator", sub: "runs the campaign", x: -1.6, z: 7.0 },
+      { id: "client", kind: "laptop", label: "ACME client", sub: "cert-manager, lego, certbot", x: -7.0, z: 2.2, anchorY: 0.8 },
+      { id: "dnsint", kind: "globe", label: "Internal DNS", sub: "bank.internal view", x: -6.2, z: -3.8, anchorY: 0.9 },
+      { id: "dnspub", kind: "cloud", label: "Public DNS", sub: "never asked for .internal", x: -2.2, z: -7.0, anchorY: 0.9, labelY: 1.9 },
+      { id: "acme", kind: "gateway", label: "Certadillo ACME", sub: "/acme/*", x: -0.8, z: 0.4, anchorY: 1.5 },
+      { id: "ra", kind: "shield", label: "RA + policy", sub: "tls-wildcard profile", x: 3.4, z: -4.0, anchorY: 1.2 },
+      { id: "ca", kind: "ca", label: "Issuing CA", sub: "issuing-ca-1", x: 7.0, z: -0.8, anchorY: 1.6, labelY: 3.0 },
+      { id: "db", kind: "db", label: "Inventory + audit", sub: "campaign state", x: 2.4, z: 5.6, anchorY: 1.1 },
+      { id: "alerts", kind: "bell", label: "Alerting", sub: "routed to the owning team", x: 6.8, z: 4.2, anchorY: 1.0, labelY: 2.0 }
+    ],
+    steps: [
+      {
+        phase: "Order", title: "Order a wildcard",
+        body: "The app portal-edge is onboarded with the tls-wildcard profile and the scope *.portal.bank.internal. Its ACME client orders *.edge.portal.bank.internal. Any other profile would refuse the wildcard at newOrder, before a challenge exists.",
+        payload: "POST /acme/new-order\npayload: {\"identifiers\":[\n  {\"type\":\"dns\",\"value\":\"*.edge.portal.bank.internal\"},\n  {\"type\":\"dns\",\"value\":\"edge.portal.bank.internal\"}]}\n\n201 Created\n{\"status\":\"pending\",\"authorizations\":[\".../authz/21\",\".../authz/22\"], ...}",
+        moves: [
+          { from: "client", to: "acme", label: "POST /new-order", sub: "*.edge.portal" },
+          { from: "acme", to: "ra", label: "scope + allow_wildcard", effect: "check", dilly: "happy" },
+          { from: "acme", to: "client", label: "order: pending", kind: "response" }
+        ]
+      },
+      {
+        phase: "Challenge", title: "A wildcard gets dns-01 only",
+        body: "RFC 8555 lets a wildcard be proven only through DNS, so its authorization offers dns-01 alone. The authorization names the base domain and carries wildcard: true. The plain name gets both http-01 and dns-01.",
+        payload: "POST /acme/authz/21   (POST-as-GET)\n\n{\"status\":\"pending\",\n \"identifier\":{\"type\":\"dns\",\"value\":\"edge.portal.bank.internal\"},\n \"wildcard\":true,\n \"challenges\":[{\"type\":\"dns-01\",\n   \"url\":\".../acme/chall/21/dns-01\",\n   \"token\":\"Xk8tZq3R0vE2aHn7YcLw5pUdGf4sJm1bQy9oTi6rVxE\"}]}",
+        moves: [
+          { from: "client", to: "acme", label: "POST /authz/21" },
+          { from: "acme", to: "client", label: "dns-01 token", kind: "response" }
+        ]
+      },
+      {
+        phase: "Challenge", title: "Publish the TXT record",
+        body: "The client writes base64url(SHA-256(token.thumbprint)) at _acme-challenge. Many teams CNAME that name into a small zone their automation may write; Certadillo follows the CNAME.",
+        payload: "_acme-challenge.edge.portal.bank.internal. 60 IN TXT \"qZ0m4Wv1cN8yR2kP6tB3xH9sJ7eL5aD0fU2gQ8iO4rE\"\n\n; or delegated:\n_acme-challenge.edge.portal.bank.internal. CNAME edge.acme-delegate.portal.bank.internal.",
+        moves: [
+          { from: "client", to: "dnsint", label: "TXT via DNS API", kind: "secret" }
+        ]
+      },
+      {
+        phase: "Challenge", title: "Validate through the internal view",
+        body: "CERTADILLO_ACME_DNS_VIEWS maps zones to resolvers. portal.bank.internal is answered by the internal resolvers; the public resolvers are never asked about it, and would not know the zone anyway. The longest matching zone wins, and the answer names the view that answered.",
+        payload: "CERTADILLO_ACME_DNS_VIEWS=\"bank.internal=10.1.0.53,10.2.0.53;portal.bank.internal=10.9.0.53\"\n\ndig @10.9.0.53 TXT _acme-challenge.edge.portal.bank.internal\n-> \"qZ0m4Wv1cN8yR2kP6tB3xH9sJ7eL5aD0fU2gQ8iO4rE\"   (matches)\n\n{\"type\":\"dns-01\",\"status\":\"valid\",\"validated\":\"2026-09-24T04:10:13Z\"}",
+        moves: [
+          { from: "client", to: "acme", label: "POST /chall/21/dns-01" },
+          { from: "acme", to: "dnsint", label: "TXT _acme-challenge.edge..." },
+          { from: "dnsint", to: "acme", label: "digest matches", kind: "response", effect: "check" }
+        ]
+      },
+      {
+        phase: "Issue", title: "Finalize and issue",
+        body: "The CSR carries both names. Policy checks the key, the scope and the profile, and the CA signs. The client now holds a 30-day wildcard.",
+        payload: "POST /acme/order/9/finalize   {\"csr\": \"MIIBTzCB9wIBADAmMSQwIgYDVQQDDBsqLmVkZ2UucG9y...\"}\n\nSAN: *.edge.portal.bank.internal, edge.portal.bank.internal\nprofile tls-wildcard · 30 days · P-256",
+        moves: [
+          { from: "client", to: "acme", label: "POST /finalize" },
+          { from: "acme", to: "ra", label: "policy", effect: "check" },
+          { from: "ra", to: "ca", label: "sign", effect: "sign" },
+          { from: "ca", to: "db", label: "store + audit", kind: "response", effect: "store" }
+        ]
+      },
+      {
+        phase: "ARI", title: "The client asks when to renew",
+        body: "The directory advertises renewalInfo (RFC 9773). The client asks with the certificate's CertID, built from the issuer's key identifier and the serial. Normally the window sits at 50 to 60 percent of the lifetime, before the platform's own expiry warning, and the client picks a random moment inside it.",
+        payload: "GET /acme/renewal-info/kBXWiC6ES11xBWj1ZleSver1klM.WhBfketKLIVSfmI5ps5e1Ht5sE4\n\n200 OK\nRetry-After: 21600\n{\"suggestedWindow\":{\"start\":\"2026-10-09T04:10:13Z\",\n                    \"end\":  \"2026-10-12T04:10:13Z\"}}",
+        moves: [
+          { from: "client", to: "acme", label: "GET /renewal-info/<CertID>" },
+          { from: "acme", to: "client", label: "window: day 15 to 18", kind: "response" }
+        ]
+      },
+      {
+        phase: "Campaign", title: "Something is wrong with a batch",
+        body: "A build host that held keys for these certificates is suspected of compromise. The operator starts a renewal campaign for the affected serials instead of revoking straight away: revoking first would take the services down.",
+        payload: "POST /api/v1/renewal-campaigns\n{\"name\": \"rotate portal-edge\",\n \"reason\": \"suspected key exposure on build host bh-12\",\n \"criteria\": {\"app_ids\": [4]},\n \"renew_within_hours\": 24,\n \"explanation_url\": \"https://status.bank.example/pki/2026-09\"}\n\n201 {\"id\": 3, \"counts\": {\"total\": 14, \"replaced\": 0, \"remaining\": 14}}",
+        moves: [
+          { from: "operator", to: "acme", label: "POST /renewal-campaigns" },
+          { from: "acme", to: "db", label: "advice for 14 certificates", kind: "response", effect: "store", dilly: "worried" }
+        ]
+      },
+      {
+        phase: "Campaign", title: "The window moves forward",
+        body: "The next time each client checks, the window is now: within 24 hours, with a link explaining why, and a one-hour Retry-After. Clients spread their renewals across the window, so the CA is not hit by all of them at once. For a true emergency, immediate: true puts the window in the past and every client renews on its next check.",
+        payload: "GET /acme/renewal-info/kBXWiC6ES11xBWj1ZleSver1klM.WhBf...\n\n200 OK\nRetry-After: 3600\n{\"suggestedWindow\":{\"start\":\"2026-09-24T04:15:00Z\",\n                    \"end\":  \"2026-09-25T04:15:00Z\"},\n \"explanationURL\":\"https://status.bank.example/pki/2026-09\"}",
+        moves: [
+          { from: "client", to: "acme", label: "GET /renewal-info" },
+          { from: "acme", to: "client", label: "renew within 24h", kind: "response" }
+        ]
+      },
+      {
+        phase: "Campaign", title: "Renew with a new key",
+        body: "The client orders again with replaces set to the old CertID, proves the names again and sends a CSR with a new key; reusing the old key is refused. The old certificate is marked superseded. Clients that do not send replaces (certbot 5.8 checks ARI but does not) are matched by app and names instead.",
+        payload: "POST /acme/new-order\npayload: {\"identifiers\":[...],\n          \"replaces\":\"kBXWiC6ES11xBWj1ZleSver1klM.WhBfketKLIVSfmI5ps5e1Ht5sE4\"}\n\naudit: certificate.renew {serial: 5a1f..., new_serial: 7c02...}",
+        moves: [
+          { from: "client", to: "acme", label: "new-order + replaces" },
+          { from: "acme", to: "ra", label: "new key required", effect: "check" },
+          { from: "ra", to: "ca", label: "sign", effect: "sign" },
+          { from: "ca", to: "db", label: "old: superseded", kind: "response", effect: "store", dilly: "happy" }
+        ]
+      },
+      {
+        phase: "Campaign", title: "Revoke what has been replaced",
+        body: "Revoking a certificate that has a successor breaks nothing, so this needs no second person. The CRL is re-signed at once and OCSP answers revoked for the old serials.",
+        payload: "POST /api/v1/renewal-campaigns/3/revoke-replaced\n{\"change_ref\": \"CHG0042117\"}\n\n200 {\"revoked\": 13}",
+        moves: [
+          { from: "operator", to: "acme", label: "revoke-replaced" },
+          { from: "acme", to: "ca", label: "revoke 13 + new CRL", kind: "secret", effect: "sign" },
+          { from: "ca", to: "db", label: "audit", kind: "response", effect: "store" }
+        ]
+      },
+      {
+        phase: "Campaign", title: "The deadline passes with one left",
+        body: "One client never renewed. RenewalCampaignOverdue fires as critical and goes to the team that owns the app, with the certificate named. Revoking the rest is the hard cutoff that can cause an outage, so it goes to an approver.",
+        payload: "alert RenewalCampaignOverdue (critical)\n  renewal campaign 'rotate portal-edge' passed its deadline with 1 certificate(s)\n  not replaced (teams: web)\n\nPOST /api/v1/renewal-campaigns/3/revoke-remaining  {\"change_ref\":\"CHG0042117\"}\n202 {\"status\":\"pending_approval\",\"approval_id\":61}",
+        moves: [
+          { from: "db", to: "alerts", label: "RenewalCampaignOverdue", kind: "reject", dilly: "rolled" },
+          { from: "operator", to: "acme", label: "revoke-remaining" },
+          { from: "acme", to: "db", label: "approval #61: second person", kind: "response", effect: "store" }
+        ]
+      }
+    ]
+  });
+
+  // ------------------------------------------------------------------ EST behind a load balancer
+  S.register({
+    id: "estlb",
+    title: "EST behind a load balancer",
+    dilly: "ra",
+    chainAt: "db",
+    chainOffset: [1.2, 0.2],
+    camera: { theta: 0.25, phi: 1.1, radius: 21.0 },
+    actors: [
+      { id: "device", kind: "router", label: "Branch router", sub: "IDevID from the factory", x: -7.0, z: 2.0, anchorY: 0.5, labelY: 1.7 },
+      { id: "mfr", kind: "ca", label: "Manufacturer CA", sub: "Acme Devices IDevID", x: -6.0, z: -4.6, anchorY: 1.6, labelY: 3.0 },
+      { id: "lb", kind: "gateway", label: "nginx / load balancer", sub: "TLS + client cert", x: -2.4, z: 0.2, anchorY: 1.5 },
+      { id: "attacker", kind: "laptop", label: "Direct caller", sub: "bypasses the LB", x: -2.4, z: 6.4, anchorY: 0.8 },
+      { id: "est", kind: "terminal", label: "Certadillo EST", sub: "/.well-known/est", x: 1.6, z: 2.4, anchorY: 0.9, labelY: 1.9 },
+      { id: "ra", kind: "shield", label: "RA + policy", sub: "tls-client", x: 3.2, z: -3.8, anchorY: 1.2 },
+      { id: "ca", kind: "ca", label: "Issuing CA", sub: "issuing-ca-1", x: 7.0, z: -0.6, anchorY: 1.6, labelY: 3.0 },
+      { id: "db", kind: "db", label: "Inventory + audit", x: 4.6, z: 5.2, anchorY: 1.1 }
+    ],
+    steps: [
+      {
+        phase: "Setup", title: "Trust the manufacturer's CA for one app",
+        body: "The router shipped with a manufacturer certificate (IDevID) and no shared secret. An operator registers the manufacturer's CA for the app branch-routers. For a production app this is an approval, since it lets every device from that factory enroll.",
+        payload: "POST /api/v1/apps/7/est-trust-anchors\n{\"name\": \"acme-devices\", \"cert_pem\": \"-----BEGIN CERTIFICATE-----\\nMIIB...\"}\n\n202 {\"status\":\"pending_approval\",\"approval_id\":52}   (prod app)\n-> approved by a second person\naudit: est.trust_anchor.add {subject: \"CN=Acme Devices IDevID CA,O=Acme Devices\"}",
+        moves: [
+          { from: "mfr", to: "ra", label: "CA certificate, via operator", kind: "secret" },
+          { from: "ra", to: "db", label: "anchor for branch-routers", kind: "response", effect: "store" }
+        ]
+      },
+      {
+        phase: "Bootstrap", title: "TLS with the factory certificate",
+        body: "The router connects to the load balancer and offers its IDevID during the TLS handshake. The handshake itself proves the router holds the IDevID key. nginx does not need to know the manufacturer; Certadillo decides whom to trust.",
+        payload: "server {\n  listen 443 ssl;\n  ssl_verify_client optional_no_ca;\n  location /.well-known/est/ {\n    proxy_pass http://certadillo:8080;\n    proxy_set_header X-SSL-Client-Cert        $ssl_client_escaped_cert;\n    proxy_set_header X-Certadillo-Proxy-Auth  <shared secret>;\n  }\n}",
+        moves: [
+          { from: "device", to: "lb", label: "TLS ClientHello + IDevID", kind: "secret" },
+          { from: "lb", to: "device", label: "handshake OK", kind: "response", effect: "check" }
+        ]
+      },
+      {
+        phase: "Bootstrap", title: "Ask what to put in the CSR",
+        body: "csrattrs answers from the app's profile: an EC P-256 key and ECDSA with SHA-256. The router generates its operational key accordingly.",
+        payload: "GET /.well-known/est/csrattrs\n\n200 application/csrattrs\nSEQUENCE {\n  attribute id-ecPublicKey { secp256r1 }\n  oid ecdsa-with-SHA256\n}",
+        moves: [
+          { from: "device", to: "lb", label: "GET /csrattrs" },
+          { from: "lb", to: "est", label: "forward + cert header" },
+          { from: "est", to: "device", label: "P-256, ECDSA-SHA256", kind: "response" }
+        ]
+      },
+      {
+        phase: "Bootstrap", title: "Enroll with the IDevID",
+        body: "nginx forwards the client certificate URL-encoded in a header, plus the shared secret. Certadillo believes the header only with that secret, finds that the IDevID chains to the registered manufacturer CA, and enrolls the CSR into branch-routers under the normal scope and policy.",
+        payload: "POST /.well-known/est/simpleenroll\nX-SSL-Client-Cert: -----BEGIN%20CERTIFICATE-----%0AMIIB...\nX-Certadillo-Proxy-Auth: <secret>\n\nidentify: IDevID serialNumber=SN-451 -> anchor acme-devices -> app branch-routers\npolicy:   CN rtr-451.routers.bank.internal in *.routers.bank.internal, P-256\n200 application/pkcs7-mime",
+        moves: [
+          { from: "device", to: "lb", label: "POST /simpleenroll", sub: "CSR" },
+          { from: "lb", to: "est", label: "CSR + IDevID header" },
+          { from: "est", to: "ra", label: "anchor + scope", effect: "check", dilly: "happy" },
+          { from: "ra", to: "ca", label: "sign", effect: "sign" },
+          { from: "ca", to: "db", label: "audit: est.enroll auth=idevid", kind: "response", effect: "store" },
+          { from: "est", to: "device", label: "operational certificate", kind: "response" }
+        ]
+      },
+      {
+        phase: "Renew", title: "Re-enroll with the certificate alone",
+        body: "Later the router re-enrolls using its operational certificate for TLS and a CSR with a new key. No password is involved. RFC 7030 requires the same subject and names; the old certificate is superseded and stops authenticating.",
+        payload: "POST /.well-known/est/simplereenroll\nX-SSL-Client-Cert: <rtr-451 certificate>\n\naudit: est.enroll {\"auth\":\"certificate\",\"reenroll\":true}\nold serial 3f9a...: superseded",
+        moves: [
+          { from: "device", to: "lb", label: "TLS with current cert" },
+          { from: "lb", to: "est", label: "POST /simplereenroll" },
+          { from: "est", to: "ra", label: "same subject, new key", effect: "check" },
+          { from: "ra", to: "ca", label: "sign", effect: "sign" },
+          { from: "est", to: "device", label: "new certificate", kind: "response" }
+        ]
+      },
+      {
+        phase: "Guard", title: "A forged header is ignored",
+        body: "Someone who reaches Certadillo without going through the load balancer can type any header. Without the shared secret (or a trusted source address) the header is ignored and the request falls back to HTTP Basic, which it does not have.",
+        payload: "POST /.well-known/est/simplereenroll\nX-SSL-Client-Cert: <someone else's certificate>\n\nlog: client certificate header ignored: request did not come through the trusted load balancer\n401 Unauthorized",
+        moves: [
+          { from: "attacker", to: "est", label: "forged X-SSL-Client-Cert", kind: "reject" },
+          { from: "est", to: "attacker", label: "401", kind: "reject", effect: "reject", dilly: "worried" }
+        ]
+      },
+      {
+        phase: "Keygen", title: "A sensor that cannot make a key",
+        body: "For profiles with allow_server_keygen, serverkeygen creates the key on the server and returns it with the certificate as multipart/mixed over TLS. The key is not stored; the audit event says so. Anything that can generate its own key should.",
+        payload: "POST /.well-known/est/serverkeygen\n\n200 multipart/mixed; boundary=est-4f1c...\n--est-4f1c...\nContent-Type: application/pkcs8\n\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg...\n--est-4f1c...\nContent-Type: application/pkcs7-mime; smime-type=certs-only\n\nMIIC...\n--est-4f1c...--\n\naudit: est.serverkeygen {\"key\":\"ec-256\",\"stored\":false}",
+        moves: [
+          { from: "device", to: "lb", label: "POST /serverkeygen" },
+          { from: "lb", to: "est", label: "forward" },
+          { from: "est", to: "ca", label: "new key + certificate", effect: "sign" },
+          { from: "est", to: "device", label: "PKCS#8 + certificate", kind: "secret" }
+        ]
+      }
+    ]
+  });
+
+  // ------------------------------------------------------------------ CMP
+  S.register({
+    id: "cmp",
+    title: "CMP for industrial devices (RFC 9483)",
+    dilly: "ra",
+    chainAt: "db",
+    chainOffset: [1.2, 0.2],
+    camera: { theta: 0.3, phi: 1.1, radius: 21.0 },
+    actors: [
+      { id: "operator", kind: "person", label: "OT engineer", sub: "commissions devices", x: -2.0, z: 7.0 },
+      { id: "plc", kind: "terminal", label: "PLC / base station", sub: "openssl cmp", x: -7.0, z: 1.6, anchorY: 0.9, labelY: 1.9 },
+      { id: "cmp", kind: "gateway", label: "Certadillo CMP", sub: "/.well-known/cmp", x: -1.4, z: -0.6, anchorY: 1.5 },
+      { id: "ra", kind: "shield", label: "RA + policy", sub: "CMP RA cert · cmcRA", x: 3.2, z: -4.4, anchorY: 1.2 },
+      { id: "approver", kind: "person", label: "Approver", sub: "second person", x: -4.6, z: -6.0 },
+      { id: "ca", kind: "ca", label: "Issuing CA", sub: "issuing-ca-1", x: 7.0, z: 0.0, anchorY: 1.6, labelY: 3.0 },
+      { id: "hsm", kind: "hsm", label: "HSM", x: 6.6, z: 4.0, anchorY: 0.6, labelY: 1.5 },
+      { id: "db", kind: "db", label: "Inventory + audit", x: 2.2, z: 5.6, anchorY: 1.1 }
+    ],
+    steps: [
+      {
+        phase: "Setup", title: "A one-time reference and secret",
+        body: "A device without any certificate proves itself with a shared secret (RFC 9483 4.1.1). The operator mints a one-time reference and secret for the app plant-sensors and loads them into the device at commissioning.",
+        payload: "POST /api/v1/apps/5/cmp-secret\n\n201 {\"reference\": \"cmp-37614dc792fc\",\n     \"secret\": \"q7Cq3oT0y1F2l8i9WmXbRk2v\",\n     \"expires\": \"2026-09-24T05:27:21Z\"}",
+        moves: [
+          { from: "operator", to: "cmp", label: "POST /apps/5/cmp-secret" },
+          { from: "cmp", to: "db", label: "secret, encrypted at rest", kind: "response", effect: "store" },
+          { from: "cmp", to: "operator", label: "reference + secret", kind: "secret" },
+          { from: "operator", to: "plc", label: "load into device", kind: "secret" }
+        ]
+      },
+      {
+        phase: "Enroll", title: "ir, protected with a MAC",
+        body: "The device makes a key, puts the public key and its names in a CRMF template, signs the request with the new key (proof of possession) and protects the whole message with PasswordBasedMac keyed from the secret. senderKID is the reference.",
+        payload: "openssl cmp -cmd ir -server pki.bank.internal -path .well-known/cmp \\\n  -ref cmp-37614dc792fc -secret pass:... -newkey dev.key \\\n  -subject /CN=s1.plant.bank.internal -sans s1.plant.bank.internal\n\nPKIHeader { pvno 2, senderKID \"cmp-37614dc792fc\",\n  protectionAlg PasswordBasedMac { salt, owf sha256, iterations 500, mac hmac-sha1 },\n  transactionID 039d45ec..., senderNonce 6f5101ad... }\nPKIBody ir { certReqId 0, template { subject, publicKey ec P-256, SAN }, popo signature }",
+        moves: [
+          { from: "plc", to: "cmp", label: "ir (MAC)", sub: "CRMF + PoP", kind: "secret" },
+          { from: "cmp", to: "ra", label: "MAC + PoP + scope", effect: "check", dilly: "happy" },
+          { from: "ra", to: "ca", label: "build certificate" },
+          { from: "ca", to: "hsm", label: "sign", kind: "secret", effect: "hsm" },
+          { from: "hsm", to: "ca", label: "signature", kind: "response", effect: "sign" }
+        ]
+      },
+      {
+        phase: "Enroll", title: "ip with the certificate and a trust anchor",
+        body: "The reply is protected with the same secret. It carries the certificate, the issuing CA in extraCerts and the root in caPubs, because a device that enrolled with a password has no trust anchor yet. The secret is now spent.",
+        payload: "PKIBody ip {\n  caPubs [ Example Bank Root CA ]\n  response { certReqId 0, status accepted,\n    certificate CN=s1.plant.bank.internal (tls-client, 30 days) } }\nextraCerts [ Issuing CA issuing-ca-1 ]\nrecipNonce = 6f5101ad...   (the device's senderNonce)",
+        moves: [
+          { from: "cmp", to: "db", label: "audit: cmp.issue", kind: "response", effect: "store" },
+          { from: "cmp", to: "plc", label: "ip (MAC)", kind: "response" }
+        ]
+      },
+      {
+        phase: "Enroll", title: "certConf, then pkiConf",
+        body: "The device confirms it received the right certificate by sending its hash. Only then is the transaction closed. A device that asks for implicitConfirm skips this round trip; one that never confirms is flagged after 15 minutes.",
+        payload: "PKIBody certConf { certHash SHA-384(certificate), certReqId 0 }\n-> PKIBody pkiconf NULL\naudit: cmp.confirmed",
+        moves: [
+          { from: "plc", to: "cmp", label: "certConf", sub: "certHash" },
+          { from: "cmp", to: "plc", label: "pkiConf", kind: "response", effect: "check" }
+        ]
+      },
+      {
+        phase: "Update", title: "kur, signed with the current certificate",
+        body: "Before expiry the device asks for a key update, signing with its current certificate. The template may leave the subject out; it is copied from the old certificate. The old one is superseded, but still accepted for the certConf of this same transaction.",
+        payload: "openssl cmp -cmd kur -cert dev.crt -key dev.key -newkey dev2.key -trusted root.pem\n\nPKIHeader { protectionAlg ecdsa-with-SHA256, extraCerts [ dev.crt, issuing CA ] }\nPKIBody kur -> kup (signed by CMP RA issuing-ca-1, EKU id-kp-cmcRA)",
+        moves: [
+          { from: "plc", to: "cmp", label: "kur (signature)" },
+          { from: "cmp", to: "ra", label: "same subject, new key", effect: "check" },
+          { from: "ra", to: "ca", label: "sign", effect: "sign" },
+          { from: "cmp", to: "plc", label: "kup (RA signature)", kind: "response" }
+        ]
+      },
+      {
+        phase: "Approval", title: "Firmware signing waits for a second person",
+        body: "A code-signing certificate needs dual control. The ip says waiting, and the device polls with pollReq; each pollRep tells it when to ask again.",
+        payload: "ip { response { certReqId 0, status waiting, \"waiting for a second approver\" } }\npollReq { certReqId 0 }\npollRep { certReqId 0, checkAfter 30 }",
+        moves: [
+          { from: "plc", to: "cmp", label: "ir (code-signing)" },
+          { from: "cmp", to: "db", label: "approval #63", kind: "response", effect: "store", dilly: "worried" },
+          { from: "cmp", to: "plc", label: "status: waiting", kind: "response" },
+          { from: "plc", to: "cmp", label: "pollReq" },
+          { from: "cmp", to: "plc", label: "pollRep checkAfter 30", kind: "response" }
+        ]
+      },
+      {
+        phase: "Approval", title: "Approved; the next poll gets the certificate",
+        body: "The approver is not the person who asked. Once they approve, the next pollReq is answered with the ip carrying the certificate, and the device confirms it as usual.",
+        payload: "POST /api/v1/approvals/63/approve   (approver key)\n\npollReq -> ip { status accepted, certificate CN=fw.plant.bank.internal, EKU codeSigning }\ncertConf -> pkiConf",
+        moves: [
+          { from: "approver", to: "cmp", label: "approve #63" },
+          { from: "cmp", to: "ca", label: "issue", effect: "sign", dilly: "happy" },
+          { from: "plc", to: "cmp", label: "pollReq" },
+          { from: "cmp", to: "plc", label: "ip + certificate", kind: "response" }
+        ]
+      },
+      {
+        phase: "Revoke", title: "The device revokes a certificate it holds",
+        body: "rr names the certificate by issuer and serial and gives a reason. It must be signed with a certificate of the same app. The CRL is re-signed right away.",
+        payload: "openssl cmp -cmd rr -cert dev2.crt -key dev2.key -oldcert s3.crt -revreason 4\n\nPKIBody rr { certDetails { issuer, serialNumber }, crlEntryDetails { CRLReason superseded } }\n-> rp { status accepted }",
+        moves: [
+          { from: "plc", to: "cmp", label: "rr (signature)" },
+          { from: "cmp", to: "ca", label: "revoke + CRL", kind: "secret", effect: "sign" },
+          { from: "cmp", to: "plc", label: "rp accepted", kind: "response" }
         ]
       }
     ]

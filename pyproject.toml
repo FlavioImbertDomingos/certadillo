@@ -21,6 +21,9 @@ dependencies = [
   "httpx>=0.27",
   "click>=8.1",
   "asn1crypto>=1.5",
+  "dnspython>=2.6",
+  "pyasn1>=0.6",
+  "pyasn1-modules>=0.4",
 ]
 
 [project.optional-dependencies]

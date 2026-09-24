@@ -2,13 +2,19 @@
 
 Ordered by what a bank PKI team would ask for next. Each item names the interface it plugs into so contributors can pick one up.
 
-## Phase 2: enrollment coverage
+## Phase 2: enrollment coverage (done)
 
-- ACME dns-01 (dnspython lookups, split-horizon aware) and ACME Renewal Information (RFC 9773) so clients renew on the server's schedule, which is how a mass revocation gets absorbed without an outage.
-- ACME key-change and account deactivation cleanup.
-- SCEP follow-ups: GetCertInitial polling for dual-control profiles, RenewalReq signed by the current certificate, and an Intune validation webhook in front of the challenge store.
-- EST with TLS client authentication forwarded from the load balancer; `csrattrs` and `serverkeygen` for constrained devices.
-- CMP (RFC 9483 lightweight profile) for telecom and industrial gear.
+- ACME dns-01 with split-horizon resolver views and CNAME delegation, wildcards, ARI (RFC 9773) with renewal campaigns, key-change, and account and authorization deactivation.
+- SCEP RenewalReq, PENDING with CertPoll for dual-control profiles, per-app URLs and an Intune-style validation webhook.
+- EST client certificates forwarded by the load balancer, IDevID bootstrap, `csrattrs` and `serverkeygen`.
+- CMP following the RFC 9483 lightweight profile.
+
+Left over from Phase 2, in rough order of demand:
+
+- A small Intune connector that turns the SCEP webhook calls into Microsoft's validation API.
+- EST `fullcmc`, and serverkeygen keys encrypted to a key named in the request.
+- CMP central key generation, PBMAC1, and the `certReqTemplate` and `rootCaCert` general messages.
+- dns-01 checks from more than one resolver per view, for zones served by several providers.
 
 ## Phase 3: connectors to the platforms banks already run
 
@@ -16,6 +22,7 @@ Issuer backends (`CABackend`):
 
 | Target | API it would call |
 | --- | --- |
+| Public ACME CAs (Let's Encrypt and others) | an ACME client inside the backend, dns-01 through the DNS provider's API; ARI decides renewal |
 | Microsoft AD CS | certreq / ICertRequest via a Windows worker, or CES/CEP web services; revocation via ICertAdmin |
 | DigiCert CertCentral | `POST /services/v2/order/certificate/{product}`; `PUT /services/v2/certificate/{id}/revoke` |
 | AWS Private CA | `IssueCertificate`, `GetCertificate`, `RevokeCertificate` |
@@ -26,6 +33,7 @@ Inventory connectors (`InventoryConnector`):
 
 | Target | API |
 | --- | --- |
+| keycensus | import its `inventory.json`: certificates, owners and the applications linked to each key, from HSMs, KMS, Vault, Voltage and TLS scans |
 | Venafi TLS Protect Datacenter | Web SDK `GET /vedsdk/Certificates/` with OAuth token |
 | Keyfactor Command | `GET /KeyfactorAPI/Certificates` |
 | DigiCert CertCentral | `GET /services/v2/order/certificate` |

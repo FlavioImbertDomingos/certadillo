@@ -27,6 +27,19 @@
            ((_meta.not_after | to_datetime('%Y-%m-%dT%H:%M:%S%z')).timestamp()
             - (_meta.not_before | to_datetime('%Y-%m-%dT%H:%M:%S%z')).timestamp()) }}
 
+- name: Ask whether the server wants it renewed early (ARI window, renewal campaigns)
+  when: _meta != {}
+  ansible.builtin.uri:
+    url: "{{ certadillo_server }}/api/v1/certificates/{{ _meta.id }}/renewal-info"
+    headers: {X-API-Key: "{{ certadillo_api_key }}"}
+    ca_path: "{{ certadillo_ca_bundle | default(omit, true) }}"
+  register: _ari
+  failed_when: false
+
+- name: Renew now if the server asks for it
+  ansible.builtin.set_fact:
+    _due: "{{ (_due | bool) or ((_ari.json | default({})).renew_now | default(false)) }}"
+
 - name: Enroll or renew
   when: _due | bool
   block:

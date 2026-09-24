@@ -18,6 +18,10 @@ Authenticate with `X-API-Key: <key>` or `Authorization: Bearer <key>`. Errors ar
 | `POST` | `/api/v1/apps/{app_id}/credentials` | admin, operator | mint an app API key (REST, EST) |
 | `POST` | `/api/v1/apps/{app_id}/acme-eab` | admin, operator | mint a single-use ACME EAB credential |
 | `POST` | `/api/v1/apps/{app_id}/scep-challenge` | admin, operator | mint a one-time SCEP challenge (`ttl_minutes`) |
+| `PUT` | `/api/v1/apps/{app_id}/options` | admin, operator | per-app protocol settings (`scep_validation`) |
+| `POST` | `/api/v1/apps/{app_id}/est-trust-anchors` | admin, operator | register a manufacturer (IDevID) CA; prod apps return an approval_id |
+| `GET` | `/api/v1/apps/{app_id}/est-trust-anchors` | admin, operator, approver, auditor | list the app's manufacturer CAs |
+| `POST` | `/api/v1/apps/{app_id}/cmp-secret` | admin, operator | mint a one-time CMP reference and secret (`ttl_minutes`) |
 | `GET` | `/api/v1/approvals` | admin, operator, approver, auditor; app (own) | list approvals (`status=pending`) |
 | `POST` | `/api/v1/approvals/{approval_id}/approve` | approver | approve; runs the action |
 | `POST` | `/api/v1/approvals/{approval_id}/reject` | approver | reject |
@@ -27,6 +31,13 @@ Authenticate with `X-API-Key: <key>` or `Authorization: Bearer <key>`. Errors ar
 | `POST` | `/api/v1/certificates/{cert_id}/renew` | app (own); admin, operator | renew with a new CSR |
 | `POST` | `/api/v1/certificates/{cert_id}/revoke` | app (own); admin, operator | revoke (`reason`, `change_ref`) |
 | `POST` | `/api/v1/certificates/{cert_id}/assign` | admin, operator | give a found certificate an owning app |
+| `GET` | `/api/v1/certificates/{cert_id}/renewal-info` | any authenticated (apps see their own) | ARI window and CertID; `renew_now` |
+| `GET` | `/api/v1/renewal-campaigns` | admin, operator, approver, auditor | list campaigns with counts |
+| `POST` | `/api/v1/renewal-campaigns` | admin, operator | start a renewal campaign (`criteria`, `renew_within_hours`, `immediate`) |
+| `GET` | `/api/v1/renewal-campaigns/{campaign_id}` | admin, operator, approver, auditor | campaign status by certificate and team |
+| `POST` | `/api/v1/renewal-campaigns/{campaign_id}/revoke-replaced` | admin, operator | revoke certificates that have a successor |
+| `POST` | `/api/v1/renewal-campaigns/{campaign_id}/revoke-remaining` | admin, operator | request the cutoff for the rest (dual control) |
+| `POST` | `/api/v1/renewal-campaigns/{campaign_id}/close` | admin, operator | close a campaign; its windows stop applying |
 | `GET` | `/api/v1/ssh/ca` | public | SSH CA public key for TrustedUserCAKeys |
 | `POST` | `/api/v1/ssh/certificates` | app, admin, operator | issue an SSH user or host certificate |
 | `POST` | `/api/v1/discovery/scan` | admin, operator | scan TLS endpoints into the inventory |
@@ -48,20 +59,28 @@ Authenticate with `X-API-Key: <key>` or `Authorization: Bearer <key>`. Errors ar
 | `GET` | `/pki/ocsp/{encoded}` | public | OCSP GET form |
 | `GET` | `/pki/spiffe/bundle` | public | SPIFFE trust bundle (JWKS) |
 | `GET` | `/.well-known/est/cacerts` | public | EST CA certificates |
-| `POST` | `/.well-known/est/simpleenroll` | app key as Basic password | EST enrollment |
-| `POST` | `/.well-known/est/simplereenroll` | app key as Basic password | EST re-enrollment |
+| `POST` | `/.well-known/est/simpleenroll` | Basic (app key), IDevID or client certificate | EST enrollment |
+| `POST` | `/.well-known/est/simplereenroll` | client certificate or Basic | EST re-enrollment |
+| `GET` | `/.well-known/est/csrattrs` | public; per profile with credentials | EST CSR attributes |
+| `POST` | `/.well-known/est/serverkeygen` | Basic or client certificate | EST enrollment with a server-generated key |
 | `GET` | `/acme/directory` | public | ACME directory |
 | `GET` | `/acme/new-nonce` | public | ACME nonce |
 | `HEAD` | `/acme/new-nonce` | public | ACME nonce |
 | `POST` | `/acme/new-account` | JWS + EAB | register an ACME account |
-| `POST` | `/acme/acct/{acct_id}` | JWS (kid) | account (deactivate) |
+| `POST` | `/acme/acct/{acct_id}` | JWS (kid) | account: update contact, deactivate |
 | `POST` | `/acme/new-order` | JWS (kid) | new order |
 | `POST` | `/acme/order/{order_id}` | JWS (kid) | order status |
 | `POST` | `/acme/authz/{authz_id}` | JWS (kid) | authorization |
-| `POST` | `/acme/chall/{authz_id}` | JWS (kid) | trigger http-01 validation |
+| `POST` | `/acme/chall/{authz_id}` | JWS (kid) | trigger http-01 validation (older URL form) |
+| `POST` | `/acme/chall/{authz_id}/{ctype}` | JWS (kid) | trigger http-01 or dns-01 validation |
 | `POST` | `/acme/order/{order_id}/finalize` | JWS (kid) | submit the CSR |
 | `POST` | `/acme/cert/{cert_id}` | JWS (kid) | download the chain |
-| `POST` | `/acme/revoke-cert` | JWS (kid) | revoke |
-| `POST` | `/acme/key-change` | JWS (kid) | not implemented (501) |
+| `POST` | `/acme/revoke-cert` | JWS (kid, or jwk of the certificate key) | revoke |
+| `POST` | `/acme/key-change` | JWS (kid) wrapping a JWS by the new key | account key rollover |
+| `GET` | `/acme/renewal-info/{cert_id}` | public | ARI suggested renewal window (RFC 9773) |
 | `GET` | `/scep` | challenge in the CSR | SCEP GetCACaps, GetCACert, PKIOperation (GET form) |
-| `POST` | `/scep` | challenge in the CSR | SCEP PKIOperation |
+| `POST` | `/scep` | challenge in the CSR, or the current certificate | SCEP PKIOperation |
+| `POST` | `/scep/{app_name}` | as /scep, or a webhook-validated challenge | per-app SCEP PKIOperation |
+| `GET` | `/scep/{app_name}` | as /scep, or a webhook-validated challenge | per-app SCEP URL |
+| `POST` | `/.well-known/cmp/p/{label}` | as /.well-known/cmp, for one app | CMP for a named app |
+| `POST` | `/.well-known/cmp` | CMP MAC (one-time secret) or signature | CMP (RFC 9483 lightweight profile) |

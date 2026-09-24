@@ -75,6 +75,14 @@ function Invoke-CertadilloRenew {
     Invoke-CertadilloApi -Method Post -Path "/api/v1/certificates/$Id/renew" -Body @{ csr_pem = (Get-Content -Raw -Path $CsrPath) }
 }
 
+function Get-CertadilloRenewalInfo {
+    # The server's renewal window (ARI). RenewNow is true inside the window,
+    # for example during a renewal campaign.
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [int] $Id)
+    Invoke-CertadilloApi -Method Get -Path "/api/v1/certificates/$Id/renewal-info"
+}
+
 function Invoke-CertadilloRevoke {
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
     param(
@@ -111,4 +119,4 @@ function Get-CertadilloAlert {
 }
 
 Export-ModuleMember -Function Connect-Certadillo, Invoke-CertadilloApi, Get-CertadilloCertificate, New-CertadilloCertificate,
-    Invoke-CertadilloRenew, Invoke-CertadilloRevoke, Import-CertadilloInventory, Get-CertadilloAlert
+    Invoke-CertadilloRenew, Get-CertadilloRenewalInfo, Invoke-CertadilloRevoke, Import-CertadilloInventory, Get-CertadilloAlert
