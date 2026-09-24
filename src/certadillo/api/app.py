@@ -28,7 +28,7 @@ from certadillo.config import Settings
 from certadillo.db import AlertState, App, ApprovalRequest, AuditEvent, Certificate, CertificateAuthority, Team, as_utc
 from certadillo.discovery.connectors import parse_pem_bundle
 from certadillo.discovery.scanner import scan
-from certadillo.enrollment import acme, est, scep
+from certadillo.enrollment import acme, cmp, est, scep
 from certadillo.observability.logging import configure_logging, request_id
 from certadillo.observability.metrics import HTTP_SECONDS
 from certadillo.policy.engine import PolicyError
@@ -199,6 +199,7 @@ def run_housekeeping() -> dict:
     rt = get_runtime()
     with rt.platform() as p:
         acme.housekeeping(p.s)
+        cmp.housekeeping(p.s)
         now = datetime.now(timezone.utc)
         for ca in p.s.query(CertificateAuthority).filter_by(is_root=False).all():
             last = as_utc(ca.crl_last_generated)
@@ -405,6 +406,19 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
         return [{"id": t.id, "name": t.name, "subject": x509.load_pem_x509_certificate(t.cert_pem.encode()).subject.rfc4514_string(),
                  "created_by": t.created_by, "created_at": as_utc(t.created_at).isoformat()}
                 for t in p.s.query(EstTrustAnchor).filter_by(app_id=app_id)]
+
+    @app.post("/api/v1/apps/{app_id}/cmp-secret", status_code=201, tags=["onboarding"])
+    def app_cmp_secret(app_id: int, request: Request, ttl_minutes: int = Query(60, ge=5, le=1440),
+                       p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        """One-time reference and shared secret for a device's first CMP enrollment (MAC protection)."""
+        out = p.mint_cmp_secret(who, app_id, ttl_minutes)
+        p.commit()
+        host = request.base_url.netloc
+        out["server"] = f"{host}/.well-known/cmp"
+        out["example"] = (f"openssl cmp -cmd ir -server {host} -path .well-known/cmp -ref {out['reference']} "
+                          f"-secret pass:{out['secret']} -newkey device.key -subject /CN=<name> -sans <name> "
+                          "-certout device.crt -cacertsout root.pem -implicit_confirm")
+        return out
 
     @app.get("/api/v1/approvals", tags=["governance"])
     def list_approvals(status: str | None = None, p: Platform = Depends(platform), who: Actor = Depends(actor)):
@@ -748,6 +762,7 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
     app.include_router(est.router)
     app.include_router(acme.router)
     app.include_router(scep.router)
+    app.include_router(cmp.router)
 
     # ---------------------------------------------------------- web console
     static_dir = resources.files("certadillo").joinpath("web/static")

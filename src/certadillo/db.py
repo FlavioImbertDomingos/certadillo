@@ -94,6 +94,8 @@ class CertificateAuthority(Base):
     ocsp_key_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
     scep_ra_cert_pem: Mapped[str | None] = mapped_column(Text, nullable=True)
     scep_ra_key_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    cmp_ra_cert_pem: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cmp_ra_key_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -296,7 +298,11 @@ class CmpTransaction(Base):
     secret_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # MAC-protected transactions
     sender_cert_pem: Mapped[str | None] = mapped_column(Text, nullable=True)  # signature-protected ones
     certificate_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    status: Mapped[str] = mapped_column(String(16), default="waiting_conf")  # waiting_conf | confirmed | rejected | expired
+    approval_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cert_req_id: Mapped[int] = mapped_column(Integer, default=0)
+    body_type: Mapped[str] = mapped_column(String(8), default="ip")  # ip | cp | kup: what the final answer is
+    # waiting_conf | confirmed | rejected | pending (a second person must approve) | expired
+    status: Mapped[str] = mapped_column(String(16), default="waiting_conf")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

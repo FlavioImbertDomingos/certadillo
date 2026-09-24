@@ -142,7 +142,7 @@ def identify(p: Platform, request: Request) -> tuple[Actor, Certificate | None, 
                 continue
             try:
                 cert.verify_directly_issued_by(ca_cert)
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001, S112 - not signed by this anchor; try the next one
                 continue
             app = p.s.get(App, anchor.app_id)
             if app is not None and app.status == "active":

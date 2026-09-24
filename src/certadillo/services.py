@@ -234,6 +234,44 @@ class Platform:
         record(self.s, who, "est.trust_anchor.add", f"app:{p['app_id']}", {"name": p["name"], "subject": subject})
         return {"id": ta.id, "name": ta.name, "subject": subject}
 
+    def _secret_box(self):
+        """Encrypts CMP shared secrets at rest. The MAC needs the plaintext, so
+        they cannot be stored as hashes the way API keys are."""
+        import base64
+
+        from cryptography.fernet import Fernet
+        from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+
+        from cryptography.hazmat.primitives import hashes
+
+        key = HKDF(algorithm=hashes.SHA256(),
+                   length=32, salt=b"certadillo-cmp-secrets", info=b"v1").derive(self.settings.key_passphrase.encode())
+        return Fernet(base64.urlsafe_b64encode(key))
+
+    def mint_cmp_secret(self, actor: Actor, app_id: int, ttl_minutes: int = 60) -> dict:
+        """One-time reference and shared secret for MAC-protected CMP initial enrollment."""
+        from datetime import timedelta
+
+        from certadillo.db import CmpSecret
+
+        actor.require("admin", "operator")
+        app = self.s.get(App, app_id)
+        if app is None:
+            raise NotFound("app not found")
+        if app.status != "active":
+            raise Forbidden(f"app is {app.status}")
+        ref = "cmp-" + secrets.token_hex(6)
+        raw = secrets.token_urlsafe(18)
+        expires = datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes)
+        self.s.add(CmpSecret(reference=ref, secret_enc=self._secret_box().encrypt(raw.encode()).decode(),
+                             app_id=app_id, expires_at=expires))
+        self.s.flush()
+        record(self.s, actor.name, "cmp.secret.create", app.name, {"reference": ref, "expires": expires.isoformat()})
+        return {"reference": ref, "secret": raw, "expires": expires.isoformat()}
+
+    def cmp_secret_plain(self, row) -> bytes:
+        return self._secret_box().decrypt(row.secret_enc.encode())
+
     # ------------------------------------------------------------- dual control
     def _request_approval(self, actor: Actor, action: str, payload: dict) -> ApprovalRequest:
         req = ApprovalRequest(action=action, payload=payload, requested_by=actor.name)
@@ -273,8 +311,11 @@ class Platform:
             app.status = "active"
             record(self.s, req.decided_by, "app.activate", app.name, {"approval": req.id})
         elif req.action == "issue_certificate":
+            from certadillo.policy.engine import TemplateRequest
+
             app = self.s.get(App, p["app_id"])
-            csr = x509.load_pem_x509_csr(p["csr_pem"].encode())
+            csr = TemplateRequest.from_payload(p["template"]) if p.get("template") else \
+                x509.load_pem_x509_csr(p["csr_pem"].encode())
             # pop_verified: the protocol front end checked proof of possession over the
             # client's original bytes before normalising the CSR (SCEP clients)
             decision = self.engine.evaluate(csr, p["profile"], app.allowed_domains, p.get("days"), p.get("hours"),
@@ -299,12 +340,14 @@ class Platform:
             req.payload = p
 
     # ------------------------------------------------------------- issuance
-    def request_certificate(self, actor: Actor, app_id: int, csr_pem: str, profile: str | None = None,
+    def request_certificate(self, actor: Actor, app_id: int, csr_pem: str | None, profile: str | None = None,
                             days: int | None = None, hours: int | None = None, protocol: str = "rest",
                             previous: Certificate | None = None,
-                            pop_verified: bool = False) -> Certificate | ApprovalRequest:
+                            pop_verified: bool = False, template=None) -> Certificate | ApprovalRequest:
         """pop_verified: the front end already checked the CSR signature over the
-        client's original encoding (SCEP clients that emit non-DER CSRs)."""
+        client's original encoding (SCEP clients that emit non-DER CSRs).
+        template: a TemplateRequest instead of a CSR (CMP), proof of possession
+        already checked by the front end."""
         app = self.s.get(App, app_id)
         if app is None:
             raise NotFound("app not found")
@@ -323,10 +366,13 @@ class Platform:
                    {"profile": profile, "protocol": protocol, "violations": violations})
             self.s.commit()
             raise PolicyError(violations)
-        try:
-            csr = x509.load_pem_x509_csr(csr_pem.encode())
-        except ValueError:
-            raise PolicyError([("csr_format", "CSR is not valid PEM PKCS#10")]) from None
+        if template is not None:
+            csr = template
+        else:
+            try:
+                csr = x509.load_pem_x509_csr(csr_pem.encode())
+            except (ValueError, AttributeError):
+                raise PolicyError([("csr_format", "CSR is not valid PEM PKCS#10")]) from None
         prev_fp = spki_sha256(x509.load_pem_x509_certificate(previous.pem.encode())) if previous else None
         try:
             decision = self.engine.evaluate(csr, profile, app.allowed_domains, days, hours, prev_fp, pop_verified)
@@ -341,7 +387,8 @@ class Platform:
         if decision.dual_control:
             ISSUANCE_TOTAL.labels(profile=profile, protocol=protocol, result="pending_approval").inc()
             return self._request_approval(actor, "issue_certificate", {
-                "app_id": app.id, "csr_pem": csr_pem, "profile": profile, "days": days, "hours": hours,
+                "app_id": app.id, "csr_pem": csr_pem, "template": template.to_payload() if template else None,
+                "profile": profile, "days": days, "hours": hours,
                 "protocol": protocol, "previous_id": previous.id if previous else None,
                 "pop_verified": pop_verified,
             })

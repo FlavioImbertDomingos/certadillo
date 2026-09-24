@@ -46,6 +46,83 @@ class Decision:
     dual_control: bool = False
 
 
+class TemplateRequest:
+    """A certificate request that is not a PKCS#10 CSR, such as a CMP/CRMF
+    CertTemplate. It offers the parts of the CSR interface the policy engine
+    and CA use. The protocol front end must have verified proof of
+    possession before building one."""
+
+    is_signature_valid = True
+
+    def __init__(self, subject: x509.Name, public_key, extensions: list[x509.Extension] | None = None):
+        self.subject = subject
+        self._public_key = public_key
+        self.extensions = x509.Extensions(extensions or [])
+
+    def public_key(self):
+        return self._public_key
+
+    def to_payload(self) -> dict:
+        import base64
+
+        from cryptography.hazmat.primitives import serialization
+
+        san = None
+        try:
+            san = self.extensions.get_extension_for_class(x509.SubjectAlternativeName).value.public_bytes()
+        except x509.ExtensionNotFound:
+            pass
+        spki = self._public_key.public_bytes(serialization.Encoding.DER,
+                                             serialization.PublicFormat.SubjectPublicKeyInfo)
+        return {"subject": base64.b64encode(self.subject.public_bytes()).decode(),
+                "spki": base64.b64encode(spki).decode(),
+                "san": base64.b64encode(san).decode() if san else None}
+
+    @classmethod
+    def from_payload(cls, d: dict) -> "TemplateRequest":
+        import base64
+
+        from cryptography.hazmat.primitives.serialization import load_der_public_key
+
+        exts = []
+        if d.get("san"):
+            san = _san_from_der(base64.b64decode(d["san"]))
+            exts.append(x509.Extension(x509.ExtensionOID.SUBJECT_ALTERNATIVE_NAME, False, san))
+        return cls(name_from_der(base64.b64decode(d["subject"])), load_der_public_key(base64.b64decode(d["spki"])), exts)
+
+
+def name_from_der(der: bytes) -> x509.Name:
+    """cryptography has no public parser for a bare Name; wrap it in a throwaway CSR."""
+    return _parse_via_csr(subject_der=der).subject
+
+
+def extensions_from_der(der: bytes) -> x509.Extensions:
+    """Parse a DER Extensions SEQUENCE the same way."""
+    return _parse_via_csr(extensions_der=der).extensions
+
+
+def _san_from_der(der: bytes) -> x509.SubjectAlternativeName:
+    from certadillo.crypto.der import tlv
+
+    ext = tlv(0x30, tlv(0x30, tlv(0x06, bytes.fromhex("551d11")) + tlv(0x04, der)))
+    return extensions_from_der(ext).get_extension_for_class(x509.SubjectAlternativeName).value
+
+
+def _parse_via_csr(subject_der: bytes = b"\x30\x00", extensions_der: bytes | None = None):
+    """Build an unsigned CSR around raw DER parts so cryptography parses them.
+    Nothing here is trusted: the signature is a placeholder and never checked."""
+    from certadillo.crypto.der import tlv
+
+    spki = bytes.fromhex("3059301306072a8648ce3d020106082a8648ce3d03010703420004") + b"\x01" * 64
+    attrs = b""
+    if extensions_der is not None:
+        attrs = tlv(0x30, tlv(0x06, bytes.fromhex("2a864886f70d01090e")) + tlv(0x31, extensions_der))
+    cri = tlv(0x30, b"\x02\x01\x00" + subject_der + spki + tlv(0xA0, attrs))
+    alg = tlv(0x30, tlv(0x06, bytes.fromhex("2a8648ce3d040302")))
+    csr = tlv(0x30, cri + alg + tlv(0x03, b"\x00" + b"\x30\x06\x02\x01\x01\x02\x01\x01"))
+    return x509.load_der_x509_csr(csr)
+
+
 def load_policies(path: str | None = None) -> dict:
     if path:
         return yaml.safe_load(Path(path).read_text())
