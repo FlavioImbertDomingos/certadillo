@@ -60,8 +60,8 @@ Local, SQLite, software keys:
 
 ```bash
 pip install -e ".[dev,hsm]"
-make test                                      # 169 tests; the HSM test runs if SoftHSM2 is installed
-make run                                       # http://localhost:8080, admin key "admin-key"
+make test                                      # 175 tests; the HSM test runs if SoftHSM2 is installed
+make run                                       # http://localhost:8080, prints a random admin key
 make demo                                      # seed teams, apps, certificates and some bad legacy certs
 ```
 
@@ -76,7 +76,8 @@ make up
 ## Five-minute tour with curl
 
 ```bash
-S=http://localhost:8080; A=(-H "X-API-Key: admin-key" -H "Content-Type: application/json")
+. .certadillo/dev-keys.env   # written by make run
+S=http://localhost:8080; A=(-H "X-API-Key: $ADMIN_KEY" -H "Content-Type: application/json")
 
 # 1. onboard a team and an app; the app may only get names under *.cards.bank.internal
 curl -s "${A[@]}" -X POST $S/api/v1/teams -d '{"name":"cards","contact_email":"cards-sre@bank.example"}'

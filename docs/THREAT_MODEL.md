@@ -116,6 +116,35 @@ access. The Entra preset pins a single tenant's issuer rather than the
 multi-tenant `common` endpoint for this reason. Tokens are checked for
 signature, issuer, audience, expiry and algorithm; any failure is a 401.
 
+### Injecting script into the console
+
+The console shows data that Certadillo did not write: the subject of a
+certificate found by a discovery scan is whatever the scanned server chose, and
+team names, locations and approval payloads come from API callers. If any of
+that ran as script in an administrator's browser, it could read the API key the
+console keeps in session storage and act as that administrator.
+
+Three layers stop it. Every value is escaped: the console builds HTML only with
+a tagged template that escapes each interpolation, and `render()` refuses
+anything else. The page runs under a Content-Security-Policy with
+`script-src 'self'` and no inline script, so markup that slipped through still
+cannot run event handlers. And the policy turns on Trusted Types, so the browser
+throws on any `innerHTML` assignment that does not go through the page's one
+named policy. A browser test confirmed each layer on its own: with escaping
+switched off the injected `<img onerror>` became markup but never ran, and a raw
+`innerHTML` write threw. The knowledge base gets the same policy with its own
+Trusted Types names; its page bodies are built from the repository's Markdown.
+API responses carry `default-src 'none'`, so nothing served there can render as
+a page.
+
+### The build pipeline
+
+A compromised GitHub Action runs with the workflow's token. Third-party actions
+are pinned to commit SHAs (Dependabot keeps the pins current), checkout does not
+leave the token in `.git/config`, the workflow token is read-only by default,
+and only the job that uploads scan results gets `security-events: write`. The
+Vault binary used in CI is checked against HashiCorp's published SHA-256 sums.
+
 ### Windows logon raises the stakes
 
 An issuing CA published to NTAuth can mint smart-card logon certificates for any
@@ -155,6 +184,8 @@ integrity.
 | P1 | Field encryption for EAB keys, CMP secrets and team webhooks (local key or Vault Transit) | Done |
 | P1 | Name constraints on new issuing CAs | Done |
 | P1 | Alerts: new privileged principal, broken seal or rollback, anchor mismatch | Done |
+| P1 | Console and KB: escaping template, CSP without inline script, Trusted Types; deny-all CSP on the API | Done |
+| P1 | CI: actions pinned to SHAs, read-only token by default, no persisted checkout credentials | Done |
 | P2 | Container hardening (non-root, read-only filesystem, dropped capabilities) | To do |
 | P2 | Per-principal rate limits, egress restrictions | To do |
 

@@ -9,17 +9,18 @@ git clone https://github.com/FlavioImbertDomingos/certadillo.git
 cd certadillo
 pip install -e ".[dev,hsm]"
 
-export CERTADILLO_BOOTSTRAP_ADMIN_KEY=admin-key
-export CERTADILLO_BOOTSTRAP_APPROVER_KEY=approver-key
+export CERTADILLO_BOOTSTRAP_ADMIN_KEY=$(openssl rand -hex 24)
+export CERTADILLO_BOOTSTRAP_APPROVER_KEY=$(openssl rand -hex 24)
+echo "admin key: $CERTADILLO_BOOTSTRAP_ADMIN_KEY"
 certadillo serve --port 8080
 ```
 
-On first start Certadillo creates a SQLite database and a root and issuing CA under `./.certadillo`. Open `http://localhost:8080`, paste `admin-key` into the key field and press Connect.
+On first start Certadillo creates a SQLite database and a root and issuing CA under `./.certadillo`. Open `http://localhost:8080`, paste the admin key it printed into the key field and press Connect.
 
 Fill it with example data (teams, apps, certificates, a few bad legacy certificates so the alerts have something to show):
 
 ```bash
-python scripts/demo_seed.py --server http://localhost:8080 --admin-key admin-key --approver-key approver-key
+python scripts/demo_seed.py --server http://localhost:8080 --admin-key "$CERTADILLO_BOOTSTRAP_ADMIN_KEY" --approver-key "$CERTADILLO_BOOTSTRAP_APPROVER_KEY"
 ```
 
 ## Option 2: the full stack with Docker
@@ -43,7 +44,7 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
 
 ```bash
 S=http://localhost:8080
-A=(-H "X-API-Key: admin-key" -H "Content-Type: application/json")
+A=(-H "X-API-Key: $CERTADILLO_BOOTSTRAP_ADMIN_KEY" -H "Content-Type: application/json")
 
 # a team and an app that may use names under *.cards.bank.internal
 curl -s "${A[@]}" -X POST $S/api/v1/teams -d '{"name":"cards","contact_email":"cards-sre@bank.example"}'
