@@ -1,0 +1,48 @@
+# Single-host deployment: Certadillo + PostgreSQL.
+# Used by deploy/server/deploy.sh; secrets come from /opt/certadillo/.env on the server.
+# Only port 8080 is published. PostgreSQL stays on the private compose network.
+name: certadillo
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: certadillo
+      POSTGRES_USER: certadillo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?missing}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U certadillo"]
+      interval: 5s
+      retries: 20
+    logging: {driver: json-file, options: {max-size: "10m", max-file: "3"}}
+
+  certadillo:
+    image: certadillo:server
+    build: ../..
+    restart: unless-stopped
+    depends_on:
+      postgres: {condition: service_healthy}
+    environment:
+      CERTADILLO_DB_URL: postgresql+psycopg://certadillo:${POSTGRES_PASSWORD}@postgres:5432/certadillo
+      CERTADILLO_BASE_URL: ${CERTADILLO_BASE_URL:?missing}
+      CERTADILLO_ORG_NAME: ${CERTADILLO_ORG_NAME:-Example Bank}
+      CERTADILLO_KEY_PASSPHRASE: ${CERTADILLO_KEY_PASSPHRASE:?missing}
+      CERTADILLO_BOOTSTRAP_ADMIN_KEY: ${CERTADILLO_BOOTSTRAP_ADMIN_KEY:?missing}
+      CERTADILLO_BOOTSTRAP_APPROVER_KEY: ${CERTADILLO_BOOTSTRAP_APPROVER_KEY:?missing}
+      CERTADILLO_ALERT_INTERVAL: "300"
+      # Set to * only when 8080 is bound to 127.0.0.1 behind your reverse proxy.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
+    volumes: [cadata:/var/lib/certadillo]
+    # Bind address is configurable so a reverse proxy can take over later
+    # (CERTADILLO_BIND=127.0.0.1 keeps 8080 off the public interface).
+    ports: ["${CERTADILLO_BIND:-0.0.0.0}:8080:8080"]
+    deploy:
+      resources:
+        limits: {memory: 512m}
+    logging: {driver: json-file, options: {max-size: "10m", max-file: "5"}}
+
+volumes:
+  pgdata: {}
+  cadata: {}
