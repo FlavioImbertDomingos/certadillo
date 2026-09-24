@@ -5,6 +5,9 @@
 # scepclient 2.3 encrypts requests with single DES, so this run enables
 # CERTADILLO_SCEP_ALLOW_DES. Leave it off in production unless such clients exist.
 set -euo pipefail
+# Fresh random API keys for this throwaway server; nothing reusable ends up in the repo or the logs.
+ADMIN_KEY=$(openssl rand -hex 24)
+APPROVER_KEY=$(openssl rand -hex 24)
 PORT=${PORT:-8080}
 S=http://127.0.0.1:$PORT
 WORK=$(mktemp -d)
@@ -17,13 +20,13 @@ if [ -z "$CLIENT" ]; then
   unzip -q "$WORK/scep.zip" -d "$WORK" && CLIENT=$WORK/scepclient-linux-amd64 && chmod +x "$CLIENT"
 fi
 
-CERTADILLO_DATA_DIR=$WORK/data CERTADILLO_BOOTSTRAP_ADMIN_KEY=admin-key CERTADILLO_BOOTSTRAP_APPROVER_KEY=approver-key \
+CERTADILLO_DATA_DIR=$WORK/data CERTADILLO_BOOTSTRAP_ADMIN_KEY=$ADMIN_KEY CERTADILLO_BOOTSTRAP_APPROVER_KEY=$APPROVER_KEY \
 CERTADILLO_BASE_URL=$S CERTADILLO_SCEP_ALLOW_DES=true certadillo serve --port "$PORT" > "$WORK/server.log" 2>&1 &
 SERVER=$!
 trap 'kill $SERVER 2>/dev/null || true' EXIT
 for _ in $(seq 30); do curl -sf "$S/healthz" >/dev/null && break; sleep 0.5; done
 
-A=(-H "X-API-Key: admin-key" -H "Content-Type: application/json")
+A=(-H "X-API-Key: $ADMIN_KEY" -H "Content-Type: application/json")
 curl -sf -X POST "${A[@]}" "$S/api/v1/teams" -d '{"name":"network","contact_email":"net@bank.example"}' >/dev/null
 curl -sf -X POST "${A[@]}" "$S/api/v1/apps" -d '{"team_id":1,"name":"branch-routers","environment":"dev","profile":"tls-client","allowed_domains":["*.routers.bank.internal"]}' >/dev/null
 challenge() { curl -sf -X POST "${A[@]}" "$S/api/v1/apps/1/scep-challenge" | python3 -c 'import json,sys;print(json.load(sys.stdin)["challenge"])'; }
@@ -60,7 +63,7 @@ for _ in $(seq 20); do
   [ -n "$AP" ] && break; sleep 1
 done
 grep -q "pkiStatus=PENDING" "$WORK/pending/client.log" && echo "SCEP: code-signing request is PENDING"
-curl -sf -X POST -H "X-API-Key: approver-key" "$S/api/v1/approvals/$AP/approve" >/dev/null
+curl -sf -X POST -H "X-API-Key: $APPROVER_KEY" "$S/api/v1/approvals/$AP/approve" >/dev/null
 wait $POLLER || true
 openssl verify -CAfile "$WORK/root.pem" -untrusted "$WORK/issuing.pem" "$WORK/pending/cert.pem"
 echo "SCEP: approved by a second person, picked up by the polling client"

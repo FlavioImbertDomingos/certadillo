@@ -7,6 +7,12 @@
   var THREE = window.THREE;
   var REDUCED = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+  // The scene chrome is a fixed template; the one value in it (the scene title) is escaped.
+  // Under the server's Trusted Types CSP this named policy is the only way to set markup.
+  var policy = window.trustedTypes ? window.trustedTypes.createPolicy("kb-scene", { createHTML: function (s) { return s; } }) : null;
+  function setHTML(el, s) { el.innerHTML = policy ? policy.createHTML(s) : s; }
+  function esc(s) { return String(s).replace(/[&<>"'`]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;", "`": "&#96;" }[c]; }); }
+
   var COLORS = {
     teal: 0x0f766e, tealBright: 0x2dd4bf, gold: 0xf2b233, ink: 0x10201e, graphite: 0x2a3634,
     slate: 0x5b6b69, paper: 0xe9efed, violet: 0x7c5cff, red: 0xe5484d, green: 0x22c55e, blue: 0x3b82f6,
@@ -228,7 +234,7 @@
     var key = mood || "happy";
     if (DILLY_SRC[key]) return DILLY_SRC[key];
     var file = key === "happy" ? "dilly.svg" : "dilly-" + key + ".svg";
-    var base = window.CERTADILLO_KB_ASSETS || "./";
+    var base = window.CERTADILLO_KB_ASSETS || "img/";
     var tex = new THREE.TextureLoader().load(base + file);
     if (THREE.SRGBColorSpace) tex.colorSpace = THREE.SRGBColorSpace; else tex.encoding = THREE.sRGBEncoding;
     DILLY_SRC[key] = tex;
@@ -258,8 +264,8 @@
   SceneView.prototype.buildDom = function () {
     var d = this.def;
     this.container.classList.add("scene");
-    this.container.innerHTML =
-      '<div class="scene-stage"><canvas class="scene-canvas" aria-label="' + d.title + ' 3D walkthrough"></canvas>' +
+    setHTML(this.container,
+      '<div class="scene-stage"><canvas class="scene-canvas" aria-label="' + esc(d.title) + ' 3D walkthrough"></canvas>' +
       '<div class="scene-hint">Drag to rotate · double-click to reset</div>' +
       '<div class="scene-zoom"><button type="button" data-z="in" aria-label="Zoom in">+</button><button type="button" data-z="out" aria-label="Zoom out">−</button></div></div>' +
       '<div class="scene-panel">' +
@@ -272,7 +278,7 @@
       '<label class="scene-speed">Speed <select><option value="0.6">0.6×</option><option value="1" selected>1×</option><option value="1.6">1.6×</option></select></label>' +
       "</div>" +
       '<div class="scene-step"><div class="scene-eyebrow"></div><h4></h4><p></p><pre class="scene-payload"><code></code></pre></div>' +
-      '<ol class="scene-steps"></ol></div>';
+      '<ol class="scene-steps"></ol></div>');
     var ol = this.container.querySelector(".scene-steps");
     d.steps.forEach(function (s, i) {
       var li = document.createElement("li");

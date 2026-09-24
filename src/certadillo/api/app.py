@@ -23,6 +23,7 @@ from certadillo import __version__
 from certadillo.alerting.evaluator import reconcile
 from certadillo.alerting.notifiers import build_global_notifiers
 from certadillo.api.deps import actor, platform
+from certadillo.api import headers as security_headers
 from certadillo.audit.log import verify_chain
 from certadillo.config import Settings
 from certadillo.db import (
@@ -288,6 +289,8 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
             response = await call_next(request)
             status = response.status_code
             response.headers["X-Request-ID"] = rid
+            https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
+            security_headers.apply(request.url.path, response.headers, https)
             return response
         finally:
             route = request.scope.get("route")

@@ -1,0 +1,14 @@
+# Actions are pinned to commit SHAs; Dependabot keeps the pins and the version comments current.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly

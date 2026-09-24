@@ -9,11 +9,17 @@ test:           ## unit + integration tests (SoftHSM2 test runs when installed)
 lint:
 	ruff check .
 
-run:            ## local server on :8080 with throwaway keys
-	CERTADILLO_BOOTSTRAP_ADMIN_KEY=admin-key CERTADILLO_BOOTSTRAP_APPROVER_KEY=approver-key certadillo serve
+DEV_KEYS := .certadillo/dev-keys.env
 
-demo:           ## seed a running server with a demo estate
-	python scripts/demo_seed.py --server http://localhost:8080 --admin-key admin-key --approver-key approver-key
+$(DEV_KEYS):
+	@mkdir -p .certadillo && umask 077 && printf 'ADMIN_KEY=%s\nAPPROVER_KEY=%s\n' "$$(openssl rand -hex 24)" "$$(openssl rand -hex 24)" > $@
+	@echo "random dev keys written to $@"
+
+run: $(DEV_KEYS)  ## local server on :8080 with random dev keys (see .certadillo/dev-keys.env)
+	@. ./$(DEV_KEYS) && echo "admin key: $$ADMIN_KEY" && CERTADILLO_BOOTSTRAP_ADMIN_KEY=$$ADMIN_KEY CERTADILLO_BOOTSTRAP_APPROVER_KEY=$$APPROVER_KEY certadillo serve
+
+demo: $(DEV_KEYS)  ## seed a running server with a demo estate
+	@. ./$(DEV_KEYS) && python scripts/demo_seed.py --server http://localhost:8080 --admin-key "$$ADMIN_KEY" --approver-key "$$APPROVER_KEY"
 
 up:             ## full stack: postgres, prometheus, alertmanager, grafana
 	docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build

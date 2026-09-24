@@ -7,6 +7,8 @@
 #   certificate is revoked and `certbot unregister` deactivates the account.
 # Needs: certbot >= 4 (ARI), openssl, python3 with dnspython.
 set -euo pipefail
+# Fresh random API keys for this throwaway server; nothing reusable ends up in the repo or the logs.
+ADMIN_KEY=$(openssl rand -hex 24)
 PORT=${PORT:-8080}
 DNSPORT=${DNSPORT:-5353}
 S=http://127.0.0.1:$PORT
@@ -17,7 +19,7 @@ echo '{}' > "$WORK/zone.json"
 
 python3 "$HERE/tinydns.py" "$WORK/zone.json" "$DNSPORT" > "$WORK/dns.log" 2>&1 &
 DNSPID=$!
-CERTADILLO_DATA_DIR=$WORK/data CERTADILLO_BOOTSTRAP_ADMIN_KEY=admin-key CERTADILLO_BASE_URL=$S \
+CERTADILLO_DATA_DIR=$WORK/data CERTADILLO_BOOTSTRAP_ADMIN_KEY=$ADMIN_KEY CERTADILLO_BASE_URL=$S \
 CERTADILLO_ACME_DNS_VIEWS="portal.bank.internal=127.0.0.1:$DNSPORT" \
   certadillo serve --port "$PORT" > "$WORK/server.log" 2>&1 &
 SERVER=$!
@@ -44,7 +46,7 @@ PY
 EOF
 chmod +x "$WORK/auth.sh" "$WORK/cleanup.sh"
 
-A=(-H "X-API-Key: admin-key" -H "Content-Type: application/json")
+A=(-H "X-API-Key: $ADMIN_KEY" -H "Content-Type: application/json")
 curl -sf -X POST "${A[@]}" "$S/api/v1/teams" -d '{"name":"web","contact_email":"web@bank.example"}' >/dev/null
 curl -sf -X POST "${A[@]}" "$S/api/v1/apps" -d '{"team_id":1,"name":"portal-edge","environment":"dev","profile":"tls-wildcard","allowed_domains":["*.portal.bank.internal"]}' >/dev/null
 read -r KID HMAC < <(curl -sf -X POST "${A[@]}" "$S/api/v1/apps/1/acme-eab" | python3 -c 'import json,sys;d=json.load(sys.stdin);print(d["kid"],d["hmac_key"])')

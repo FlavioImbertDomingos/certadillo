@@ -9,7 +9,15 @@
   var current = null;
   var sceneView = null;
 
-  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
+  function esc(s) { return String(s).replace(/[&<>"'`]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;", "`": "&#96;" }[c]; }); }
+
+  // Page bodies are HTML rendered from the repo's Markdown at build time; everything else that
+  // reaches the page (titles, slugs, search text) goes through esc(). The server's CSP turns on
+  // Trusted Types, so these two helpers are the only way markup gets into the document.
+  var policy = window.trustedTypes ? window.trustedTypes.createPolicy("kb-app", { createHTML: function (s) { return s; } }) : null;
+  function setHTML(el, s) { el.innerHTML = policy ? policy.createHTML(s) : s; }
+  // DOMParser builds an inert document: no scripts run and no images load while indexing.
+  function textOf(s) { return new DOMParser().parseFromString(policy ? policy.createHTML(s) : s, "text/html").body.textContent || ""; }
 
   // ------------------------------------------------------------ nav
   var groups = [];
@@ -19,11 +27,11 @@
     if (!g) { g = { name: p.group, items: [] }; groups.push(g); }
     g.items.push(p);
   });
-  nav.innerHTML = groups.map(function (g) {
+  setHTML(nav, groups.map(function (g) {
     return "<h3>" + esc(g.name) + "</h3>" + g.items.map(function (p) {
-      return '<a href="#' + p.slug + '" data-slug="' + p.slug + '">' + esc(p.nav || p.title) + (p.scene ? '<span class="tag">3D</span>' : "") + "</a>";
+      return '<a href="#' + esc(p.slug) + '" data-slug="' + esc(p.slug) + '">' + esc(p.nav || p.title) + (p.scene ? '<span class="tag">3D</span>' : "") + "</a>";
     }).join("");
-  }).join("");
+  }).join(""));
 
   // ------------------------------------------------------------ render
   function render(slug, anchor) {
@@ -37,7 +45,7 @@
       html = '<article class="kb-page">';
       if (p.scene) {
         html += '<div class="kb-prose"><div class="kb-eyebrow">' + esc(p.group) + "</div>" + p.pre + "</div>";
-        html += '<div class="kb-scene-wrap"><div class="kb-scene" data-scene="' + p.scene + '"></div>' +
+        html += '<div class="kb-scene-wrap"><div class="kb-scene" data-scene="' + esc(p.scene) + '"></div>' +
           '<div class="kb-legend"><span><i style="background:#14b8a6"></i>request</span><span><i style="background:#f2b233"></i>response</span>' +
           '<span><i style="background:#8b5cf6"></i>encrypted or secret</span><span><i style="background:#e5484d"></i>rejected or alert</span>' +
           '<span><i style="background:#3b82f6"></i>local step</span><span><i style="background:linear-gradient(#2dd4bf,#f2b233)"></i>audit chain block</span></div></div>';
@@ -49,11 +57,11 @@
       while (prev && prev.hidden) prev = pages[prev.index - 1];
       while (next && next.hidden) next = pages[next.index + 1];
       html += '<nav class="kb-pager" aria-label="Previous and next">' +
-        (prev ? '<a href="#' + prev.slug + '"><small>Previous</small>' + esc(prev.nav || prev.title) + "</a>" : "<span></span>") +
-        (next ? '<a href="#' + next.slug + '" style="text-align:right"><small>Next</small>' + esc(next.nav || next.title) + "</a>" : "<span></span>") + "</nav>";
+        (prev ? '<a href="#' + esc(prev.slug) + '"><small>Previous</small>' + esc(prev.nav || prev.title) + "</a>" : "<span></span>") +
+        (next ? '<a href="#' + esc(next.slug) + '" style="text-align:right"><small>Next</small>' + esc(next.nav || next.title) + "</a>" : "<span></span>") + "</nav>";
       html += "</article>";
     }
-    main.innerHTML = html;
+    setHTML(main, html);
     enhance(main);
     var holder = main.querySelector(".kb-scene");
     if (holder && window.CertadilloScenes) sceneView = window.CertadilloScenes.mount(holder, holder.getAttribute("data-scene"));
@@ -105,8 +113,7 @@
   var input = document.getElementById("kb-q");
   var results = document.getElementById("kb-results");
   var index = pages.filter(function (p) { return !p.hidden; }).map(function (p) {
-    var div = document.createElement("div"); div.innerHTML = p.html;
-    return { p: p, text: (p.title + " " + div.textContent).toLowerCase() };
+    return { p: p, text: (p.title + " " + textOf(p.html)).toLowerCase() };
   });
   function search(q) {
     q = q.trim().toLowerCase();
@@ -117,11 +124,11 @@
       words.forEach(function (w) { var n = e.text.split(w).length - 1; score += n + (e.p.title.toLowerCase().indexOf(w) >= 0 ? 20 : 0); if (!n) score -= 1000; });
       return { e: e, score: score };
     }).filter(function (h) { return h.score > 0; }).sort(function (a, b) { return b.score - a.score; }).slice(0, 8);
-    results.innerHTML = hits.length ? hits.map(function (h) {
+    setHTML(results, hits.length ? hits.map(function (h) {
       var i = h.e.text.indexOf(words[0]);
       var snip = h.e.text.slice(Math.max(0, i - 40), i + 80).replace(/\s+/g, " ");
-      return '<a href="#' + h.e.p.slug + '">' + esc(h.e.p.title) + "<small>…" + esc(snip) + "…</small></a>";
-    }).join("") : '<a href="#home">No matches<small>Try "SCEP challenge", "revoke", "EAB"</small></a>';
+      return '<a href="#' + esc(h.e.p.slug) + '">' + esc(h.e.p.title) + "<small>…" + esc(snip) + "…</small></a>";
+    }).join("") : '<a href="#home">No matches<small>Try "SCEP challenge", "revoke", "EAB"</small></a>');
     results.hidden = false;
   }
   input.addEventListener("input", function () { search(input.value); });

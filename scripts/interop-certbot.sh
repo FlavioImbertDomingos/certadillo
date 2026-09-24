@@ -4,6 +4,8 @@
 # Needs: certbot, openssl, root (certbot binds :80), and the two names below
 # resolving to 127.0.0.1 (the script adds them to /etc/hosts when it can).
 set -euo pipefail
+# Fresh random API keys for this throwaway server; nothing reusable ends up in the repo or the logs.
+ADMIN_KEY=$(openssl rand -hex 24)
 PORT=${PORT:-8080}
 S=http://127.0.0.1:$PORT
 WORK=$(mktemp -d)
@@ -12,13 +14,13 @@ export NO_PROXY=127.0.0.1,localhost,.bank.internal no_proxy=127.0.0.1,localhost,
 
 grep -q "${NAMES[0]}" /etc/hosts || echo "127.0.0.1 ${NAMES[*]}" >> /etc/hosts
 
-CERTADILLO_DATA_DIR=$WORK/data CERTADILLO_BOOTSTRAP_ADMIN_KEY=admin-key CERTADILLO_BASE_URL=$S \
+CERTADILLO_DATA_DIR=$WORK/data CERTADILLO_BOOTSTRAP_ADMIN_KEY=$ADMIN_KEY CERTADILLO_BASE_URL=$S \
   certadillo serve --port "$PORT" > "$WORK/server.log" 2>&1 &
 SERVER=$!
 trap 'kill $SERVER 2>/dev/null || true' EXIT
 for _ in $(seq 30); do curl -sf "$S/healthz" >/dev/null && break; sleep 0.5; done
 
-A=(-H "X-API-Key: admin-key" -H "Content-Type: application/json")
+A=(-H "X-API-Key: $ADMIN_KEY" -H "Content-Type: application/json")
 curl -sf -X POST "${A[@]}" "$S/api/v1/teams" -d '{"name":"web","contact_email":"web@bank.example"}' >/dev/null
 curl -sf -X POST "${A[@]}" "$S/api/v1/apps" -d '{"team_id":1,"name":"web-portal","environment":"dev","profile":"tls-server","allowed_domains":["*.portal.bank.internal"]}' >/dev/null
 read -r KID HMAC < <(curl -sf -X POST "${A[@]}" "$S/api/v1/apps/1/acme-eab" | python3 -c 'import json,sys;d=json.load(sys.stdin);print(d["kid"],d["hmac_key"])')

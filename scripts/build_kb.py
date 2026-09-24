@@ -197,8 +197,7 @@ SHELL = """<header class="kb-top">
   <main id="kb-main" class="kb-main"></main>
 </div>"""
 
-SCRIPTS = """<script>window.CERTADILLO_KB_ASSETS = "img/";</script>
-<script src="scenes-engine.js"></script>
+SCRIPTS = """<script src="scenes-engine.js"></script>
 <script src="scenes-data.js"></script>
 <script src="kb-content.js"></script>
 <script src="kb-app.js"></script>"""

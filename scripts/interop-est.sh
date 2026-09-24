@@ -7,6 +7,8 @@
 # and a device bootstrapping with a manufacturer (IDevID) certificate.
 # Needs: nginx, openssl, go (for estclient), root (edits /etc/hosts).
 set -euo pipefail
+# Fresh random API keys for this throwaway server; nothing reusable ends up in the repo or the logs.
+ADMIN_KEY=$(openssl rand -hex 24)
 PORT=${PORT:-8080}
 TLSPORT=${TLSPORT:-8443}
 S=http://127.0.0.1:$PORT
@@ -19,14 +21,14 @@ grep -q "est.bank.internal" /etc/hosts || echo "127.0.0.1 est.bank.internal" >> 
 EC=${ESTCLIENT:-$(command -v estclient || echo "$(go env GOPATH)/bin/estclient")}
 [ -x "$EC" ] || go install github.com/globalsign/est/cmd/estclient@latest
 
-CERTADILLO_DATA_DIR=$WORK/data CERTADILLO_BOOTSTRAP_ADMIN_KEY=admin-key CERTADILLO_BASE_URL=$S \
+CERTADILLO_DATA_DIR=$WORK/data CERTADILLO_BOOTSTRAP_ADMIN_KEY=$ADMIN_KEY CERTADILLO_BASE_URL=$S \
 CERTADILLO_EST_CLIENT_CERT_HEADER=X-SSL-Client-Cert CERTADILLO_EST_PROXY_SECRET=$SECRET \
   certadillo serve --port "$PORT" > "$WORK/server.log" 2>&1 &
 SERVER=$!
 trap 'kill $SERVER 2>/dev/null || true; [ -f "$WORK/nginx.pid" ] && kill "$(cat "$WORK/nginx.pid")" 2>/dev/null || true' EXIT
 for _ in $(seq 30); do curl -sf "$S/healthz" >/dev/null && break; sleep 0.5; done
 
-A=(-H "X-API-Key: admin-key" -H "Content-Type: application/json")
+A=(-H "X-API-Key: $ADMIN_KEY" -H "Content-Type: application/json")
 j() { python3 -c "import json,sys;print(json.load(sys.stdin)$1)"; }
 curl -sf -X POST "${A[@]}" "$S/api/v1/teams" -d '{"name":"devices","contact_email":"iot@bank.example"}' >/dev/null
 # the EST endpoint's own TLS certificate comes from Certadillo too
