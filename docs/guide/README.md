@@ -26,6 +26,7 @@ Pick the protocol your client already speaks. They all go through the same onboa
 | [SSH certificates](08-ssh.md) | Short-lived user and host certificates for OpenSSH |
 | [Workload identity (SPIFFE)](09-workload-identity.md) | Service-to-service mTLS with SPIFFE IDs |
 | [Code signing and S/MIME](10-code-signing-smime.md) | Release signing (with dual control) and email certificates |
+| [Windows and AD CS](20-windows-adcs.md) | Auditing AD CS templates, smart-card logon certificates, and using AD CS as a backend |
 
 ## Operating it
 

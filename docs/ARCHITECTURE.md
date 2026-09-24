@@ -74,8 +74,10 @@ Root CA (P-384, 20 years, pathlen 1)          offline in production; online in t
       ├── SPIFFE X.509-SVIDs (24 hours default, 72 max)
       ├── S/MIME (1 year)
       ├── Code signing (1 year, dual control)
+      ├── Windows smart-card / PKINIT logon (UPN otherName + SID security extension)
       ├── OCSP responder certificate (30 days, id-kp-OCSPSigning, ocsp-nocheck)
-      └── SCEP RA certificate (RSA-3072, 1 year; SCEP key transport needs RSA)
+      ├── SCEP RA certificate (RSA-3072, 1 year; SCEP key transport needs RSA)
+      └── CMP RA certificate (P-256, id-kp-cmcRA)
 SSH CA (Ed25519)                               separate trust anchor for OpenSSH
 ```
 

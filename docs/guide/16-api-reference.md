@@ -38,6 +38,14 @@ Authenticate with `X-API-Key: <key>` or `Authorization: Bearer <key>`. Errors ar
 | `POST` | `/api/v1/renewal-campaigns/{campaign_id}/revoke-replaced` | admin, operator | revoke certificates that have a successor |
 | `POST` | `/api/v1/renewal-campaigns/{campaign_id}/revoke-remaining` | admin, operator | request the cutoff for the rest (dual control) |
 | `POST` | `/api/v1/renewal-campaigns/{campaign_id}/close` | admin, operator | close a campaign; its windows stop applying |
+| `POST` | `/api/v1/adcs/audit/import` | admin, operator | audit an Export-CertadilloAdcsTemplates document |
+| `POST` | `/api/v1/adcs/audit/ldap` | admin, operator | audit the live directory over LDAP (CERTADILLO_ADCS_LDAP_*) |
+| `GET` | `/api/v1/adcs/findings` | admin, operator, approver, auditor | findings of the most recent AD CS audit run |
+| `POST` | `/api/v1/adcs/gateway/jobs/claim` | admin, gateway | a gateway worker claims pending jobs |
+| `POST` | `/api/v1/adcs/gateway/jobs/{job_id}/complete` | admin, gateway | report a job's result (certificate, revoke, inventory, or error) |
+| `GET` | `/api/v1/adcs/gateway/jobs/{job_id}` | admin, operator, approver, auditor; app (own) | poll one gateway job |
+| `GET` | `/api/v1/adcs/gateway/jobs` | admin, operator, gateway, auditor | list gateway jobs (`status`) |
+| `POST` | `/api/v1/adcs/inventory` | admin, operator | queue an AD CS CA database inventory job |
 | `GET` | `/api/v1/ssh/ca` | public | SSH CA public key for TrustedUserCAKeys |
 | `POST` | `/api/v1/ssh/certificates` | app, admin, operator | issue an SSH user or host certificate |
 | `POST` | `/api/v1/discovery/scan` | admin, operator | scan TLS endpoints into the inventory |

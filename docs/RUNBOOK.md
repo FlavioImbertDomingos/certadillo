@@ -90,6 +90,23 @@ A renewal campaign passed its deadline with certificates that were not replaced.
 2. Ask each team why their client did not renew. Usual causes: the client does not check ARI (renew by hand or with `certadillo cert renew-if-due`), it has not checked yet (`Retry-After` up to 6 hours plus its own schedule), or its renewals fail policy (look for `certificate.rejected` in the audit trail).
 3. Decide with the incident owner: extend by starting a new campaign for the remainder with a later deadline, or accept the outage risk and request the cutoff with `revoke-remaining` (a second person approves it).
 
+## AdcsTemplateVulnerable
+
+The last AD CS template audit found a critical or high misconfiguration (an ESC finding). This is a weakness in the Microsoft CA, not in Certadillo.
+
+1. `GET /api/v1/adcs/findings` lists the current run: the object (template or CA), the ESC id, who can reach it and a remark. See [Windows and AD CS](guide/20-windows-adcs.md) for what each ESC means.
+2. Take it to the AD CS owners. Typical fixes: remove enrollee-supplied-subject or restrict enrollment rights (ESC1/ESC15), remove the Any Purpose or enrollment-agent EKU or gate it behind approval (ESC2/ESC3), tighten the template ACL (ESC4), clear EDITF_ATTRIBUTESUBJECTALTNAME2 (ESC6), disable HTTP web enrollment or require channel binding (ESC8), stop the CA omitting the SID extension (ESC16).
+3. Re-run the audit (`certadillo adcs audit` or the import endpoint). The alert clears when the finding is gone from the latest run.
+4. If a finding is accepted as a known risk, record the decision; the alert re-fires each run until the template is changed.
+
+## AdcsGatewayJobStuck
+
+An AD CS gateway job has been pending or claimed for more than an hour, so a request, revocation or inventory is not reaching the Microsoft CA.
+
+1. `GET /api/v1/adcs/gateway/jobs?status=pending` (and `?status=claimed`) shows the backlog and job types.
+2. Check the gateway worker: the scheduled task on the domain-joined host, its network path to the CA, and that its account may still enroll the template (issue), has Certificate Manager rights (revoke) or database read (inventory).
+3. A job stuck in `claimed` means a worker took it and did not report back; look for the error in the worker's log. Once fixed, the next run picks up pending work; a permanently failed job can be completed with an `error` so it stops alerting.
+
 ## Mass revocation after a key compromise
 
 Revoking first takes every affected service down until someone installs a new certificate. When time allows, replace first and revoke second:

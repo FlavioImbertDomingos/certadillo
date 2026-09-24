@@ -836,4 +836,82 @@
       }
     ]
   });
+
+  // ------------------------------------------------------------------ Windows and AD CS
+  S.register({
+    id: "adcs",
+    title: "Windows and AD CS",
+    dilly: "ra",
+    chainAt: "db",
+    chainOffset: [1.2, 0.2],
+    camera: { theta: 0.32, phi: 1.1, radius: 21.5 },
+    actors: [
+      { id: "operator", kind: "person", label: "PKI operator", sub: "runs the audit", x: -2.2, z: 7.0 },
+      { id: "client", kind: "laptop", label: "Windows client", sub: "smart-card logon", x: -7.2, z: 2.0, anchorY: 0.8 },
+      { id: "dc", kind: "server", label: "AD domain controller", sub: "LDAP · templates · SIDs", x: -5.6, z: -3.8, anchorY: 1.1 },
+      { id: "ra", kind: "shield", label: "Certadillo RA", sub: "scope · policy · SID lookup", x: 0.4, z: -0.4, anchorY: 1.4 },
+      { id: "gw", kind: "gateway", label: "Gateway worker", sub: "domain-joined · certreq", x: 3.6, z: -4.6, anchorY: 1.2 },
+      { id: "msca", kind: "ca", label: "Microsoft AD CS", sub: "enterprise CA", x: 7.0, z: -0.4, anchorY: 1.6, labelY: 3.0 },
+      { id: "ca", kind: "ca", label: "Certadillo CA", sub: "windows-logon", x: 6.6, z: 3.8, anchorY: 1.2, labelY: 2.4 },
+      { id: "db", kind: "db", label: "Inventory + audit", sub: "findings · certificates", x: 2.2, z: 5.8, anchorY: 1.1 }
+    ],
+    steps: [
+      {
+        phase: "Audit", title: "Read the templates",
+        body: "Certadillo reads the AD CS templates and CA configuration over an ordinary LDAP bind (or an offline export). It is read-only: it never enrolls or edits anything, it only grades what it finds.",
+        payload: "certadillo adcs audit\n# or POST /api/v1/adcs/audit/ldap\n\nreads CN=Certificate Templates,CN=Public Key Services,\n      CN=Services,CN=Configuration,DC=corp,DC=bank,DC=internal",
+        moves: [
+          { from: "ra", to: "dc", label: "LDAP search (templates, ACLs, OIDs)" },
+          { from: "dc", to: "ra", label: "template objects", kind: "response" }
+        ]
+      },
+      {
+        phase: "Audit", title: "Flag the misconfigured template",
+        body: "The 'VulnUser' template lets the enrollee choose the subject, allows client authentication, and any Domain User can enroll: ESC1. Certadillo records the finding and raises AdcsTemplateVulnerable so the AD team can fix it.",
+        payload: "ESC1  critical  template 'VulnUser'\n  Enrollee supplies subject and template allows\n  client authentication.\n  principals: Domain Users",
+        moves: [
+          { from: "ra", to: "db", label: "store finding · alert", kind: "reject", effect: "reject" }
+        ]
+      },
+      {
+        phase: "Logon", title: "Resolve the SID from the directory",
+        body: "A Windows client asks for a smart-card logon certificate with a UPN otherName. The RA checks the UPN suffix is in the app scope, then looks the account's SID up in the directory. The SID is never taken from the request, the lookup fails closed, and a disabled account is refused.",
+        payload: "CSR: SAN otherName UPN = alice@corp.bank.internal\n\nLDAP (&(objectClass=user)\n      (userPrincipalName=alice@corp.bank.internal))\n -> objectSid S-1-5-21-...-1104, enabled",
+        moves: [
+          { from: "client", to: "ra", label: "request windows-logon cert" },
+          { from: "ra", to: "dc", label: "look up UPN -> SID" },
+          { from: "dc", to: "ra", label: "SID + account state", kind: "response", effect: "check" }
+        ]
+      },
+      {
+        phase: "Logon", title: "Issue with the SID security extension",
+        body: "Certadillo signs the certificate with the UPN otherName and the SID security extension (szOID_NTDS_CA_SECURITY_EXT), so it passes strong certificate mapping under full KB5014754 enforcement. A sensitive account (adminCount=1) would first need a second approver.",
+        payload: "leaf:\n  SAN: otherName UPN alice@corp.bank.internal\n  1.3.6.1.4.1.311.25.2: S-1-5-21-...-1104\n  EKU: clientAuth, smartcardLogon, pkinitClient",
+        moves: [
+          { from: "ra", to: "ca", label: "sign logon certificate", effect: "sign" },
+          { from: "ca", to: "db", label: "inventory + audit", kind: "response", effect: "store" },
+          { from: "ra", to: "client", label: "certificate", kind: "response" }
+        ]
+      },
+      {
+        phase: "Gateway", title: "Hand an approved request to AD CS",
+        body: "For a profile with issuer: adcs, Certadillo stays the RA but AD CS signs. The RA applies scope and policy, then queues a job. A domain-joined gateway worker claims it and submits to the Microsoft CA with certreq against the named template.",
+        payload: "profile adcs-user (issuer: adcs)\n202 {\"status\": \"gateway_queued\", \"job_id\": 7}\n\ngateway: certreq -submit -config \"CA01\\Corp Issuing CA\"\n         -attrib \"CertificateTemplate:CertadilloUser\"",
+        moves: [
+          { from: "ra", to: "db", label: "queue job (scope checked)", effect: "store" },
+          { from: "gw", to: "ra", label: "claim pending jobs" },
+          { from: "gw", to: "msca", label: "certreq -submit", kind: "secret", effect: "sign" }
+        ]
+      },
+      {
+        phase: "Gateway", title: "Return the certificate to inventory",
+        body: "The worker posts the issued certificate back. Certadillo ingests it with backend adcs and location adcs:<CA>, owned by the requesting app, so an AD CS certificate lands in the same inventory, alerting and reporting as everything else. Revocation and a CA-database inventory run the same way.",
+        payload: "POST /api/v1/adcs/gateway/jobs/7/complete\n{\"certificate_pem\": \"-----BEGIN CERTIFICATE----- ...\"}\n\ninventory: backend=adcs, location=adcs:Corp Issuing CA",
+        moves: [
+          { from: "gw", to: "ra", label: "post certificate back", kind: "response" },
+          { from: "ra", to: "db", label: "ingest · owner = app", kind: "response", effect: "store" }
+        ]
+      }
+    ]
+  });
 })();

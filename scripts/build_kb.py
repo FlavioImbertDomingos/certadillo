@@ -37,6 +37,7 @@ PAGES = [
     ("ssh", "guide/08-ssh.md", "Protocols", "SSH certificates", None),
     ("spiffe", "guide/09-workload-identity.md", "Protocols", "Workload identity", None),
     ("code-signing", "guide/10-code-signing-smime.md", "Protocols", "Code signing and S/MIME", None),
+    ("windows-adcs", "guide/20-windows-adcs.md", "Protocols", "Windows and AD CS", "adcs"),
     ("revocation", "guide/11-revocation.md", "Operate", "Revocation: OCSP and CRL", "revocation"),
     ("campaigns", "guide/19-renewal-campaigns.md", "Operate", "Renewal campaigns (ARI)", "ari"),
     ("discovery", "guide/12-discovery-inventory.md", "Operate", "Discovery and inventory", None),
@@ -51,6 +52,7 @@ PAGES = [
     ("tour-devices", None, "3D walkthroughs", "EST and SCEP devices", "devices"),
     ("tour-estlb", None, "3D walkthroughs", "EST behind a load balancer", "estlb"),
     ("tour-cmp", None, "3D walkthroughs", "CMP for industrial devices", "cmp"),
+    ("tour-adcs", None, "3D walkthroughs", "Windows and AD CS", "adcs"),
     ("tour-revocation", None, "3D walkthroughs", "OCSP and CRL", "revocation"),
     ("architecture", "ARCHITECTURE.md", "Reference", "Architecture", None),
     ("security", "SECURITY.md", "Reference", "Security model", None),
@@ -85,6 +87,10 @@ TOURS = {
                  "A PLC enrolls with a one-time secret, confirms, updates its key, waits for an approver for a "
                  "firmware-signing certificate, and revokes one of its own certificates.",
                  "cmp"),
+    "tour-adcs": ("Windows and AD CS",
+                  "The template audit flags an ESC1 template, a smart-card logon certificate is issued with the SID "
+                  "resolved from the directory, and the gateway hands an approved request to a Microsoft CA.",
+                  "windows-adcs"),
     "tour-revocation": ("OCSP and CRL",
                         "A key leaks, the certificate is revoked, and both revocation paths tell relying parties within "
                         "the same request. Then the housekeeping that keeps them fresh.",
@@ -136,6 +142,7 @@ def home_html(pages: list[dict]) -> str:
              ("scep", "SCEP", "Intune, routers, one-time challenges"),
              ("est", "EST", "ATMs, appliances, IDevID bootstrap"),
              ("cmp", "CMP", "Telecom and industrial gear"),
+             ("windows-adcs", "Windows and AD CS", "Template audit, logon, gateway"),
              ("campaigns", "Renewal campaigns", "Replace first, revoke second"),
              ("ssh", "SSH certificates", "Short-lived access, no authorized_keys"),
              ("revocation", "Revocation", "OCSP and CRL"),

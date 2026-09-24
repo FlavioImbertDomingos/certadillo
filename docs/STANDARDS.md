@@ -18,6 +18,10 @@ Which requirement each part of Certadillo covers. "Partial" means the platform s
 | RFC 9525 service identity in TLS | Policy puts every name in SAN; CN is folded into SAN | Done |
 | SPIFFE X.509-SVID and trust bundle | `spiffe-svid` profile, `/pki/spiffe/bundle` | Done; SPIRE UpstreamAuthority planned |
 | OpenSSH certificate format (PROTOCOL.certkeys) | `ca/ssh.py` | Done |
+| Microsoft AD CS templates (MS-CRTD) and enrollment (MS-WCCE / certreq) | `adcs/` audit reads msPKI-* flags, EKUs and nTSecurityDescriptor; the gateway submits via certreq | Audit and gateway done; CEP/CES (MS-XCEP/MS-WSTEP) auto-enrollment planned |
+| Microsoft SID security extension (szOID_NTDS_CA_SECURITY_EXT) and strong certificate mapping (KB5014754) | `adcs/windows.py` emits the SID extension and UPN otherName for `windows-logon`; SID resolved from the directory | Done |
+| Smart-card logon / PKINIT (RFC 4556) client EKUs and UPN SAN | `windows-logon` and `windows-kdc` profiles | Done (issuance; KDC-side config is the domain's) |
+| AD CS privilege-escalation catalogue (SpecterOps "Certified Pre-Owned"; ESC1-16) | `adcs/analyzer.py` detects ESC1-4, 6, 8, 9, 11, 13, 15, 16 | Done; SD parser cross-checked against impacket |
 | CycloneDX 1.6 cryptography BOM | `/api/v1/reports/cbom` | Done |
 | PKCS#11 v2.40 | `crypto/signers.py` | Done, tested on SoftHSM2 |
 
