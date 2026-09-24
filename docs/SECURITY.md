@@ -13,6 +13,8 @@
 
 ## Threats and controls
 
+[THREAT_MODEL.md](THREAT_MODEL.md) ranks the assets and walks each attack path end to end; this table is the per-threat summary.
+
 | Threat | Control in this codebase |
 | --- | --- |
 | CA key theft | PKCS#11 signer: keys generated on the HSM as `CKA_SENSITIVE=true`, `CKA_EXTRACTABLE=false` (asserted in tests). Software keys are PKCS#8 encrypted and meant for labs only. |
@@ -35,6 +37,9 @@
 | The AD CS template audit itself becoming an attack tool | It is read-only: it reads templates and CA config over an ordinary LDAP bind (or an offline export) and never enrolls, edits or exploits anything. It reports the same findings a defender would want, so templates can be fixed. |
 | A compromised AD CS gateway worker | The gateway only carries out requests Certadillo already approved under policy and scope; it cannot decide policy. Its principal has its own `gateway` role, and every job is audited. It should run on a hardened, domain-joined host with least-privilege CA rights. |
 | A stolen long-lived credential | With an external IdP configured, access uses short-lived OIDC/JWT tokens validated against the issuer's JWKS (signature, issuer, audience, expiry, allowed algorithms, never `none`), mapped to a role by claim. No shared secret is stored, and the IdP's own session revocation applies. Every validation failure is fail-closed. See [Zero-trust access](guide/21-zero-trust-auth.md). |
+| Someone with write access to the database (a stolen DB credential, SQL injection, a rogue DBA) | Principals, approvals and certificate status carry an HMAC seal keyed outside the database. A row changed in SQL fails its seal: the principal cannot log in, the approval cannot be decided, and OCSP and the CRL report the certificate as revoked. A restored old copy of a row is caught by cross-checking the audit trail. `IntegritySealBroken` fires either way. |
+| Rewriting the audit trail | The audit table is append-only in the database (triggers; on PostgreSQL `certadillo db harden` leaves the application role with SELECT and INSERT only, so it cannot drop them). The chain head is anchored off the host daily; `certadillo audit verify --anchors` and `AuditAnchorMismatch` catch a history that was rewritten and re-hashed. |
+| A stolen issuing CA key used for names outside the bank | `CERTADILLO_CA_PERMITTED_DNS` writes critical name constraints into new issuing CAs, so relying parties reject certificates for other names even if the key is stolen. |
 
 ## Known gaps in this MVP
 
@@ -43,7 +48,7 @@ These are listed so nobody deploys the MVP to production thinking they are handl
 1. API-key authentication is still the default and is single-factor. Configure the OIDC/JWT support (Entra ID, Vault, or any OIDC issuer) so access uses short-lived tokens from your IdP instead; see [Zero-trust access](guide/21-zero-trust-auth.md). Keep one break-glass admin key for when the IdP is unreachable. A browser SSO flow for the console is still to come.
 2. EST client-certificate authentication depends on the load balancer: its shared secret must stay secret, and it must overwrite the client-certificate header on every request. mTLS between the load balancer and Certadillo would remove the shared secret; it is not built in.
 3. ACME `http-01` validation follows redirects and uses the platform's network position (it runs off the event loop, so a slow target only delays its own order). dns-01 trusts whatever the configured resolvers answer, from one vantage point. Restrict egress, point the DNS views at resolvers you control, or use `ra-scope` mode for purely internal names.
-4. EAB HMAC keys are stored in the database in clear (single use). Encrypt them at rest or keep only a hash plus a short validity window.
+4. Secret columns (EAB HMAC keys, CMP secrets, team webhooks) are encrypted at rest, by default with a key derived from `CERTADILLO_KEY_PASSPHRASE`. Someone who has both the database and the passphrase can read them; use `CERTADILLO_FIELD_CIPHER=vault` to keep that key in Vault Transit.
 5. No rate limiting. Put the API behind a gateway with per-principal limits.
 6. The SSH CA key is a software key. Move it to the HSM (OpenSSH supports PKCS#11 CA keys through `ssh-keygen -D`) or to Vault's SSH engine.
 7. The housekeeping loop runs in every replica. Run it in one replica or as a CronJob until leader election lands.

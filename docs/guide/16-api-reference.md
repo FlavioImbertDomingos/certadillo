@@ -56,6 +56,9 @@ Authenticate with `X-API-Key: <key>` or `Authorization: Bearer <key>`. Errors ar
 | `POST` | `/api/v1/alerts/evaluate` | admin, operator | publish due CRLs and evaluate alerts now |
 | `GET` | `/api/v1/audit` | admin, operator, approver, auditor | audit events, newest first (`limit`) |
 | `GET` | `/api/v1/audit/verify` | admin, operator, approver, auditor | verify the audit hash chain |
+| `GET` | `/api/v1/audit/head` | admin, auditor | the current chain head as a signed anchor, for an external monitor |
+| `POST` | `/api/v1/audit/anchor` | admin | send the chain head to the configured anchor file or URL now |
+| `GET` | `/api/v1/integrity` | admin, operator, auditor | rows whose integrity seal fails, and certificates whose revocation was rolled back |
 | `GET` | `/api/v1/reports/summary` | admin, operator, approver, auditor | dashboard summary |
 | `GET` | `/api/v1/reports/crypto` | admin, operator, approver, auditor | crypto agility and PQC readiness |
 | `GET` | `/api/v1/reports/cbom` | admin, operator, approver, auditor | CycloneDX 1.6 cryptography BOM |

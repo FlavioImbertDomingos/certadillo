@@ -109,6 +109,14 @@ All settings are environment variables.
 | `CERTADILLO_OIDC_APP_CLAIM` | `app` | claim naming the app for an `app`-role token |
 | `CERTADILLO_OIDC_USERNAME_CLAIM` | `sub` | claim recorded as the audit actor (`idp:<value>`) |
 | `CERTADILLO_OIDC_CLOCK_SKEW` | `60` | seconds of leeway on token times |
+| `CERTADILLO_SEAL_KEY` | derived from `KEY_PASSPHRASE` | HMAC key for integrity seals (hex or base64); keep it out of the database host's reach if you can |
+| `CERTADILLO_SEAL_KEY_PREVIOUS` | | the old key while rotating; then run `certadillo integrity reseal` |
+| `CERTADILLO_AUDIT_ANCHOR_FILE` / `_URL` | | where the daily audit chain head goes (a JSONL file you ship to WORM storage, and/or a webhook) |
+| `CERTADILLO_AUDIT_ANCHOR_HOURS` | `24` | how often to anchor |
+| `CERTADILLO_FIELD_CIPHER` | `local` | `local` or `vault`: where the key for encrypted secret columns lives |
+| `CERTADILLO_VAULT_ADDR` / `_TOKEN` / `_NAMESPACE` | | Vault for `FIELD_CIPHER=vault` |
+| `CERTADILLO_VAULT_TRANSIT_MOUNT` / `_KEY` | `transit` / `certadillo-fields` | the Transit key used for field encryption |
+| `CERTADILLO_CA_PERMITTED_DNS` / `_EXCLUDED_DNS` / `_PERMITTED_EMAIL` | | name constraints written into new issuing CAs |
 | `CERTADILLO_CRL_INTERVAL_HOURS` | `12` | CRL re-signing interval |
 | `CERTADILLO_ALERT_INTERVAL` | `300` | seconds between housekeeping runs |
 | `CERTADILLO_EXPIRY_WARNING_DAYS` / `_CRITICAL_DAYS` | `30` / `7` | caps for the lifetime-scaled thresholds |
@@ -116,6 +124,33 @@ All settings are environment variables.
 | `CERTADILLO_JIRA_URL` / `_USER` / `_TOKEN` / `_PROJECT` | project `PKI` | Jira issues for critical alerts |
 | `CERTADILLO_SNOW_URL` / `_USER` / `_PASSWORD` / `_ASSIGNMENT_GROUP` | group `PKI Operations` | ServiceNow incidents |
 | `CERTADILLO_RUNBOOK_URL` | GitHub runbook | base URL for alert runbook links |
+
+## Database hardening
+
+See [the threat model](../THREAT_MODEL.md) for why these exist.
+
+Integrity seals. Principals, approvals and certificate status carry an HMAC over their security-relevant fields, keyed with `CERTADILLO_SEAL_KEY` (or a key derived from the passphrase). Every change the application makes reseals the row. A change made directly in SQL does not, and the row is treated as tampered. The first start after an upgrade seals existing rows once and writes `integrity.epoch` into the data directory; from then on a missing seal counts as tampering. `certadillo integrity check` lists problems. Rotate the key by setting the old one as `CERTADILLO_SEAL_KEY_PREVIOUS`, running `certadillo integrity reseal`, then removing it.
+
+Append-only audit table. Triggers refuse UPDATE, DELETE and TRUNCATE on `audit_events` (SQLite and PostgreSQL). On PostgreSQL, split the roles so the application's credential cannot drop them:
+
+```bash
+# once, as a superuser: an owner role for schema changes and a restricted role for the app
+psql -c "CREATE ROLE certadillo_owner LOGIN PASSWORD '...'; CREATE ROLE certadillo_app LOGIN PASSWORD '...'"
+psql -c "ALTER DATABASE certadillo OWNER TO certadillo_owner"
+
+# as the owner: create or upgrade the schema, then restrict the app role
+CERTADILLO_DB_URL=postgresql+psycopg://certadillo_owner:...@db/certadillo certadillo db migrate
+CERTADILLO_DB_URL=postgresql+psycopg://certadillo_owner:...@db/certadillo certadillo db harden --app-role certadillo_app
+
+# the application itself connects as the restricted role
+CERTADILLO_DB_URL=postgresql+psycopg://certadillo_app:...@db/certadillo
+```
+
+The app role then has SELECT and INSERT on `audit_events` and no way to change or drop its triggers. Run `db migrate` with the owner credential before starting each new version.
+
+Audit anchoring. Set `CERTADILLO_AUDIT_ANCHOR_FILE` and/or `_URL`. Once a day (and on `certadillo audit anchor` or `POST /api/v1/audit/anchor`) the verified chain head, with a MAC under the seal key, goes there. Ship the file to storage with object lock. `certadillo audit verify --anchors <file>` fails if the history was rewritten after any saved anchor, even when the rewritten chain re-hashes cleanly.
+
+Field encryption. EAB HMAC keys, CMP secrets and team webhook URLs are encrypted at rest. The default key is derived from the passphrase; with `CERTADILLO_FIELD_CIPHER=vault`, Vault Transit holds it and every decrypt is a Vault call you can audit and revoke. Existing plaintext values are encrypted at the next start.
 
 ## Per-app protocol settings
 

@@ -6,7 +6,7 @@ Which requirement each part of Certadillo covers. "Partial" means the platform s
 
 | Standard | Where | Status |
 | --- | --- | --- |
-| RFC 5280 X.509 profile | `ca/authority.py` (BasicConstraints, KeyUsage, EKU, SKI/AKI, CDP, AIA; critical SAN when the subject is empty) | Done |
+| RFC 5280 X.509 profile | `ca/authority.py` (BasicConstraints, KeyUsage, EKU, SKI/AKI, CDP, AIA; critical SAN when the subject is empty; critical name constraints on issuing CAs when configured) | Done |
 | RFC 6960 OCSP | `revocation/ocsp.py` (delegated responder, nonce echo, GET and POST) | Done, verified with `openssl ocsp` |
 | RFC 7030 EST | `enrollment/est.py` (cacerts, csrattrs, simpleenroll, simplereenroll with the 4.2.2 subject check, serverkeygen; client certificates forwarded by the TLS terminator) | Done, verified with the GlobalSign estclient behind nginx; fullcmc not implemented |
 | IEEE 802.1AR device identity (IDevID) | EST bootstrap with manufacturer CAs registered per app | Done (direct issuance by the registered CA) |

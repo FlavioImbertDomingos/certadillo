@@ -98,6 +98,30 @@ revocation) as everything else the bank runs. See the guide,
 Still to build on top of this: a browser single-sign-on flow for the console
 (the token validation and role mapping already live here), listed in Phase 6.
 
+## Security hardening from the threat model
+
+[THREAT_MODEL.md](THREAT_MODEL.md) ranks what an attacker wants and how they
+would get it. The P1 controls are done (September 2026): integrity seals on
+principals, approvals and certificate status with an audit-trail rollback
+check, an append-only audit table with the PostgreSQL role split
+(`certadillo db harden`), off-host anchoring of the audit chain, encryption of
+secret columns (local key or Vault Transit), name constraints on new issuing
+CAs, and alerts for a broken seal, an anchor mismatch and a new privileged
+credential. Each control has a test that fails when the control is removed.
+
+Next:
+
+- **CA keys in Vault Transit.** A `vault-transit` signer so issuing CA keys
+  live in Vault and never enter the application process, next to the existing
+  PKCS#11 signer. The signer layer already signs to-be-signed bytes externally.
+- **Offline root ceremony.** `certadillo init` creates the root online today.
+  Add a mode that takes an issuing CA certificate signed by an offline root,
+  so the root key never touches the server.
+- **Encrypted, off-host backups** in `deploy.sh` (age or gpg to a key that is
+  not on the server).
+- **Container hardening:** non-root user, read-only root filesystem, dropped
+  capabilities.
+
 ## Phase 4: workload identity
 
 - SPIRE integration: issue SPIRE's intermediate through dual control (`spire-intermediate` profile), then either the SPIRE `disk` UpstreamAuthority or a small Go UpstreamAuthority plugin that calls Certadillo.
@@ -119,4 +143,13 @@ Still to build on top of this: a browser single-sign-on flow for the console
 - Audit shipping to Splunk HEC / S3 Object Lock, with the chain head anchored daily.
 - Helm chart and a Terraform module (EKS or ECS, RDS PostgreSQL, CloudHSM).
 - Alembic migrations.
+- Oracle Database support, for banks that standardize on it. A compile of the
+  schema against SQLAlchemy's Oracle dialect shows the work: a portable JSON
+  column type (the generic JSON type has no Oracle rendering in SQLAlchemy
+  2.0), `TIMESTAMP WITH TIME ZONE` instead of the `DATE` that
+  `DateTime(timezone=True)` becomes (DATE drops the microseconds the audit hash
+  covers), identity columns for primary keys, no empty strings in NOT NULL
+  columns (Oracle stores '' as NULL), and Oracle versions of the audit lock,
+  the append-only triggers, `add_missing_columns` and `db harden`. Plus a CI
+  job against Oracle Database Free.
 - ServiceNow catalog item for self-service onboarding, with the approval recorded in both systems.

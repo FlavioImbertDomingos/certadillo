@@ -107,6 +107,34 @@ An AD CS gateway job has been pending or claimed for more than an hour, so a req
 2. Check the gateway worker: the scheduled task on the domain-joined host, its network path to the CA, and that its account may still enroll the template (issue), has Certificate Manager rights (revoke) or database read (inventory).
 3. A job stuck in `claimed` means a worker took it and did not report back; look for the error in the worker's log. Once fixed, the next run picks up pending work; a permanently failed job can be completed with an `error` so it stops alerting.
 
+## IntegritySealBroken
+
+A principal, approval or certificate row was changed outside Certadillo (in SQL, not through the application), or a certificate the audit trail records as revoked is back to "active". Treat it as a security incident: someone had write access to the database.
+
+1. `certadillo integrity check` (or `GET /api/v1/integrity`) lists every affected row and what is wrong with it.
+2. The system has already failed closed: a tampered principal cannot log in, a tampered approval cannot be decided, and a tampered certificate is reported as revoked by OCSP and the CRL.
+3. Find how the write happened: database logs, who holds DB credentials, recent restores. Rotate the database credentials.
+4. Compare the row with the audit trail (`GET /api/v1/audit?limit=...`) and with the last good backup to see what was changed.
+5. Fix through the application, never in SQL: deactivate a planted principal, reject a planted approval, revoke and reissue an affected certificate. A row edited in SQL stays broken on purpose, and a later application write does not reseal it.
+6. If the seal key itself changed (a new `CERTADILLO_SEAL_KEY` or `CERTADILLO_KEY_PASSPHRASE` without rotation), every row fails at once; set the old value as `CERTADILLO_SEAL_KEY_PREVIOUS` and run `certadillo integrity reseal`.
+
+## AuditAnchorMismatch
+
+The audit history no longer contains the chain heads saved off the host. The chain may still verify on its own: someone who can rewrite the table can recompute every hash, and the anchors are what catch that.
+
+1. `certadillo audit verify --anchors <anchor file>` names the first anchored event that no longer matches.
+2. Treat it as an incident: someone with database owner rights rewrote history. Preserve the database as it is (snapshot) before anything else.
+3. Your SIEM or WORM copy of the audit events is the reference. Compare from the first mismatching event on.
+4. Afterwards, run `certadillo db harden` so the application's own credential cannot drop the audit triggers, and keep the owner credential out of the application host.
+
+## PrivilegedPrincipalCreated
+
+A new admin, approver or gateway credential was created in the last 24 hours. Planting a privileged credential is often the first thing an intruder does after getting in.
+
+1. The alert names who created it. Confirm with that person and the change record that it was expected.
+2. If it was not: `POST /api/v1/principals/{name}/deactivate`, then treat the creator's credential as compromised and rotate it.
+3. The alert clears by itself 24 hours after creation.
+
 ## Mass revocation after a key compromise
 
 Revoking first takes every affected service down until someone installs a new certificate. When time allows, replace first and revoke second:
