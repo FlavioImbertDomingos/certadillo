@@ -45,12 +45,13 @@ Every row below has automated tests. "Interop" means a third-party client was ru
 | Discovery | TLS scanner (host:port, CIDR:port), PEM import, Vault PKI and Kubernetes TLS secret connectors | `test_discovery_scan_*`, `test_inventory_connectors` |
 | Alerting | Lifetime-aware expiry thresholds, weak crypto, unowned certs, CA expiry, stale CRL, broken audit chain; routed per team; Slack, webhook, Jira, ServiceNow | `test_alert_lifecycle_and_routing`, `test_ticketing_notifiers` |
 | Observability | Prometheus metrics, JSON logs with request IDs, Prometheus rules, Alertmanager routing, Grafana dashboard | `promtool check rules`, compose stack |
+| Zero-trust access | OIDC/JWT bearer tokens from an external IdP (Entra ID, Vault, or any OIDC issuer) validated against the issuer's JWKS, mapped to roles by claim, fail-closed; API keys still work alongside | `tests/test_oidc_auth.py` |
 | Audit | SHA-256 hash-chained audit log, verify endpoint, metric and alert on tampering | `test_audit_chain_detects_tampering` |
 | Crypto agility / PQC | CycloneDX 1.6 CBOM, PQC readiness report, CA-outlives-2035 check, algorithm-agnostic signer layer | `test_reports` |
 | Automation | CLI (`cert request`, `cert renew-if-due`), Ansible role, PowerShell module, Python demo seeder | Ansible and PowerShell run against a live server |
 | Backends | Local CA and HashiCorp Vault / OpenBao PKI (`sign/:role`, `revoke`) | `test_vault_backend_contract` (mock) |
 
-Not built yet, with the design written down: public ACME CAs as issuers, Venafi / DigiCert / Keyfactor connectors, a keycensus import, Windows auto-enrollment through CEP/CES, zero-trust login with tokens from an external IdP (Entra ID / HashiCorp Vault) instead of local API keys, a SPIRE UpstreamAuthority, a Helm chart, and ML-DSA issuance (waiting on pyca/cryptography). See [docs/ROADMAP.md](docs/ROADMAP.md).
+Not built yet, with the design written down: public ACME CAs as issuers, Venafi / DigiCert / Keyfactor connectors, a keycensus import, Windows auto-enrollment through CEP/CES, browser single sign-on for the console (the token validation already ships), a SPIRE UpstreamAuthority, a Helm chart, and ML-DSA issuance (waiting on pyca/cryptography). See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Quick start
 
@@ -58,7 +59,7 @@ Local, SQLite, software keys:
 
 ```bash
 pip install -e ".[dev,hsm]"
-make test                                      # 111 tests; the HSM test runs if SoftHSM2 is installed
+make test                                      # 130 tests; the HSM test runs if SoftHSM2 is installed
 make run                                       # http://localhost:8080, admin key "admin-key"
 make demo                                      # seed teams, apps, certificates and some bad legacy certs
 ```

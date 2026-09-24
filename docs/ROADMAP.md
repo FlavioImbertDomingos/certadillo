@@ -70,36 +70,33 @@ Inventory connectors (`InventoryConnector`):
 | F5 BIG-IP | `GET /mgmt/tm/sys/crypto/cert` |
 | AWS ACM, Azure Key Vault, GCP Certificate Manager | list certificates per account/subscription |
 
-## Phase 3.5: zero-trust access (identity from an external IdP)
+## Phase 3.5: zero-trust access (identity from an external IdP) (done, September 2026)
 
-Today the console and API authenticate with API keys that Certadillo hashes and
-stores in its own database. The next step is to stop being an identity store and
-instead trust short-lived tokens minted by the organization's own identity
-provider, so access follows the same zero-trust controls (conditional access,
-MFA, device posture, session revocation) as everything else the bank runs. No
-long-lived secret in Certadillo's database is a credential to steal.
+Certadillo no longer has to be an identity store. It validates short-lived
+OIDC/JWT tokens minted by the organization's own identity provider, so access
+follows the same controls (MFA, conditional access, device posture, session
+revocation) as everything else the bank runs. See the guide,
+[Zero-trust access](guide/21-zero-trust-auth.md).
 
-- **OIDC / JWT bearer auth.** Accept a signed access token on every request,
-  validate it against the IdP's JWKS (issuer, audience, expiry, signature), and
-  map its claims to a Certadillo role and, for app credentials, to an app. Keys
-  become a fallback for machines that cannot get a token, not the default.
-- **Microsoft Entra ID.** Validate Entra-issued tokens; map Entra group or app-
-  role claims to admin / approver / operator / auditor and to onboarded apps.
-  Workload identity federation lets a CI job or a pod present a federated token
-  instead of a stored key.
-- **HashiCorp Vault.** Trust Vault-issued identity tokens (or JWTs from Vault's
-  OIDC provider), so a workload that already authenticates to Vault reuses that
-  identity to call Certadillo, with Vault policy deciding what it may do.
-- **Enforcement details.** Per-claim scoping (an app token limited to its own
-  app), token replay and clock-skew handling, and honouring the IdP's session
-  revocation so a disabled user loses access at once rather than at key
-  rotation. Dual control and the audit trail stay; the actor on each audit
-  event becomes the IdP subject.
+- **OIDC / JWT bearer auth.** Every request's token is validated against the
+  IdP's JWKS (signature, issuer, audience, exp/nbf/iat with clock skew,
+  allowed algorithms, never `none`), then its role claim maps to a Certadillo
+  role and, for an app token, to an onboarded app. Every check fails closed.
+  Delegated to PyJWT rather than hand-rolled.
+- **Microsoft Entra ID.** A preset builds the issuer and JWKS from a tenant id;
+  Entra app-role or group claims map to admin / approver / operator / auditor /
+  app. Workload identity federation covers CI jobs and pods.
+- **HashiCorp Vault.** A preset trusts Vault's OIDC provider, so a workload that
+  already authenticates to Vault reuses that identity, with Vault policy
+  deciding what it may do.
+- **The seam.** A pluggable `Authenticator` chain (`auth/`) runs the OIDC token
+  first, then the API key, so keys and tokens work side by side during a
+  migration and a machine that cannot get a token still uses a key. The audit
+  actor becomes the IdP subject; dual control, scope and the audit trail are
+  unchanged. 19 tests, including the fail-closed paths.
 
-The pluggable seam is an `Authenticator` in front of `Platform.authenticate`,
-so the local key store, Entra and Vault are interchangeable and can run side by
-side during migration. This supersedes the single "OIDC login" bullet in Phase
-6 and is pulled forward because it is a control banks ask for early.
+Still to build on top of this: a browser single-sign-on flow for the console
+(the token validation and role mapping already live here), listed in Phase 6.
 
 ## Phase 4: workload identity
 

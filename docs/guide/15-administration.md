@@ -98,6 +98,17 @@ All settings are environment variables.
 | `CERTADILLO_EST_CLIENT_CERT_HEADER` | | header carrying the client certificate from the load balancer |
 | `CERTADILLO_EST_PROXY_SECRET` | | shared secret the load balancer sends as `X-Certadillo-Proxy-Auth` |
 | `CERTADILLO_EST_TRUSTED_PROXIES` | | or: CIDRs the load balancer connects from |
+| `CERTADILLO_OIDC_PROVIDER` | | `entra`, `vault` or `generic`; enables IdP token auth ([zero-trust access](21-zero-trust-auth.md)) |
+| `CERTADILLO_OIDC_ENTRA_TENANT` | | Entra tenant id or domain (builds issuer + JWKS) |
+| `CERTADILLO_OIDC_VAULT_ISSUER` | | Vault OIDC provider issuer (builds JWKS at `/.well-known/keys`) |
+| `CERTADILLO_OIDC_ISSUER` / `_JWKS_URI` | | issuer and JWKS URL for a generic provider |
+| `CERTADILLO_OIDC_AUDIENCE` | | the audience the IdP mints tokens for |
+| `CERTADILLO_OIDC_ALGORITHMS` | `RS256,ES256` | allowed signature algorithms (never `none`) |
+| `CERTADILLO_OIDC_ROLE_CLAIM` | `roles` | claim holding the role or group |
+| `CERTADILLO_OIDC_ROLE_MAP` | | `claim=role;...`, e.g. `PKI.Admin=admin;App-Cards=app` |
+| `CERTADILLO_OIDC_APP_CLAIM` | `app` | claim naming the app for an `app`-role token |
+| `CERTADILLO_OIDC_USERNAME_CLAIM` | `sub` | claim recorded as the audit actor (`idp:<value>`) |
+| `CERTADILLO_OIDC_CLOCK_SKEW` | `60` | seconds of leeway on token times |
 | `CERTADILLO_CRL_INTERVAL_HOURS` | `12` | CRL re-signing interval |
 | `CERTADILLO_ALERT_INTERVAL` | `300` | seconds between housekeeping runs |
 | `CERTADILLO_EXPIRY_WARNING_DAYS` / `_CRITICAL_DAYS` | `30` / `7` | caps for the lifetime-scaled thresholds |

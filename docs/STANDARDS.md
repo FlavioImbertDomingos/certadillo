@@ -23,6 +23,7 @@ Which requirement each part of Certadillo covers. "Partial" means the platform s
 | Smart-card logon / PKINIT (RFC 4556) client EKUs and UPN SAN | `windows-logon` and `windows-kdc` profiles | Done (issuance; KDC-side config is the domain's) |
 | AD CS privilege-escalation catalogue (SpecterOps "Certified Pre-Owned"; ESC1-16) | `adcs/analyzer.py` detects ESC1-4, 6, 8, 9, 11, 13, 15, 16 | Done; SD parser cross-checked against impacket |
 | CycloneDX 1.6 cryptography BOM | `/api/v1/reports/cbom` | Done |
+| OpenID Connect / OAuth 2.0 bearer tokens (RFC 7519 JWT, RFC 7517 JWK, RFC 8725 JWT BCP) | `auth/` validates IdP tokens (signature, iss, aud, exp/nbf/iat, allowed algs), presets for Entra ID and Vault | Done |
 | PKCS#11 v2.40 | `crypto/signers.py` | Done, tested on SoftHSM2 |
 
 ## Industry and regulatory

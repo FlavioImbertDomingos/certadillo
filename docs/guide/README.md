@@ -35,6 +35,7 @@ Pick the protocol your client already speaks. They all go through the same onboa
 - [Discovery and inventory](12-discovery-inventory.md)
 - [Alerting and observability](13-alerting-observability.md)
 - [Automation: CLI, Ansible, PowerShell, CI](14-automation.md)
+- [Zero-trust access with an external IdP (Entra ID, Vault, OIDC)](21-zero-trust-auth.md)
 - [Administration: roles, approvals, CAs, HSM, configuration](15-administration.md)
 - [API reference](16-api-reference.md)
 - [Troubleshooting and policy errors](17-troubleshooting.md)

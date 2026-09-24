@@ -34,12 +34,13 @@
 | A Windows logon certificate minted for another account's SID | The SID is resolved from the directory by name, never read from the request, and the lookup fails closed (zero or many matches issues nothing). Disabled accounts are refused and sensitive accounts (adminCount=1) need a second approver. The UPN suffix must be in the app's scope. |
 | The AD CS template audit itself becoming an attack tool | It is read-only: it reads templates and CA config over an ordinary LDAP bind (or an offline export) and never enrolls, edits or exploits anything. It reports the same findings a defender would want, so templates can be fixed. |
 | A compromised AD CS gateway worker | The gateway only carries out requests Certadillo already approved under policy and scope; it cannot decide policy. Its principal has its own `gateway` role, and every job is audited. It should run on a hardened, domain-joined host with least-privilege CA rights. |
+| A stolen long-lived credential | With an external IdP configured, access uses short-lived OIDC/JWT tokens validated against the issuer's JWKS (signature, issuer, audience, expiry, allowed algorithms, never `none`), mapped to a role by claim. No shared secret is stored, and the IdP's own session revocation applies. Every validation failure is fail-closed. See [Zero-trust access](guide/21-zero-trust-auth.md). |
 
 ## Known gaps in this MVP
 
 These are listed so nobody deploys the MVP to production thinking they are handled.
 
-1. Human authentication is by API key. Production should put OIDC (Entra ID, Okta) in front of the console and API and map groups to roles.
+1. API-key authentication is still the default and is single-factor. Configure the OIDC/JWT support (Entra ID, Vault, or any OIDC issuer) so access uses short-lived tokens from your IdP instead; see [Zero-trust access](guide/21-zero-trust-auth.md). Keep one break-glass admin key for when the IdP is unreachable. A browser SSO flow for the console is still to come.
 2. EST client-certificate authentication depends on the load balancer: its shared secret must stay secret, and it must overwrite the client-certificate header on every request. mTLS between the load balancer and Certadillo would remove the shared secret; it is not built in.
 3. ACME `http-01` validation follows redirects and uses the platform's network position (it runs off the event loop, so a slow target only delays its own order). dns-01 trusts whatever the configured resolvers answer, from one vantage point. Restrict egress, point the DNS views at resolvers you control, or use `ra-scope` mode for purely internal names.
 4. EAB HMAC keys are stored in the database in clear (single use). Encrypt them at rest or keep only a hash plus a short validity window.
