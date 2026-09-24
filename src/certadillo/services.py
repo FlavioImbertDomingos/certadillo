@@ -17,6 +17,7 @@ from certadillo.ca.authority import CAService, cert_row_fields, spki_sha256
 from certadillo.ca.backends import get_backend
 from certadillo.ca.ssh import SSHCA
 from certadillo.db import (
+    AdcsJob,
     App,
     ApprovalRequest,
     Certificate,
@@ -27,7 +28,7 @@ from certadillo.db import (
 from certadillo.observability.metrics import ISSUANCE_TOTAL, POLICY_VIOLATIONS, REVOCATIONS
 from certadillo.policy.engine import PolicyEngine, PolicyError, grade_certificate
 
-ROLES = {"admin", "approver", "operator", "auditor", "app"}
+ROLES = {"admin", "approver", "operator", "auditor", "app", "gateway"}
 ENVIRONMENTS = {"dev", "test", "prod"}
 
 
@@ -66,6 +67,8 @@ class Platform:
         self.engine = PolicyEngine(policies)
         self.ca = CAService(session, keystore, settings, policies)
         self.ssh = SSHCA(session, settings, policies)
+        # Windows-logon SID lookups. Injectable for tests; built from settings otherwise.
+        self.directory_resolver = None
 
     def commit(self) -> None:
         self.s.commit()
@@ -320,6 +323,16 @@ class Platform:
             # client's original bytes before normalising the CSR (SCEP clients)
             decision = self.engine.evaluate(csr, p["profile"], app.allowed_domains, p.get("days"), p.get("hours"),
                                             pop_verified=bool(p.get("pop_verified")))
+            if decision.upns:
+                # Re-resolve the SID at issuance: the account may have been disabled
+                # while the request waited for approval.
+                self._apply_logon_sid(decision, app, p.get("protocol", "rest"))
+            if self.policies["profiles"].get(p["profile"], {}).get("issuer") == "adcs":
+                job = self._enqueue_adcs_issue(Actor(req.requested_by, "app", app.id), app, decision,
+                                               p.get("csr_pem"), p.get("protocol", "rest"))
+                p["adcs_job_id"] = job.id
+                req.payload = p
+                return
             row = self._sign(csr, decision, app, p.get("protocol", "rest"), Actor(req.requested_by, "app", app.id))
             if p.get("previous_id"):
                 prev = self.s.get(Certificate, p["previous_id"])
@@ -340,6 +353,45 @@ class Platform:
             req.payload = p
 
     # ------------------------------------------------------------- issuance
+    def _logon_resolver(self):
+        if self.directory_resolver is not None:
+            return self.directory_resolver
+        s = self.settings
+        if not (s.adcs_ldap_url and s.adcs_ldap_user and s.adcs_ldap_base):
+            raise PolicyError([("directory", "Windows logon needs CERTADILLO_ADCS_LDAP_URL, _USER, _PASSWORD, _BASE")])
+        from certadillo.adcs.directory import DirectoryResolver
+
+        self.directory_resolver = DirectoryResolver(s.adcs_ldap_url, s.adcs_ldap_user,
+                                                    s.adcs_ldap_password or "", s.adcs_ldap_base)
+        return self.directory_resolver
+
+    def _apply_logon_sid(self, decision, app: App, protocol: str) -> bool:
+        """Resolve the UPN's account SID and set decision.sid. Fails closed;
+        refuses a disabled account. Returns True if the account is sensitive
+        (adminCount=1) and issuance must go through a second approver."""
+        from certadillo.adcs.directory import DirectoryError
+
+        resolver = self._logon_resolver()
+        upn = decision.upns[0]
+        try:
+            account = resolver.resolve_upn(upn)
+        except DirectoryError as exc:
+            v = [("directory", str(exc))]
+            ISSUANCE_TOTAL.labels(profile=decision.profile, protocol=protocol, result="rejected").inc()
+            record(self.s, "system", "certificate.rejected", app.name,
+                   {"profile": decision.profile, "protocol": protocol, "violations": v})
+            self.s.commit()
+            raise PolicyError(v) from None
+        if not account.enabled:
+            v = [("account_disabled", f"account for {upn} is disabled")]
+            ISSUANCE_TOTAL.labels(profile=decision.profile, protocol=protocol, result="rejected").inc()
+            record(self.s, "system", "certificate.rejected", app.name,
+                   {"profile": decision.profile, "protocol": protocol, "violations": v})
+            self.s.commit()
+            raise PolicyError(v)
+        decision.sid = account.sid
+        return account.admin_count
+
     def request_certificate(self, actor: Actor, app_id: int, csr_pem: str | None, profile: str | None = None,
                             days: int | None = None, hours: int | None = None, protocol: str = "rest",
                             previous: Certificate | None = None,
@@ -384,6 +436,12 @@ class Platform:
                    {"profile": profile, "protocol": protocol, "violations": e.violations})
             self.s.commit()  # keep the rejection in the audit trail
             raise
+        if decision.upns:
+            # Resolve the account SID from the directory (never the request). A
+            # sensitive account forces dual control regardless of the profile.
+            admin_count = self._apply_logon_sid(decision, app, protocol)
+            if admin_count:
+                decision.dual_control = True
         if decision.dual_control:
             ISSUANCE_TOTAL.labels(profile=profile, protocol=protocol, result="pending_approval").inc()
             return self._request_approval(actor, "issue_certificate", {
@@ -392,6 +450,8 @@ class Platform:
                 "protocol": protocol, "previous_id": previous.id if previous else None,
                 "pop_verified": pop_verified,
             })
+        if self.policies["profiles"].get(profile, {}).get("issuer") == "adcs":
+            return self._enqueue_adcs_issue(actor, app, decision, csr_pem, protocol)
         row = self._sign(csr, decision, app, protocol, actor)
         if previous is not None:
             previous.status = "superseded"
@@ -440,7 +500,13 @@ class Platform:
         app = self.s.get(App, row.app_id) if row.app_id else None
         if app and app.environment == "prod" and actor.role != "app" and reason != "key_compromise" and not change_ref:
             raise PolicyError([("change_ref", "production revocations need a change ticket reference")])
-        if row.backend != "local":
+        if row.backend == "adcs":
+            from certadillo.adcs import gateway
+
+            prof = self.policies["profiles"].get(row.profile, {}) if row.profile else {}
+            gateway.enqueue_revoke(self.s, row, reason, prof.get("adcs_ca"), actor.name)
+            row.status, row.revoked_at, row.revocation_reason = "revoked", datetime.now(timezone.utc), reason
+        elif row.backend != "local":
             backend = get_backend(row.backend)
             if backend is None:
                 raise RuntimeError(f"backend {row.backend} not configured")
@@ -453,6 +519,89 @@ class Platform:
         REVOCATIONS.labels(reason=reason).inc()
         record(self.s, actor.name, "certificate.revoke", row.serial_hex, {"reason": reason, "change_ref": change_ref})
         return row
+
+    # ------------------------------------------------------------- AD CS gateway
+    def _enqueue_adcs_issue(self, actor: Actor, app: App, decision, csr_pem: str | None, protocol: str):
+        from certadillo.adcs import gateway
+
+        if not csr_pem:
+            raise PolicyError([("adcs_csr", "the AD CS gateway needs a PKCS#10 CSR (not a CMP template)")])
+        prof = self.policies["profiles"].get(decision.profile, {})
+        job = gateway.enqueue_issue(self.s, app.id, decision.profile, csr_pem,
+                                    prof.get("adcs_ca"), prof.get("adcs_template"), actor.name)
+        ISSUANCE_TOTAL.labels(profile=decision.profile, protocol=protocol, result="gateway_queued").inc()
+        record(self.s, actor.name, "adcs.job.issue", f"job:{job.id}",
+               {"app": app.name, "profile": decision.profile, "template": prof.get("adcs_template")})
+        return job
+
+    def gateway_claim(self, actor: Actor, limit: int = 10):
+        from certadillo.adcs import gateway
+
+        actor.require("admin", "gateway")
+        jobs = gateway.claim(self.s, actor.name, limit)
+        record(self.s, actor.name, "adcs.gateway.claim", "gateway", {"count": len(jobs)})
+        return jobs
+
+    def gateway_complete(self, actor: Actor, job_id: int, *, certificate_pem: str | None = None,
+                         chain_pem: str | None = None, error: str | None = None, certificates: list | None = None):
+        """The gateway reports a job's outcome. issue -> ingest the certificate;
+        revoke -> mark done; inventory -> ingest the certificates it found."""
+        from certadillo.adcs import gateway
+
+        actor.require("admin", "gateway")
+        job = self.s.get(AdcsJob, job_id)
+        if job is None:
+            raise NotFound("job not found")
+        if job.status in ("done", "failed"):
+            raise PolicyError([("job_state", f"job {job_id} is already {job.status}")])
+        if error:
+            gateway.fail(self.s, job, error)
+            record(self.s, actor.name, "adcs.job.failed", f"job:{job.id}", {"type": job.job_type, "error": error[:200]})
+            return job
+
+        if job.job_type == "issue":
+            cert = x509.load_pem_x509_certificate(certificate_pem.encode())
+            row, _findings, _new = self.ingest(actor.name, cert, "issued",
+                                               f"adcs:{job.adcs_ca or 'ca'}", app_id=job.app_id)
+            row.backend = "adcs"
+            row.profile = job.profile
+            job.certificate_id = row.id
+            job.result_cert_pem = certificate_pem
+            job.result_chain_pem = chain_pem
+        elif job.job_type == "revoke":
+            pass  # the gateway carried it out on the CA; our row was marked at request time
+        elif job.job_type == "inventory":
+            self._ingest_inventory(actor.name, job, certificates or [])
+        job.status = "done"
+        job.completed_at = datetime.now(timezone.utc)
+        self.s.flush()
+        record(self.s, actor.name, "adcs.job.done", f"job:{job.id}", {"type": job.job_type})
+        return job
+
+    def _ingest_inventory(self, actor_name: str, job: AdcsJob, certificates: list) -> None:
+        """Ingest certificates an inventory job pulled from a Microsoft CA. Each
+        item is {certificate_pem, template?}. A template maps to an app when a
+        profile names it, so ownership follows onboarding."""
+        template_to_app = {}
+        for a in self.s.query(App).all():
+            prof = self.policies["profiles"].get(a.profile, {})
+            if prof.get("issuer") == "adcs" and prof.get("adcs_template"):
+                template_to_app[prof["adcs_template"]] = a.id
+        for item in certificates:
+            pem = item.get("certificate_pem") if isinstance(item, dict) else item
+            if not pem:
+                continue
+            cert = x509.load_pem_x509_certificate(pem.encode())
+            app_id = template_to_app.get(item.get("template")) if isinstance(item, dict) else None
+            self.ingest(actor_name, cert, "imported", f"adcs:{job.adcs_ca or 'ca'}", app_id=app_id)
+
+    def request_inventory(self, actor: Actor, ca: str):
+        from certadillo.adcs import gateway
+
+        actor.require("admin", "operator")
+        job = gateway.enqueue_inventory(self.s, ca, actor.name)
+        record(self.s, actor.name, "adcs.job.inventory", f"job:{job.id}", {"ca": ca})
+        return job
 
     # ------------------------------------------------------------- renewal campaigns (ARI)
     def create_campaign(self, actor: Actor, name: str, reason: str, criteria: dict, renew_within_hours: int = 24,

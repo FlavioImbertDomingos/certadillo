@@ -17,7 +17,14 @@ EKU = {
     "client_auth": ExtendedKeyUsageOID.CLIENT_AUTH,
     "code_signing": ExtendedKeyUsageOID.CODE_SIGNING,
     "email_protection": ExtendedKeyUsageOID.EMAIL_PROTECTION,
+    # Windows logon EKUs (not in cryptography's enum)
+    "smartcard_logon": x509.ObjectIdentifier("1.3.6.1.4.1.311.20.2.2"),
+    "pkinit_client": x509.ObjectIdentifier("1.3.6.1.5.2.3.4"),
+    "kdc_auth": x509.ObjectIdentifier("1.3.6.1.5.2.3.5"),
 }
+
+# UPN in an otherName SAN (MS-specific)
+UPN_OTHERNAME_OID = x509.ObjectIdentifier("1.3.6.1.4.1.311.20.2.3")
 
 # ML-DSA (FIPS 204) and SLH-DSA (FIPS 205) signature OIDs, for inventory grading.
 PQC_SIG_OIDS = {
@@ -44,6 +51,11 @@ class Decision:
     ips: list[str] = field(default_factory=list)
     common_name: str | None = None
     dual_control: bool = False
+    # Windows smart-card / PKINIT logon: UPN otherName SANs, and the account SID
+    # to place in the szOID_NTDS_CA_SECURITY_EXT extension (resolved from the
+    # directory by the RA layer, never taken from the request).
+    upns: list[str] = field(default_factory=list)
+    sid: str | None = None
 
 
 class TemplateRequest:
@@ -153,6 +165,21 @@ def domain_allowed(name: str, patterns: list[str]) -> bool:
     return False
 
 
+def parse_upn_sans(csr) -> list[str]:
+    """UPN values from otherName SANs (OID 1.3.6.1.4.1.311.20.2.3)."""
+    from asn1crypto.core import UTF8String
+
+    out: list[str] = []
+    try:
+        san = csr.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+    except x509.ExtensionNotFound:
+        return out
+    for on in san.get_values_for_type(x509.OtherName):
+        if on.type_id == UPN_OTHERNAME_OID:
+            out.append(str(UTF8String.load(on.value).native))
+    return out
+
+
 def public_tls_max_days(policies: dict, on: date) -> int:
     best = 398
     for step in policies.get("public_tls_schedule", []):
@@ -202,6 +229,9 @@ class PolicyEngine:
         if prof.get("require_new_key_on_renewal") and previous_public_key_fp:
             if key_fingerprint(pub) == previous_public_key_fp:
                 v.append(("key_reuse", "renewal must use a new key pair"))
+
+        if prof.get("windows_logon"):
+            return self._evaluate_windows_logon(csr, profile_name, prof, allowed_domains, requested_days, v)
 
         dns, uris, emails, ips = [], [], [], []
         try:
@@ -283,6 +313,38 @@ class PolicyEngine:
             common_name=cn or (dns[0] if dns else (emails[0] if emails else None)),
             dual_control=bool(prof.get("dual_control")),
         )
+
+
+    def _evaluate_windows_logon(self, csr, profile_name, prof, allowed_domains, requested_days, v):
+        """Smart-card / PKINIT logon profile. The identity is a UPN otherName;
+        its suffix is checked against the app scope. No DNS/URI/email SANs are
+        allowed, and the account SID is resolved by the RA, never the request."""
+        upns = parse_upn_sans(csr)
+        # any other SAN type is a scope escape for a logon certificate
+        try:
+            san = csr.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+            others = (san.get_values_for_type(x509.DNSName) + san.get_values_for_type(x509.RFC822Name)
+                      + [str(i) for i in san.get_values_for_type(x509.IPAddress)]
+                      + san.get_values_for_type(x509.UniformResourceIdentifier))
+            if others:
+                v.append(("san_type", "a Windows logon certificate carries only UPN otherName SANs"))
+        except x509.ExtensionNotFound:
+            pass
+        if len(upns) != 1:
+            v.append(("upn_required", "exactly one UPN otherName SAN is required"))
+        for upn in upns:
+            suffix = upn.rsplit("@", 1)[-1] if "@" in upn else upn
+            if "@" not in upn:
+                v.append(("upn_format", f"UPN {upn!r} must be user@suffix"))
+            elif not domain_allowed(suffix, allowed_domains):
+                v.append(("upn_scope", f"UPN suffix {suffix} is outside the app's approved domains"))
+        days = requested_days or prof["default_validity_days"]
+        if days > prof["max_validity_days"]:
+            v.append(("validity", f"{days}d exceeds {prof['max_validity_days']}d"))
+        if v:
+            raise PolicyError(v)
+        return Decision(profile=profile_name, validity=timedelta(days=days), upns=upns,
+                        common_name=upns[0], dual_control=bool(prof.get("dual_control")))
 
 
 def grade_certificate(cert: x509.Certificate, policies: dict, is_public: bool = False) -> list[tuple[str, str]]:

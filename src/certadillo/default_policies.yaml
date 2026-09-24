@@ -64,6 +64,46 @@ profiles:
     allowed_keys: {rsa_min_bits: 3072, ec_curves: [secp384r1]}
     require_new_key_on_renewal: true
 
+  windows-logon:
+    description: >
+      Windows smart-card / PKINIT logon. The identity is a UPN otherName whose
+      suffix must be in the app scope; the account SID is looked up in the
+      directory (never taken from the request) and pinned in the SID security
+      extension for strong mapping (KB5014754). A sensitive account
+      (adminCount=1) forces dual control.
+    windows_logon: true
+    extended_key_usage: [client_auth, smartcard_logon, pkinit_client]
+    default_validity_days: 7
+    max_validity_days: 30
+    allowed_keys: {rsa_min_bits: 2048, ec_curves: [secp256r1, secp384r1]}
+    require_new_key_on_renewal: true
+
+  adcs-user:
+    description: >
+      Client-auth certificates issued by a Microsoft AD CS CA through the
+      Certadillo gateway. Certadillo applies scope and policy, then a
+      domain-joined gateway submits to the CA. issuer, adcs_ca and
+      adcs_template point the gateway at the right CA and template.
+    issuer: adcs
+    adcs_ca: "CA01.corp.bank.internal\\Corp Issuing CA"
+    adcs_template: CertadilloUser
+    extended_key_usage: [client_auth]
+    default_validity_days: 365
+    max_validity_days: 365
+    allowed_keys: {rsa_min_bits: 2048, ec_curves: [secp256r1, secp384r1]}
+    require_new_key_on_renewal: true
+
+  windows-kdc:
+    description: >
+      Domain controller / KDC authentication certificate (KDC Authentication
+      EKU plus client and server auth). Named by DNS SAN like any TLS profile.
+    extended_key_usage: [client_auth, server_auth, kdc_auth]
+    default_validity_days: 90
+    max_validity_days: 365
+    require_dns_san: true
+    allowed_keys: {rsa_min_bits: 2048, ec_curves: [secp256r1, secp384r1]}
+    require_new_key_on_renewal: true
+
   smime:
     description: S/MIME email signing and encryption
     extended_key_usage: [email_protection]

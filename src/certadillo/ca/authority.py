@@ -307,6 +307,10 @@ class CAService:
         san: list[x509.GeneralName] = [x509.DNSName(d) for d in decision.dns_names]
         san += [x509.UniformResourceIdentifier(u) for u in decision.uris]
         san += [x509.RFC822Name(e) for e in decision.emails]
+        if decision.upns:
+            from certadillo.adcs.windows import upn_othername
+
+            san += [upn_othername(u) for u in decision.upns]
         ekus = _profile_ekus(decision.profile, self.policies)
         eku = [EKU[e] for e in ekus]
         is_rsa = describe_key(pub)[0] == "rsa"
@@ -356,6 +360,11 @@ class CAService:
         if san:
             # SPIFFE: SAN is critical when the subject is empty (RFC 5280 4.2.1.6).
             b = b.add_extension(x509.SubjectAlternativeName(san), critical=not decision.common_name)
+        if decision.sid:
+            # Pin the certificate to the account SID for strong mapping (KB5014754).
+            from certadillo.adcs.windows import sid_security_extension
+
+            b = b.add_extension(sid_security_extension(decision.sid), critical=False)
         cert = sign_x509(b, self.signer_for(ca))
         row = Certificate(ca_id=ca.id, app_id=app_id, profile=decision.profile, source="issued", **cert_row_fields(cert))
         self.s.add(row)

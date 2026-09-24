@@ -29,7 +29,8 @@ dependencies = [
 [project.optional-dependencies]
 hsm = ["python-pkcs11>=0.7"]
 postgres = ["psycopg[binary]>=3.1"]
-dev = ["pytest>=8", "markdown>=3.5"]
+adcs = ["ldap3>=2.9"]
+dev = ["pytest>=8", "markdown>=3.5", "ldap3>=2.9"]
 
 [project.scripts]
 certadillo = "certadillo.cli:main"

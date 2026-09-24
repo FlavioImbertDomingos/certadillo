@@ -25,7 +25,17 @@ from certadillo.alerting.notifiers import build_global_notifiers
 from certadillo.api.deps import actor, platform
 from certadillo.audit.log import verify_chain
 from certadillo.config import Settings
-from certadillo.db import AlertState, App, ApprovalRequest, AuditEvent, Certificate, CertificateAuthority, Team, as_utc
+from certadillo.db import (
+    AdcsJob,
+    AlertState,
+    App,
+    ApprovalRequest,
+    AuditEvent,
+    Certificate,
+    CertificateAuthority,
+    Team,
+    as_utc,
+)
 from certadillo.discovery.connectors import parse_pem_bundle
 from certadillo.discovery.scanner import scan
 from certadillo.enrollment import acme, cmp, est, scep
@@ -138,6 +148,23 @@ class SubCAIn(BaseModel):
     years: int = 5
 
 
+class AdcsImportIn(BaseModel):
+    """The document produced by Export-CertadilloAdcsTemplates."""
+
+    document: dict
+
+
+class AdcsJobCompleteIn(BaseModel):
+    certificate_pem: str | None = None
+    chain_pem: str | None = None
+    error: str | None = None
+    certificates: list[dict] | None = None  # inventory results
+
+
+class AdcsInventoryIn(BaseModel):
+    ca: str
+
+
 # ------------------------------------------------------------------ serializers
 def cert_json(c: Certificate, include_pem: bool = False) -> dict:
     now = datetime.now(timezone.utc)
@@ -175,6 +202,18 @@ def issued_json(p: Platform, c: Certificate) -> dict:
     chain = p.ca.chain(p.s.get(CertificateAuthority, c.ca_id)) if c.ca_id else []
     out["chain_pem"] = "".join(x.public_bytes(serialization.Encoding.PEM).decode() for x in chain[:-1])
     return out
+
+
+def gateway_job_json(j: AdcsJob) -> dict:
+    return {
+        "id": j.id, "type": j.job_type, "status": j.status,
+        "app_id": j.app_id, "profile": j.profile,
+        "adcs_ca": j.adcs_ca, "adcs_template": j.adcs_template,
+        "csr_pem": j.csr_pem, "serial": j.serial_hex, "reason": j.reason,
+        "certificate_id": j.certificate_id, "error": j.error,
+        "created_at": as_utc(j.created_at).isoformat() if j.created_at else None,
+        "claimed_by": j.claimed_by,
+    }
 
 
 def app_json(a: App) -> dict:
@@ -455,6 +494,9 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
         p.commit()
         if isinstance(result, ApprovalRequest):
             return JSONResponse({"status": "pending_approval", "approval_id": result.id}, 202)
+        if isinstance(result, AdcsJob):
+            return JSONResponse({"status": "gateway_queued", "job_id": result.id,
+                                 "poll": f"/api/v1/adcs/gateway/jobs/{result.id}"}, 202)
         return JSONResponse(issued_json(p, result), 201)
 
     @app.get("/api/v1/certificates", tags=["certificates"])
@@ -493,6 +535,9 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
         p.commit()
         if isinstance(result, ApprovalRequest):
             return JSONResponse({"status": "pending_approval", "approval_id": result.id}, 202)
+        if isinstance(result, AdcsJob):
+            return JSONResponse({"status": "gateway_queued", "job_id": result.id,
+                                 "poll": f"/api/v1/adcs/gateway/jobs/{result.id}"}, 202)
         return JSONResponse(issued_json(p, result), 201)
 
     @app.post("/api/v1/certificates/{cert_id}/revoke", tags=["certificates"])
@@ -590,6 +635,98 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
         record(p.s, who.name, "renewal_campaign.close", f"campaign:{camp.id}", {})
         p.commit()
         return ari.campaign_status(p.s, camp)
+
+    # ---------------------------------------------------------- AD CS audit
+    @app.post("/api/v1/adcs/audit/import", tags=["adcs"])
+    def adcs_import(body: AdcsImportIn, p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        """Audit templates exported by Export-CertadilloAdcsTemplates (read-only)."""
+        from certadillo.adcs.audit import audit_from_json
+
+        who.require("admin", "operator")
+        run_id, findings = audit_from_json(p.s, body.document, who.name)
+        p.commit()
+        by_sev: dict[str, int] = {}
+        for f in findings:
+            by_sev[f["severity"]] = by_sev.get(f["severity"], 0) + 1
+        return {"run_id": run_id, "findings": findings, "counts": by_sev}
+
+    @app.post("/api/v1/adcs/audit/ldap", tags=["adcs"])
+    def adcs_ldap(p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        """Audit the live directory over LDAP using the configured CERTADILLO_ADCS_LDAP_* settings."""
+        from certadillo.adcs.audit import audit_from_ldap
+        from certadillo.adcs.collector import LdapCollector
+
+        who.require("admin", "operator")
+        s = p.settings
+        if not (s.adcs_ldap_url and s.adcs_ldap_user and s.adcs_ldap_base):
+            raise PolicyError("set CERTADILLO_ADCS_LDAP_URL, _USER, _PASSWORD and _BASE first")
+        collector = LdapCollector(s.adcs_ldap_url, s.adcs_ldap_user, s.adcs_ldap_password or "", s.adcs_ldap_base)
+        run_id, findings = audit_from_ldap(p.s, collector, who.name)
+        p.commit()
+        return {"run_id": run_id, "findings": findings}
+
+    @app.get("/api/v1/adcs/findings", tags=["adcs"])
+    def adcs_findings(p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        """The findings of the most recent AD CS audit run."""
+        from certadillo.adcs.audit import latest_run
+        from certadillo.adcs.analyzer import ESC_TITLES
+
+        who.require("admin", "operator", "approver", "auditor")
+        run_id, rows = latest_run(p.s)
+        return {
+            "run_id": run_id,
+            "esc_catalogue": ESC_TITLES,
+            "findings": [
+                {"object_type": r.object_type, "object_name": r.object_name, "esc": r.esc,
+                 "severity": r.severity, "title": r.title, "detail": r.detail,
+                 "principals": r.principals, "remark": r.remark, "source": r.source}
+                for r in rows
+            ],
+        }
+
+    # ---------------------------------------------------------- AD CS gateway
+    @app.post("/api/v1/adcs/gateway/jobs/claim", tags=["adcs"])
+    def gateway_claim(limit: int = Query(10, ge=1, le=100), p: Platform = Depends(platform),
+                      who: Actor = Depends(actor)):
+        """A gateway worker claims pending jobs to submit to a Microsoft CA."""
+        jobs = p.gateway_claim(who, limit)
+        p.commit()
+        return {"jobs": [gateway_job_json(j) for j in jobs]}
+
+    @app.post("/api/v1/adcs/gateway/jobs/{job_id}/complete", tags=["adcs"])
+    def gateway_complete(job_id: int, body: AdcsJobCompleteIn, p: Platform = Depends(platform),
+                         who: Actor = Depends(actor)):
+        job = p.gateway_complete(who, job_id, certificate_pem=body.certificate_pem, chain_pem=body.chain_pem,
+                                 error=body.error, certificates=body.certificates)
+        p.commit()
+        return gateway_job_json(job)
+
+    @app.get("/api/v1/adcs/gateway/jobs/{job_id}", tags=["adcs"])
+    def gateway_job(job_id: int, p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        """The requester (or a gateway) polls a job."""
+        job = p.s.get(AdcsJob, job_id)
+        if job is None:
+            raise NotFound("job not found")
+        if who.role == "app" and job.app_id != who.app_id:
+            raise NotFound("job not found")
+        out = gateway_job_json(job)
+        if job.certificate_id:
+            out["certificate"] = cert_json(p.s.get(Certificate, job.certificate_id), include_pem=True)
+        return out
+
+    @app.get("/api/v1/adcs/gateway/jobs", tags=["adcs"])
+    def gateway_jobs(status: str | None = None, p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        who.require("admin", "operator", "gateway", "auditor")
+        q = p.s.query(AdcsJob)
+        if status:
+            q = q.filter_by(status=status)
+        return [gateway_job_json(j) for j in q.order_by(AdcsJob.id.desc()).limit(500).all()]
+
+    @app.post("/api/v1/adcs/inventory", status_code=202, tags=["adcs"])
+    def adcs_inventory(body: AdcsInventoryIn, p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        job = p.request_inventory(who, body.ca)
+        p.commit()
+        return {"job_id": job.id}
 
     # ---------------------------------------------------------- SSH
     @app.get("/api/v1/ssh/ca", tags=["ssh"], response_class=PlainTextResponse)

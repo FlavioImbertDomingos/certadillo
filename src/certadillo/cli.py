@@ -50,7 +50,7 @@ def init():
 
 @main.command()
 @click.argument("name")
-@click.option("--role", type=click.Choice(["admin", "approver", "operator", "auditor"]), required=True)
+@click.option("--role", type=click.Choice(["admin", "approver", "operator", "auditor", "gateway"]), required=True)
 def principal(name, role):
     """Create a human principal and print its API key once."""
     from certadillo.runtime import init_runtime
@@ -92,6 +92,49 @@ def audit_verify():
         res = verify_chain(p.s)
     click.echo(json.dumps(res))
     sys.exit(0 if res["valid"] else 1)
+
+
+@main.group()
+def adcs():
+    """Audit AD CS certificate templates for ESC misconfigurations (read-only)."""
+
+
+@adcs.command("audit")
+@click.option("--json", "json_file", type=click.Path(exists=True, path_type=Path),
+              help="audit a Export-CertadilloAdcsTemplates export instead of live LDAP")
+@click.option("--store/--no-store", default=True, help="save findings to the database")
+def adcs_audit(json_file, store):
+    """Run a template audit and print the findings.
+
+    With --json, audits the file the PowerShell exporter produced. Otherwise
+    reads the live directory over LDAP using CERTADILLO_ADCS_LDAP_* settings.
+    """
+    from certadillo.adcs.audit import audit_objects, store_findings
+    from certadillo.adcs.collector import LdapCollector, from_json
+    from certadillo.config import get_settings
+    from certadillo.runtime import init_runtime
+
+    if json_file:
+        with open(json_file) as fh:
+            templates, cas, ntauth = from_json(json.load(fh))
+        source = "json"
+    else:
+        s = get_settings()
+        if not (s.adcs_ldap_url and s.adcs_ldap_user and s.adcs_ldap_base):
+            raise click.ClickException("set CERTADILLO_ADCS_LDAP_URL, _USER, _PASSWORD and _BASE, or pass --json")
+        collector = LdapCollector(s.adcs_ldap_url, s.adcs_ldap_user, s.adcs_ldap_password or "", s.adcs_ldap_base)
+        collector.connect()
+        templates, cas, ntauth = collector.collect()
+        source = "ldap"
+
+    run_id, findings = audit_objects(templates, cas, source=source, ntauth=ntauth)
+    if store:
+        with init_runtime().platform() as p:
+            store_findings(p.s, run_id, findings, "cli")
+            p.commit()
+    click.echo(json.dumps({"run_id": run_id, "templates": len(templates), "cas": len(cas),
+                           "findings": findings}, indent=2))
+    sys.exit(1 if any(f["severity"] in ("critical", "high") for f in findings) else 0)
 
 
 @main.group()

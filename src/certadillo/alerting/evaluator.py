@@ -15,6 +15,8 @@ from cryptography import x509
 from certadillo.alerting.notifiers import Alert, SlackNotifier, WebhookNotifier, deliver
 from certadillo.audit.log import verify_chain
 from certadillo.db import (
+    AdcsFinding,
+    AdcsJob,
     AlertState,
     App,
     ApprovalRequest,
@@ -131,12 +133,37 @@ def evaluate(session, settings, policies: dict) -> list[Alert]:
                                  f"not replaced" + (f" (teams: {', '.join(owners)})" if owners else ""),
                                  {"campaign": camp.id}, runbook=RUNBOOK + "renewalcampaignoverdue"))
 
+    run_id, adcs_findings = _latest_adcs(session)
+    for f in adcs_findings:
+        if f.severity not in ("critical", "high"):
+            continue
+        sev = "critical" if f.severity == "critical" else "warning"
+        out.append(Alert(_fp("adcs", f.object_type, f.object_name, f.esc), "AdcsTemplateVulnerable", sev,
+                         f"{f.esc} on {f.object_type} '{f.object_name}': {f.title}",
+                         {"esc": f.esc, "object": f.object_name, "object_type": f.object_type, "run": run_id},
+                         runbook=RUNBOOK + "adcstemplatevulnerable"))
+
+    for job in session.query(AdcsJob).filter(AdcsJob.status.in_(["pending", "claimed"])).all():
+        if now - as_utc(job.created_at) > timedelta(hours=1):
+            out.append(Alert(_fp("adcsjob", job.id), "AdcsGatewayJobStuck", "warning",
+                             f"AD CS gateway {job.job_type} job #{job.id} still {job.status} after "
+                             f"{(now - as_utc(job.created_at)).seconds // 3600 + 1}h; check the gateway worker",
+                             {"job": job.id, "type": job.job_type}, runbook=RUNBOOK + "adcsgatewayjobstuck"))
+
     for req in session.query(ApprovalRequest).filter_by(status="pending").all():
         if now - as_utc(req.created_at) > timedelta(hours=24):
             out.append(Alert(_fp("approval", req.id), "ApprovalPending", "warning",
                              f"approval #{req.id} ({req.action}) waiting since {as_utc(req.created_at):%Y-%m-%d}",
                              {"approval": req.id}, runbook=RUNBOOK + "approvalpending"))
     return out
+
+
+def _latest_adcs(session):
+    """Findings from the most recent AD CS audit run only."""
+    row = session.query(AdcsFinding).order_by(AdcsFinding.created_at.desc()).first()
+    if row is None:
+        return None, []
+    return row.run_id, session.query(AdcsFinding).filter_by(run_id=row.run_id).all()
 
 
 def reconcile(session, settings, policies: dict, notifiers: list, team_notifier_factory=None) -> dict:

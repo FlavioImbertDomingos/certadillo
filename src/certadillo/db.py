@@ -331,6 +331,56 @@ class EstTrustAnchor(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class AdcsJob(Base):
+    """Work handed to the AD CS gateway: a domain-joined worker that submits to
+    a Microsoft CA with certreq/certutil and posts the result back. Certadillo
+    stays the RA (policy, scope, audit); AD CS is the issuing backend."""
+
+    __tablename__ = "adcs_jobs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_type: Mapped[str] = mapped_column(String(16))  # issue | revoke | inventory
+    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)  # pending|claimed|done|failed
+    app_id: Mapped[int | None] = mapped_column(ForeignKey("apps.id"), nullable=True)
+    profile: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    adcs_ca: Mapped[str | None] = mapped_column(String(255), nullable=True)  # the Microsoft CA config string
+    adcs_template: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    csr_pem: Mapped[str | None] = mapped_column(Text, nullable=True)
+    csr_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)  # dedupe pending issues
+    serial_hex: Mapped[str | None] = mapped_column(String(64), nullable=True)  # revoke target
+    reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    result_cert_pem: Mapped[str | None] = mapped_column(Text, nullable=True)
+    result_chain_pem: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    certificate_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    requested_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    claimed_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AdcsFinding(Base):
+    """A misconfiguration found by the AD CS template audit (read-only).
+
+    One row per (audit run, object, ESC). Kept so the API and alerting can
+    show what the last audit found and whether it is new since the previous
+    run."""
+
+    __tablename__ = "adcs_findings"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[str] = mapped_column(String(36), index=True)
+    source: Mapped[str] = mapped_column(String(16), default="ldap")  # ldap | json
+    object_type: Mapped[str] = mapped_column(String(16))  # template | ca
+    object_name: Mapped[str] = mapped_column(String(255))
+    esc: Mapped[str] = mapped_column(String(8), index=True)
+    severity: Mapped[str] = mapped_column(String(16))
+    title: Mapped[str] = mapped_column(String(255))
+    detail: Mapped[str] = mapped_column(Text)
+    principals: Mapped[list[str]] = mapped_column(JSON, default=list)
+    remark: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class AcmeNonce(Base):
     __tablename__ = "acme_nonces"
     value: Mapped[str] = mapped_column(String(64), primary_key=True)
