@@ -16,7 +16,7 @@ $(DEV_KEYS):
 	@echo "random dev keys written to $@"
 
 run: $(DEV_KEYS)  ## local server on :8080 with random dev keys (see .certadillo/dev-keys.env)
-	@. ./$(DEV_KEYS) && echo "admin key: $$ADMIN_KEY" && CERTADILLO_BOOTSTRAP_ADMIN_KEY=$$ADMIN_KEY CERTADILLO_BOOTSTRAP_APPROVER_KEY=$$APPROVER_KEY certadillo serve
+	@. ./$(DEV_KEYS) && echo "admin key: $$ADMIN_KEY" && CERTADILLO_DEV_DOMAINS=$${CERTADILLO_DEV_DOMAINS:-bank.internal} CERTADILLO_BOOTSTRAP_ADMIN_KEY=$$ADMIN_KEY CERTADILLO_BOOTSTRAP_APPROVER_KEY=$$APPROVER_KEY certadillo serve
 
 demo: $(DEV_KEYS)  ## seed a running server with a demo estate
 	@. ./$(DEV_KEYS) && python scripts/demo_seed.py --server http://localhost:8080 --admin-key "$$ADMIN_KEY" --approver-key "$$APPROVER_KEY"

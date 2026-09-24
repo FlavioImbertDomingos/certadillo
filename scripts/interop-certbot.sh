@@ -14,7 +14,7 @@ export NO_PROXY=127.0.0.1,localhost,.bank.internal no_proxy=127.0.0.1,localhost,
 
 grep -q "${NAMES[0]}" /etc/hosts || echo "127.0.0.1 ${NAMES[*]}" >> /etc/hosts
 
-CERTADILLO_DATA_DIR=$WORK/data CERTADILLO_BOOTSTRAP_ADMIN_KEY=$ADMIN_KEY CERTADILLO_BASE_URL=$S \
+CERTADILLO_DATA_DIR=$WORK/data CERTADILLO_DEV_DOMAINS=bank.internal CERTADILLO_BOOTSTRAP_ADMIN_KEY=$ADMIN_KEY CERTADILLO_BASE_URL=$S \
   certadillo serve --port "$PORT" > "$WORK/server.log" 2>&1 &
 SERVER=$!
 trap 'kill $SERVER 2>/dev/null || true' EXIT

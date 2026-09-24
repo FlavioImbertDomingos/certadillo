@@ -35,7 +35,10 @@ class Settings:
     # software | pkcs11 | vault-transit (where new CA keys are generated; existing keys
     # keep loading from wherever their key_ref says they live)
     signer: str = field(default_factory=lambda: _env("SIGNER", "software"))
-    key_passphrase: str = field(default_factory=lambda: _env("KEY_PASSPHRASE", "change-me-dev-only"))
+    # Protects software CA keys and derives the seal and field-encryption keys.
+    # Unset: a random one is generated on first start and kept in
+    # <data_dir>/key-passphrase (mode 0600). Placeholders and short values are refused.
+    key_passphrase: str | None = field(default_factory=lambda: _env("KEY_PASSPHRASE"))
     pkcs11_lib: str | None = field(default_factory=lambda: _env("PKCS11_LIB"))
     pkcs11_token: str = field(default_factory=lambda: _env("PKCS11_TOKEN", "certadillo"))
     pkcs11_pin: str | None = field(default_factory=lambda: _env("PKCS11_PIN"))
@@ -130,14 +133,53 @@ class Settings:
     # Settings-driven maker-checker actions. Sub-CA creation always needs a
     # second person, and per-profile issuance approval is the profile's
     # `dual_control: true` flag.
+    # Zones reserved for non-production names. A dev or test app is activated
+    # without a second person only when its whole scope lies inside these zones;
+    # any other scope needs approval whatever environment the app claims, since
+    # the environment label alone does not stop a "dev" app naming prod hosts.
+    dev_domains: list[str] = field(default_factory=lambda: _list("DEV_DOMAINS"))
     dual_control_actions: list[str] = field(
         default_factory=lambda: _list("DUAL_CONTROL") or ["onboard_prod_app"]
     )
 
     def __post_init__(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.key_passphrase = _resolve_passphrase(self.key_passphrase, self.data_dir)
         if not self.db_url:
             self.db_url = f"sqlite:///{(self.data_dir / 'certadillo.db').resolve()}"
+
+
+# Values that have appeared in docs and examples. Anyone can read them, so
+# keys protected by them are not protected at all.
+KNOWN_PLACEHOLDERS = {"change-me-dev-only", "replace-me", "change-me", "changeme", "password", "secret"}
+MIN_PASSPHRASE = 16
+
+
+def _resolve_passphrase(value: str | None, data_dir: Path) -> str:
+    import secrets
+
+    if value is not None:
+        if value.strip().lower() in KNOWN_PLACEHOLDERS or len(value) < MIN_PASSPHRASE:
+            raise ValueError(
+                "CERTADILLO_KEY_PASSPHRASE is a placeholder or shorter than "
+                f"{MIN_PASSPHRASE} characters; generate one with: openssl rand -base64 32"
+            )
+        return value
+    path = data_dir / "key-passphrase"
+    if path.exists():
+        return path.read_text().strip()
+    if (data_dir / "keys").exists():
+        # Created before this check existed, with the old built-in dev passphrase.
+        # That value is public, so those keys are not worth keeping.
+        raise ValueError(
+            f"{data_dir} holds CA keys but no key-passphrase file: it was created with the old public "
+            "dev default. Move the directory aside and start fresh; if it was created with your own "
+            "passphrase, set CERTADILLO_KEY_PASSPHRASE to it.")
+    generated = secrets.token_urlsafe(32)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w") as fh:
+        fh.write(generated + "\n")
+    return generated
 
 
 _settings: Settings | None = None

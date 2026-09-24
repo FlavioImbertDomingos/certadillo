@@ -386,6 +386,12 @@ def test_ceremony_creates_an_issuing_ca_the_app_could_not(tmp_path, vault, prefi
     ok = run(ceremony)
     assert ok.exit_code == 0, ok.output
     reset_settings()
+    # the ceremony token cannot create its key as exportable, however the value is spelled
+    for bad in ({"exportable": True}, {"exportable": "true"}, {"exportable": "1"},
+                {"allow_plaintext_backup": "true"}, {"type": "aes256-gcm96"}):
+        r = httpx.post(f"{vault}/v1/transit/keys/{prefix}issuing-ca-2", json={"type": "ecdsa-p384", **bad},
+                       headers={"X-Vault-Token": ceremony})
+        assert r.status_code == 403, (bad, r.status_code)
     # even the ceremony token cannot weaken any CA key
     for key in ("root-ca", "issuing-ca-1", "issuing-ca-2"):
         for op, body in (("rotate", None), ("config", {"exportable": True}), ("trim", {"min_available_version": 1})):

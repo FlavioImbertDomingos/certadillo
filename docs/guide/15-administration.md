@@ -18,7 +18,7 @@ In production, put OIDC (Entra ID, Okta) in front of the console and API and map
 
 | Action | Needs a second person | Set by |
 | --- | --- | --- |
-| Onboarding a `prod` app | yes | `CERTADILLO_DUAL_CONTROL` (default `onboard_prod_app`) |
+| Onboarding an app, unless it is non-prod and its whole scope is inside `CERTADILLO_DEV_DOMAINS` | yes | `CERTADILLO_DUAL_CONTROL` (default `onboard_prod_app`) and `CERTADILLO_DEV_DOMAINS` |
 | Issuing or renewing a certificate in a profile with `dual_control: true` (code signing) | yes | the profile |
 | Creating a subordinate CA | always | fixed |
 
@@ -26,7 +26,19 @@ Rules the approver check enforces:
 
 - only principals with the `approver` role decide; admins request, approvers approve;
 - the requester can never approve their own request;
-- an approver key minted by the requester cannot approve that requester's requests.
+- an approver key minted by the requester cannot approve that requester's requests;
+- a request is re-checked when it is approved: if the app is no longer in the state the request assumed, or the requester's credential has been deactivated, it cannot be approved.
+
+The environment an app declares is a label the requester chooses, so on its own it
+never skips the second person. Only an app whose names all sit inside the zones
+in `CERTADILLO_DEV_DOMAINS` (for example `dev.bank.internal`) is activated
+straight away; with the variable unset, every onboarding needs an approver.
+
+Scopes are checked when an app is onboarded. An entry is an exact DNS name, a
+`*.suffix` with at least two labels after the star, or a SPIFFE prefix such as
+`spiffe://bank.internal/payments/*`. Broader patterns (`*`, `*.com`,
+`a*b.bank.internal`) are refused, and SPIFFE IDs with `.`, `..` or empty path
+segments are never issued.
 
 Every request and decision is in the audit trail with the approver's comment.
 
@@ -83,11 +95,12 @@ All settings are environment variables.
 | `CERTADILLO_ORG_NAME` | `Example Bank` | O= in CA and leaf subjects |
 | `CERTADILLO_POLICY_FILE` | built-in | profile file |
 | `CERTADILLO_SIGNER` | `software` | where new CA keys are created: `software`, `pkcs11` or `vault-transit` ([key custody](../HSM.md)); existing keys load from where their `key_ref` points |
-| `CERTADILLO_KEY_PASSPHRASE` | dev value | encrypts software keys; set a real secret |
+| `CERTADILLO_KEY_PASSPHRASE` | generated | encrypts software keys and derives the seal and field keys. Unset: a random one is created on first start in `<data dir>/key-passphrase` (mode 0600). Known placeholders and values under 16 characters are refused |
 | `CERTADILLO_PKCS11_LIB` / `_TOKEN` / `_PIN` | | HSM access |
 | `CERTADILLO_BOOTSTRAP_ADMIN_KEY` / `_APPROVER_KEY` | | first principals |
 | `CERTADILLO_AUTO_INIT_CA` | `true` | create the hierarchy on first start |
 | `CERTADILLO_DUAL_CONTROL` | `onboard_prod_app` | settings-driven maker-checker actions |
+| `CERTADILLO_DEV_DOMAINS` | | comma-separated zones for non-production names; see [Dual control](#dual-control) |
 | `CERTADILLO_ACME_CHALLENGE` | `http-01` | `http-01` offers http-01 and dns-01; `ra-scope` skips the network check |
 | `CERTADILLO_ACME_DNS_VIEWS` | | split-horizon resolvers per zone, `zone=ip[:port],...;zone=...` |
 | `CERTADILLO_ACME_DNS_RESOLVERS` | host resolv.conf | resolvers for names in no view |

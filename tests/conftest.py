@@ -14,6 +14,7 @@ APPROVER = {"X-API-Key": "approver-key"}
 
 
 def make_settings(tmp_path, **kw) -> Settings:
+    kw.setdefault("dev_domains", ["bank.internal", "bank.example"])
     return Settings(
         data_dir=tmp_path,
         bootstrap_admin_key="admin-key",

@@ -11,6 +11,7 @@ pip install -e ".[dev,hsm]"
 
 export CERTADILLO_BOOTSTRAP_ADMIN_KEY=$(openssl rand -hex 24)
 export CERTADILLO_BOOTSTRAP_APPROVER_KEY=$(openssl rand -hex 24)
+export CERTADILLO_DEV_DOMAINS=bank.internal   # dev apps inside this zone need no second approver
 echo "admin key: $CERTADILLO_BOOTSTRAP_ADMIN_KEY"
 certadillo serve --port 8080
 ```

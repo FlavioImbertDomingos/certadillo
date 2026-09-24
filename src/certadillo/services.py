@@ -187,9 +187,16 @@ class Platform:
         self.engine.profile(profile)
         if not allowed_domains:
             raise ValueError("allowed_domains is required (the RA scope for this app)")
+        from certadillo.policy.engine import validate_scope, within_domains
+
+        allowed_domains = validate_scope(allowed_domains)
         if self.s.get(Team, team_id) is None:
             raise NotFound("team not found")
-        needs_approval = environment == "prod" and "onboard_prod_app" in self.settings.dual_control_actions
+        # The environment is a label the requester picks, so it cannot be what
+        # skips the second person. Only a scope entirely inside the configured
+        # dev zones can; anything else is treated as production.
+        dev_scope = environment != "prod" and all(within_domains(d, self.settings.dev_domains) for d in allowed_domains)
+        needs_approval = not dev_scope and "onboard_prod_app" in self.settings.dual_control_actions
         app = App(team_id=team_id, name=name, environment=environment, profile=profile,
                   allowed_domains=allowed_domains, data_classification=data_classification,
                   status="pending_approval" if needs_approval else "active", created_by=actor.name)
@@ -373,6 +380,8 @@ class Platform:
         me = self.s.query(Principal).filter_by(name=actor.name).one_or_none()
         if me is not None and me.created_by == req.requested_by:
             raise Forbidden("maker-checker: this approver credential was issued by the requester")
+        if approve:
+            self._still_valid(req)
         req.status = "approved" if approve else "rejected"
         req.decided_by = actor.name
         req.decided_at = datetime.now(timezone.utc)
@@ -384,6 +393,19 @@ class Platform:
             app = self.s.get(App, req.payload["app_id"])
             app.status = "rejected"
         return req
+
+    def _still_valid(self, req: ApprovalRequest) -> None:
+        """An approval is a decision about the world as it was when it was asked.
+        Refuse to carry it out if the app or the requester changed since."""
+        p = req.payload or {}
+        if req.action in ("onboard_prod_app", "issue_certificate", "add_est_trust_anchor"):
+            app = self.s.get(App, p.get("app_id"))
+            want = "pending_approval" if req.action == "onboard_prod_app" else "active"
+            if app is None or app.status != want:
+                raise Forbidden(f"the app is no longer {want.replace('_', ' ')}; this request cannot be approved")
+        requester = self.s.query(Principal).filter_by(name=req.requested_by).one_or_none()
+        if requester is not None and not requester.active:
+            raise Forbidden("the requester's credential has been deactivated; this request cannot be approved")
 
     def _execute(self, req: ApprovalRequest) -> None:
         p = dict(req.payload)

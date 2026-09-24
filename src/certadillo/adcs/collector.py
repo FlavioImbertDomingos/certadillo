@@ -95,12 +95,11 @@ class LdapCollector:
     the rest of Certadillo runs without it.
     """
 
-    def __init__(self, url: str, user: str, password: str, base_dn: str, *, use_ssl: bool | None = None):
+    def __init__(self, url: str, user: str, password: str, base_dn: str):
         self.url = url
         self.user = user
         self.password = password
         self.base_dn = base_dn
-        self.use_ssl = use_ssl if use_ssl is not None else url.lower().startswith("ldaps")
         self._conn = None
 
     def connect(self, server_factory=None, connection_factory=None):
@@ -110,10 +109,10 @@ class LdapCollector:
             raise RuntimeError(
                 "the LDAP collector needs ldap3; install with 'pip install certadillo[adcs]'"
             ) from exc
-        make_server = server_factory or ldap3.Server
-        make_conn = connection_factory or ldap3.Connection
-        server = make_server(self.url, use_ssl=self.use_ssl, get_info=ldap3.ALL)
-        self._conn = make_conn(server, user=self.user, password=self.password, auto_bind=True)
+        from certadillo.adcs.ldaptls import open_connection
+
+        self._conn = open_connection(ldap3, self.url, self.user, self.password, get_info=ldap3.ALL,
+                                     server_factory=server_factory, connection_factory=connection_factory)
         return self._conn
 
     def _search(self, base: str, filt: str, attrs: list[str]) -> list[dict]:

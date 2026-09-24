@@ -39,7 +39,13 @@ the audit says so in the finding's remark rather than dropping it.
 
 ### Two ways to feed it
 
-The live collector reads the Configuration naming context over LDAP or LDAPS.
+The live collector reads the Configuration naming context over LDAPS, or LDAP
+upgraded with StartTLS before the bind. The domain controller's certificate must
+chain to a trusted CA and match its host name; point
+`CERTADILLO_ADCS_LDAP_CACERT` at your enterprise root if it is not in the system
+store. Plain LDAP is refused, because the same connection carries the bind
+password and, for logon certificates, the account SID Certadillo trusts. For a
+lab directory only, `CERTADILLO_ADCS_LDAP_ALLOW_PLAIN=true` turns that off.
 A read-only bind account with ordinary domain read access is enough:
 
 ```bash
@@ -47,6 +53,7 @@ export CERTADILLO_ADCS_LDAP_URL=ldaps://dc1.corp.bank.internal
 export CERTADILLO_ADCS_LDAP_USER='CORP\pki-audit'
 export CERTADILLO_ADCS_LDAP_PASSWORD=...
 export CERTADILLO_ADCS_LDAP_BASE='DC=corp,DC=bank,DC=internal'
+export CERTADILLO_ADCS_LDAP_CACERT=/etc/pki/corp-root.pem   # if the DC's CA is not in the system store
 
 certadillo adcs audit           # or: POST /api/v1/adcs/audit/ldap
 ```

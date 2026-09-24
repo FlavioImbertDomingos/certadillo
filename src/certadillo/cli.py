@@ -176,8 +176,16 @@ def ceremony_policy_hcl(mount: str, prefix: str, new_keys: list[str], signing_ke
         "# Issue a short-lived token with it for this ceremony only, then revoke the token.",
         "",
     ]
+    from certadillo.crypto.vault_signer import VAULT_TYPES
+
+    types = ", ".join(f'"{t}"' for t in sorted(set(VAULT_TYPES.values())))
     for k in new_keys:
-        lines += [f'path "{mount}/keys/{prefix}{k}" {{', '  capabilities = ["create", "update", "read"]', "}", ""]
+        # An allowlist, not a denylist: Vault compares values literally, so a deny on
+        # exportable=true is bypassed by sending "true" as a string. Only these
+        # parameters, with exactly these values, are accepted when the key is created.
+        lines += [f'path "{mount}/keys/{prefix}{k}" {{', '  capabilities = ["create", "update", "read"]',
+                  "  allowed_parameters = {", f"    \"type\" = [{types}]",
+                  '    "exportable" = [false]', '    "allow_plaintext_backup" = [false]', "  }", "}", ""]
     lines += [f'path "{mount}/keys/{prefix}*" {{', '  capabilities = ["read"]', "}", ""]
     for k in signing_keys:
         lines += [f'path "{mount}/sign/{prefix}{k}" {{', '  capabilities = ["update"]', "}", ""]
@@ -359,10 +367,34 @@ def cert():
     """Request and renew certificates through the API (app teams, automation)."""
 
 
+_LOOPBACK = {"localhost", "127.0.0.1", "::1"}
+
+
+def _resolve_key(api_key: str | None, api_key_file: Path | None) -> str:
+    """The app credential, from CERTADILLO_API_KEY, a file, or (discouraged) the command line."""
+    ctx = click.get_current_context()
+    if api_key and ctx.get_parameter_source("api_key") == click.core.ParameterSource.COMMANDLINE:
+        click.echo("warning: --api-key on the command line shows up in the process list and shell history; "
+                   "use CERTADILLO_API_KEY or --api-key-file", err=True)
+    if api_key_file is not None:
+        return api_key_file.read_text().strip()
+    if not api_key:
+        raise click.UsageError("set CERTADILLO_API_KEY or pass --api-key-file")
+    return api_key
+
+
 def _client(server, key):
+    """HTTP client that only sends the credential over TLS (or to this machine)."""
+    from urllib.parse import urlsplit
+
     import httpx
 
-    return httpx.Client(base_url=server, headers={"X-API-Key": key}, timeout=30)
+    u = urlsplit(server)
+    if u.scheme != "https" and not (u.scheme == "http" and (u.hostname or "") in _LOOPBACK):
+        if (os.environ.get("CERTADILLO_ALLOW_HTTP", "") or "").lower() != "true":
+            raise click.UsageError(f"refusing to send the API key to {server} without TLS; use https://")
+    verify = os.environ.get("CERTADILLO_CACERT") or True  # a private CA bundle for the server's certificate
+    return httpx.Client(base_url=server, headers={"X-API-Key": key}, timeout=30, verify=verify)
 
 
 def _key_and_csr(cn, sans, spiffe_id, key_type):
@@ -388,8 +420,12 @@ def _write(out: Path, key_pem: bytes, data: dict):
     out.mkdir(parents=True, exist_ok=True)
     kp = out / "tls.key"
     tmp = kp.with_suffix(".key.tmp")
-    tmp.write_bytes(key_pem)
-    os.chmod(tmp, 0o600)
+    tmp.unlink(missing_ok=True)
+    # created 0600 from the first byte; writing then chmod-ing leaves a window
+    # where the key is readable under the default umask
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(key_pem)
     tmp.replace(kp)
     (out / "tls.crt").write_text(data["pem"] + data.get("chain_pem", ""))
     (out / "meta.json").write_text(json.dumps({k: data[k] for k in ("id", "serial", "not_before", "not_after")}, indent=2))
@@ -397,15 +433,17 @@ def _write(out: Path, key_pem: bytes, data: dict):
 
 @cert.command("request")
 @click.option("--server", envvar="CERTADILLO_SERVER", required=True)
-@click.option("--api-key", envvar="CERTADILLO_API_KEY", required=True)
+@click.option("--api-key", envvar="CERTADILLO_API_KEY", help="prefer the CERTADILLO_API_KEY variable")
+@click.option("--api-key-file", envvar="CERTADILLO_API_KEY_FILE", type=click.Path(path_type=Path, exists=True, dir_okay=False))
 @click.option("--cn")
 @click.option("--san", multiple=True)
 @click.option("--spiffe-id")
 @click.option("--key-type", type=click.Choice(["ec", "rsa"]), default="ec")
 @click.option("--days", type=int)
 @click.option("--out", type=click.Path(path_type=Path), default=Path("."))
-def cert_request(server, api_key, cn, san, spiffe_id, key_type, days, out):
+def cert_request(server, api_key, api_key_file, cn, san, spiffe_id, key_type, days, out):
     """Generate a key locally, submit a CSR, write tls.key / tls.crt."""
+    api_key = _resolve_key(api_key, api_key_file)
     key_pem, csr = _key_and_csr(cn, list(san), spiffe_id, key_type)
     r = _client(server, api_key).post("/api/v1/certificates", json={"csr_pem": csr, "validity_days": days})
     if r.status_code == 202:
@@ -420,15 +458,18 @@ def cert_request(server, api_key, cn, san, spiffe_id, key_type, days, out):
 
 @cert.command("renew-if-due")
 @click.option("--server", envvar="CERTADILLO_SERVER", required=True)
-@click.option("--api-key", envvar="CERTADILLO_API_KEY", required=True)
+@click.option("--api-key", envvar="CERTADILLO_API_KEY", help="prefer the CERTADILLO_API_KEY variable")
+@click.option("--api-key-file", envvar="CERTADILLO_API_KEY_FILE", type=click.Path(path_type=Path, exists=True, dir_okay=False))
 @click.option("--dir", "directory", type=click.Path(path_type=Path), default=Path("."))
 @click.option("--fraction", default=0.33, help="renew when less than this share of lifetime remains")
 @click.option("--force", is_flag=True)
-def cert_renew(server, api_key, directory, fraction, force):
+def cert_renew(server, api_key, api_key_file, directory, fraction, force):
     """Renew with a new key once the certificate passes 2/3 of its lifetime,
     or earlier when the server's renewal window (ARI) says so, e.g. during a
     renewal campaign."""
     from cryptography import x509
+
+    api_key = _resolve_key(api_key, api_key_file)
 
     meta = json.loads((directory / "meta.json").read_text())
     current = x509.load_pem_x509_certificate((directory / "tls.crt").read_bytes())

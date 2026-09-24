@@ -11,9 +11,20 @@
 # Vault ranks that glob above deny rules such as transit/keys/+/rotate, so
 # denies cannot fix it. tests/test_vault_signer.py checks this against Vault.
 #
+# Signing with the root key cannot be narrowed to one message in a policy, so
+# the ceremony token must be short-lived and single-purpose:
+#   vault token create -policy=<ceremony> -ttl=15m -use-limit=10 -orphan
+#
 
 path "transit/keys/certadillo-issuing-ca-2" {
   capabilities = ["create", "update", "read"]
+  # Only a non-exportable key without plaintext backup can be created. This is an
+  # allowlist on purpose: a deny on exportable=true is bypassed by the string "true".
+  allowed_parameters = {
+    "type" = ["ecdsa-p256", "ecdsa-p384", "rsa-3072", "rsa-4096"]
+    "exportable" = [false]
+    "allow_plaintext_backup" = [false]
+  }
 }
 
 path "transit/keys/certadillo-*" {

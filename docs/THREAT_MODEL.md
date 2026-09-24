@@ -186,6 +186,9 @@ integrity.
 | P1 | Alerts: new privileged principal, broken seal or rollback, anchor mismatch | Done |
 | P1 | Console and KB: escaping template, CSP without inline script, Trusted Types; deny-all CSP on the API | Done |
 | P1 | CI: actions pinned to SHAs, read-only token by default, no persisted checkout credentials | Done |
+| P1 | Onboarding approval decided by scope, not the environment label; scope shape checked | Done |
+| P1 | LDAP to the directory over validated TLS only | Done |
+| P1 | No built-in key passphrase; ceremony policy allowlists key parameters | Done |
 | P2 | Container hardening (non-root, read-only filesystem, dropped capabilities) | To do |
 | P2 | Per-principal rate limits, egress restrictions | To do |
 

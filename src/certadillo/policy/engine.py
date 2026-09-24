@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import fnmatch
+import re
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from importlib import resources
@@ -152,6 +153,71 @@ def describe_key(pub) -> tuple[str, int, str]:
     return "unknown", 0, ""
 
 
+_LABEL = re.compile(r"^(?!-)[a-z0-9_-]{1,63}(?<!-)$")
+_SPIFFE_SEGMENT = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+def _dns_labels_ok(body: str) -> bool:
+    return bool(body) and len(body) <= 253 and all(_LABEL.match(label) for label in body.split("."))
+
+
+def validate_scope(patterns: list[str]) -> list[str]:
+    """Check and normalise an app's name scope before it is stored.
+
+    A scope entry is an exact DNS name, "*.suffix" with at least two labels in
+    the suffix, or a SPIFFE ID prefix "spiffe://trust.domain/path/*". Anything
+    broader ("*", "*.com", "a*b.internal", character classes) would let one app
+    claim names that belong to others, so it is refused rather than matched.
+    """
+    out: list[str] = []
+    for raw in patterns:
+        p = str(raw).strip()
+        if p.lower().startswith("spiffe://"):
+            base = p[:-2] if p.endswith("/*") else p
+            if "*" in base or not spiffe_id_valid(base):
+                raise ValueError(f"{raw!r} is not a SPIFFE ID or a spiffe://trust.domain/path/* prefix")
+            out.append(p)
+            continue
+        p = p.lower().rstrip(".")
+        body = p[2:] if p.startswith("*.") else p
+        if not _dns_labels_ok(body):
+            raise ValueError(f"{raw!r} is not a DNS name or a *.suffix pattern")
+        if p.startswith("*.") and len(body.split(".")) < 2:
+            raise ValueError(f"{raw!r} is too broad: a wildcard scope needs at least two labels after '*.'")
+        out.append(p)
+    if not out:
+        raise ValueError("the scope needs at least one name")
+    return out
+
+
+def spiffe_id_valid(uri: str) -> bool:
+    """SPIFFE ID rules (SPIFFE-ID spec 2.1-2.2): lowercase trust domain, no port,
+    user info, query or fragment, and path segments that are not empty, '.' or '..'."""
+    if not uri.startswith("spiffe://"):
+        return False
+    rest = uri[len("spiffe://"):]
+    td, _, path = rest.partition("/")
+    if not td or td != td.lower() or not re.fullmatch(r"[a-z0-9._-]+", td):
+        return False
+    if any(c in uri for c in "?#%@") or not path:
+        return False
+    return all(seg not in (".", "..") and _SPIFFE_SEGMENT.match(seg) for seg in path.split("/"))
+
+
+def within_domains(pattern: str, zones: list[str]) -> bool:
+    """True when every name the scope entry can match lies inside one of zones."""
+    p = pattern.lower().rstrip(".")
+    if p.startswith("spiffe://"):
+        p = p[len("spiffe://"):].split("/", 1)[0]
+    elif p.startswith("*."):
+        p = p[2:]
+    for z in zones:
+        z = z.lower().strip().lstrip("*.").rstrip(".")
+        if z and (p == z or p.endswith("." + z)):
+            return True
+    return False
+
+
 def domain_allowed(name: str, patterns: list[str]) -> bool:
     name = name.lower().rstrip(".")
     for p in patterns:
@@ -250,6 +316,9 @@ class PolicyEngine:
         if prof.get("require_dns_san") and not dns:
             v.append(("san_required", "at least one DNS SAN is required"))
         for name in dns:
+            if not _dns_labels_ok(name[2:] if name.startswith("*.") else name):
+                v.append(("dns_name", f"{name!r} is not a valid DNS name"))
+                continue
             if name.startswith("*.") and not prof.get("allow_wildcard", False):
                 v.append(("wildcard", f"wildcard {name} not allowed"))
             if not domain_allowed(name, allowed_domains):
@@ -263,7 +332,9 @@ class PolicyEngine:
                 v.append(("spiffe_id", "exactly one URI SAN, a spiffe:// ID, is required"))
             else:
                 sid = uris[0]
-                if not sid.startswith(f"spiffe://{td}/"):
+                if not spiffe_id_valid(sid):
+                    v.append(("spiffe_id", f"{sid} is not a valid SPIFFE ID (no '.', '..' or empty segments, query or port)"))
+                elif not sid.startswith(f"spiffe://{td}/"):
                     v.append(("spiffe_trust_domain", f"{sid} is not in trust domain {td}"))
                 elif not domain_allowed(sid, allowed_domains):
                     v.append(("spiffe_scope", f"{sid} is outside the app's approved SPIFFE IDs"))
@@ -275,7 +346,9 @@ class PolicyEngine:
             if not emails:
                 v.append(("email_required", "an rfc822Name SAN is required"))
             for e in emails:
-                if not domain_allowed(e.split("@")[-1], allowed_domains):
+                if e.count("@") != 1 or not e.split("@")[0]:
+                    v.append(("email_format", f"{e!r} must be local@domain"))
+                elif not domain_allowed(e.split("@")[-1], allowed_domains):
                     v.append(("email_scope", f"{e} is outside the app's approved mail domains"))
         elif emails:
             v.append(("email_san", "email SANs are only issued under the smime profile"))
@@ -334,7 +407,7 @@ class PolicyEngine:
             v.append(("upn_required", "exactly one UPN otherName SAN is required"))
         for upn in upns:
             suffix = upn.rsplit("@", 1)[-1] if "@" in upn else upn
-            if "@" not in upn:
+            if upn.count("@") != 1 or not upn.split("@")[0]:
                 v.append(("upn_format", f"UPN {upn!r} must be user@suffix"))
             elif not domain_allowed(suffix, allowed_domains):
                 v.append(("upn_scope", f"UPN suffix {suffix} is outside the app's approved domains"))

@@ -100,6 +100,13 @@ certadillo cert renew-if-due --dir /etc/pki/auth           # no-op until a third
 certadillo cert renew-if-due --dir /etc/pki/auth --force
 ```
 
+The CLI sends the API key only over `https://`, or plain `http://` to this
+machine. `CERTADILLO_CACERT` points it at a private CA bundle for the server's
+certificate. Give the key through `CERTADILLO_API_KEY` or `--api-key-file`
+(`CERTADILLO_API_KEY_FILE`); `--api-key` on the command line works but prints a
+warning, because it shows up in the process list and shell history. `tls.key` is
+created with mode 0600 from the first byte.
+
 Run `renew-if-due` from a systemd timer or cron every few hours:
 
 ```ini

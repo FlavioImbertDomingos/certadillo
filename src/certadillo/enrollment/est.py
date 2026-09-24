@@ -35,6 +35,7 @@ from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.hazmat.primitives.serialization import pkcs7
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
+from certadillo import integrity
 from certadillo.api.deps import _credential, platform
 from certadillo.audit.log import record
 from certadillo.db import App, Certificate, CertificateAuthority, EstTrustAnchor
@@ -131,7 +132,8 @@ def identify(p: Platform, request: Request) -> tuple[Actor, Certificate | None, 
                 cert.verify_directly_issued_by(x509.load_pem_x509_certificate(ca.cert_pem.encode()))
             except Exception:  # noqa: BLE001
                 row = None
-            if row is not None and row.status == "active" and row.app_id:
+            # the sealed status, so a row flipped back to "active" in SQL cannot log in
+            if row is not None and row.app_id and integrity.trusted_status(p.s, row) == "active":
                 app = p.s.get(App, row.app_id)
                 if app is not None and app.status == "active":
                     return Actor(f"est-cert:{row.serial_hex}", "app", app.id), row, "certificate"

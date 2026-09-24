@@ -21,7 +21,7 @@ grep -q "est.bank.internal" /etc/hosts || echo "127.0.0.1 est.bank.internal" >> 
 EC=${ESTCLIENT:-$(command -v estclient || echo "$(go env GOPATH)/bin/estclient")}
 [ -x "$EC" ] || go install github.com/globalsign/est/cmd/estclient@latest
 
-CERTADILLO_DATA_DIR=$WORK/data CERTADILLO_BOOTSTRAP_ADMIN_KEY=$ADMIN_KEY CERTADILLO_BASE_URL=$S \
+CERTADILLO_DATA_DIR=$WORK/data CERTADILLO_DEV_DOMAINS=bank.internal CERTADILLO_BOOTSTRAP_ADMIN_KEY=$ADMIN_KEY CERTADILLO_BASE_URL=$S \
 CERTADILLO_EST_CLIENT_CERT_HEADER=X-SSL-Client-Cert CERTADILLO_EST_PROXY_SECRET=$SECRET \
   certadillo serve --port "$PORT" > "$WORK/server.log" 2>&1 &
 SERVER=$!

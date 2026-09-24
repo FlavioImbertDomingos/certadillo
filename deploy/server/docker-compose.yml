@@ -32,6 +32,7 @@ services:
       CERTADILLO_BOOTSTRAP_ADMIN_KEY: ${CERTADILLO_BOOTSTRAP_ADMIN_KEY:?missing}
       CERTADILLO_BOOTSTRAP_APPROVER_KEY: ${CERTADILLO_BOOTSTRAP_APPROVER_KEY:?missing}
       CERTADILLO_ALERT_INTERVAL: "300"
+      CERTADILLO_DEV_DOMAINS: ${CERTADILLO_DEV_DOMAINS:-}
       # Set to * only when 8080 is bound to 127.0.0.1 behind your reverse proxy.
       FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
     volumes: [cadata:/var/lib/certadillo]

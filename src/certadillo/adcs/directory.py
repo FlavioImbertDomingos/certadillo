@@ -5,7 +5,9 @@ The SID that goes into a logon certificate must come from the directory, never
 from the request: otherwise an enroller could claim any account's SID and defeat
 strong mapping. The lookup fails closed (any error means no certificate), a
 disabled account is refused, and a sensitive account (adminCount=1) is flagged
-so the RA can require a second approver.
+so the RA can require a second approver. The connection is TLS with the domain
+controller's certificate checked (see ldaptls.py), because a forged answer here
+would put someone else's SID in a logon certificate.
 """
 from __future__ import annotations
 
@@ -39,20 +41,23 @@ def sid_bytes_to_string(data: bytes) -> str:
 
 
 class DirectoryResolver:
-    def __init__(self, url: str, user: str, password: str, base_dn: str, *, use_ssl: bool | None = None):
+    def __init__(self, url: str, user: str, password: str, base_dn: str):
         self.url = url
         self.user = user
         self.password = password
         self.base_dn = base_dn
-        self.use_ssl = use_ssl if use_ssl is not None else url.lower().startswith("ldaps")
 
     def resolve_upn(self, upn: str) -> Account:
         try:
             import ldap3
         except ImportError as exc:  # pragma: no cover
             raise DirectoryError("the directory resolver needs ldap3 (pip install certadillo[adcs])") from exc
-        server = ldap3.Server(self.url, use_ssl=self.use_ssl, get_info=ldap3.NONE)
-        conn = ldap3.Connection(server, user=self.user, password=self.password, auto_bind=True)
+        from certadillo.adcs.ldaptls import open_connection
+
+        try:
+            conn = open_connection(ldap3, self.url, self.user, self.password)
+        except Exception as exc:  # noqa: BLE001 - any transport or bind failure means no certificate
+            raise DirectoryError(f"directory connection failed: {exc}") from None
         try:
             conn.search(
                 self.base_dn,

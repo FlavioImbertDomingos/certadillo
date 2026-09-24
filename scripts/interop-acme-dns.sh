@@ -19,7 +19,7 @@ echo '{}' > "$WORK/zone.json"
 
 python3 "$HERE/tinydns.py" "$WORK/zone.json" "$DNSPORT" > "$WORK/dns.log" 2>&1 &
 DNSPID=$!
-CERTADILLO_DATA_DIR=$WORK/data CERTADILLO_BOOTSTRAP_ADMIN_KEY=$ADMIN_KEY CERTADILLO_BASE_URL=$S \
+CERTADILLO_DATA_DIR=$WORK/data CERTADILLO_DEV_DOMAINS=bank.internal CERTADILLO_BOOTSTRAP_ADMIN_KEY=$ADMIN_KEY CERTADILLO_BASE_URL=$S \
 CERTADILLO_ACME_DNS_VIEWS="portal.bank.internal=127.0.0.1:$DNSPORT" \
   certadillo serve --port "$PORT" > "$WORK/server.log" 2>&1 &
 SERVER=$!
