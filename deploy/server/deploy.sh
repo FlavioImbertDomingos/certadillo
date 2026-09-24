@@ -11,6 +11,10 @@
 #   BIND       127.0.0.1 moves 8080 off the public interface once nginx fronts it
 #              (also tells the app to trust nginx's X-Forwarded headers)
 #   NO_BUILD   1 reuses the certadillo:server image already on the server
+#   TRAEFIK_DOMAIN        serve through a Traefik that already runs on the server, e.g.
+#                         TRAEFIK_DOMAIN=certadillo.com TRAEFIK_NETWORK=internal \
+#                         TRAEFIK_CERTRESOLVER=traefikresolver deploy/server/deploy.sh root@host
+#                         (sets BASE_URL=https://<domain> and BIND=127.0.0.1 unless given)
 #
 # Secrets are generated on the server into $APP_DIR/.env (mode 600) on the first
 # run and never leave it, except the keys this script prints for you once.
@@ -20,6 +24,23 @@ set -euo pipefail
 TARGET=${1:?usage: deploy.sh user@host}
 HOST=${TARGET#*@}
 APP_DIR=${APP_DIR:-/opt/certadillo}
+TRAEFIK_DOMAIN=${TRAEFIK_DOMAIN:-}
+if [ -z "$TRAEFIK_DOMAIN" ]; then
+  # later updates reuse the Traefik settings saved on the server
+  while IFS='=' read -r k v; do
+    case $k in
+      CERTADILLO_DOMAIN) TRAEFIK_DOMAIN=$v ;;
+      TRAEFIK_NETWORK) TRAEFIK_NETWORK=${TRAEFIK_NETWORK:-$v} ;;
+      TRAEFIK_CERTRESOLVER) TRAEFIK_CERTRESOLVER=${TRAEFIK_CERTRESOLVER:-$v} ;;
+    esac
+  done < <(ssh "$TARGET" "grep -s -E '^(CERTADILLO_DOMAIN|TRAEFIK_NETWORK|TRAEFIK_CERTRESOLVER)=' '$APP_DIR/.env'" || true)
+fi
+if [ -n "$TRAEFIK_DOMAIN" ]; then
+  : "${TRAEFIK_NETWORK:?set TRAEFIK_NETWORK to the Docker network Traefik uses}"
+  : "${TRAEFIK_CERTRESOLVER:?set TRAEFIK_CERTRESOLVER to an ACME resolver defined in Traefik}"
+  BASE_URL=${BASE_URL:-https://$TRAEFIK_DOMAIN}
+  BIND=${BIND:-127.0.0.1}
+fi
 BASE_URL=${BASE_URL:-http://$HOST:8080}
 SEED_DEMO=${SEED_DEMO:-1}
 
@@ -43,7 +64,8 @@ git archive --format=tar HEAD | ssh "$TARGET" "set -e
   ln -sfn '$APP_DIR/releases/$REV' '$APP_DIR/app'"
 
 echo "==> Building and starting (first build takes a few minutes)"
-ssh "$TARGET" "APP_DIR='$APP_DIR' BASE_URL='$BASE_URL' BIND='${BIND:-}' NO_BUILD='${NO_BUILD:-0}' bash -s" <<'REMOTE'
+ssh "$TARGET" "APP_DIR='$APP_DIR' BASE_URL='$BASE_URL' BIND='${BIND:-}' NO_BUILD='${NO_BUILD:-0}' \
+  TRAEFIK_DOMAIN='$TRAEFIK_DOMAIN' TRAEFIK_NETWORK='${TRAEFIK_NETWORK:-}' TRAEFIK_CERTRESOLVER='${TRAEFIK_CERTRESOLVER:-}' bash -s" <<'REMOTE'
 set -euo pipefail
 cd "$APP_DIR"
 umask 077
@@ -65,8 +87,16 @@ if [ -n "$BIND" ]; then
   set_env CERTADILLO_BIND "$BIND"
   if [ "$BIND" = "127.0.0.1" ]; then set_env FORWARDED_ALLOW_IPS '*'; else set_env FORWARDED_ALLOW_IPS 127.0.0.1; fi
 fi
+if [ -n "$TRAEFIK_DOMAIN" ]; then
+  docker network inspect "$TRAEFIK_NETWORK" >/dev/null || { echo "Docker network $TRAEFIK_NETWORK not found" >&2; exit 1; }
+  set_env CERTADILLO_DOMAIN "$TRAEFIK_DOMAIN"
+  set_env TRAEFIK_NETWORK "$TRAEFIK_NETWORK"
+  set_env TRAEFIK_CERTRESOLVER "$TRAEFIK_CERTRESOLVER"
+fi
+F="-f app/deploy/server/docker-compose.yml"
+grep -q '^CERTADILLO_DOMAIN=' .env && F="$F -f app/deploy/server/docker-compose.traefik.yml"
 BUILD=--build; [ "$NO_BUILD" = "1" ] && BUILD=
-docker compose -f app/deploy/server/docker-compose.yml --env-file .env -p certadillo up -d $BUILD
+docker compose $F --env-file .env -p certadillo up -d $BUILD
 for _ in $(seq 90); do curl -fsS http://127.0.0.1:8080/healthz >/dev/null 2>&1 && break; sleep 2; done
 curl -fsS http://127.0.0.1:8080/healthz && echo
 # keep the five newest releases
@@ -80,7 +110,9 @@ set -euo pipefail
 cd "$APP_DIR"
 if [ -f .seeded ]; then echo "already loaded"; exit 0; fi
 val() { grep "^$1=" .env | cut -d= -f2-; }
-C="docker compose -f app/deploy/server/docker-compose.yml --env-file .env -p certadillo"
+F="-f app/deploy/server/docker-compose.yml"
+grep -q '^CERTADILLO_DOMAIN=' .env && F="$F -f app/deploy/server/docker-compose.traefik.yml"
+C="docker compose $F --env-file .env -p certadillo"
 $C exec -T certadillo python - --server http://127.0.0.1:8080 \
   --admin-key "$(val CERTADILLO_BOOTSTRAP_ADMIN_KEY)" --approver-key "$(val CERTADILLO_BOOTSTRAP_APPROVER_KEY)" \
   < app/scripts/demo_seed.py

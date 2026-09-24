@@ -1,0 +1,27 @@
+# Overlay for a host that already runs Traefik with the Docker provider.
+# deploy.sh adds it when TRAEFIK_DOMAIN is set. Traefik terminates TLS and gets
+# the certificate from Let's Encrypt with its own resolver; nothing in Traefik's
+# configuration has to change.
+#
+#   CERTADILLO_DOMAIN      certadillo.com (www.<domain> redirects to it)
+#   TRAEFIK_NETWORK        the Docker network Traefik reaches containers on
+#   TRAEFIK_CERTRESOLVER   an ACME resolver already defined in Traefik
+services:
+  certadillo:
+    networks: [default, proxy]
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: ${TRAEFIK_NETWORK:?missing}
+      traefik.http.routers.certadillo.rule: Host(`${CERTADILLO_DOMAIN:?missing}`) || Host(`www.${CERTADILLO_DOMAIN}`)
+      traefik.http.routers.certadillo.entrypoints: ${TRAEFIK_ENTRYPOINT:-websecure}
+      traefik.http.routers.certadillo.tls.certresolver: ${TRAEFIK_CERTRESOLVER:?missing}
+      traefik.http.routers.certadillo.middlewares: certadillo-www
+      traefik.http.middlewares.certadillo-www.redirectregex.regex: ^https://www\.(.+)
+      traefik.http.middlewares.certadillo-www.redirectregex.replacement: https://$${1}
+      traefik.http.middlewares.certadillo-www.redirectregex.permanent: "true"
+      traefik.http.services.certadillo.loadbalancer.server.port: "8080"
+
+networks:
+  proxy:
+    external: true
+    name: ${TRAEFIK_NETWORK}

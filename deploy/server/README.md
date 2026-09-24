@@ -38,7 +38,18 @@ $C down                                                              # stop (dat
 
 Back up the `certadillo_pgdata` and `certadillo_cadata` volumes; `cadata` holds the CA keys (encrypted with the passphrase in `.env`).
 
-## Moving to a domain
+## Behind an existing Traefik
+
+If the server already runs Traefik with the Docker provider (ports 80 and 443 belong to it), let Traefik route the domain and get the Let's Encrypt certificate. Point the DNS A records at the server with Cloudflare's proxy off, then:
+
+```bash
+TRAEFIK_DOMAIN=certadillo.com TRAEFIK_NETWORK=internal TRAEFIK_CERTRESOLVER=traefikresolver \
+  deploy/server/deploy.sh root@154.53.47.199
+```
+
+This adds `docker-compose.traefik.yml`: the app joins Traefik's network with router labels for the domain and `www.` (redirected to the bare domain), 8080 is bound to 127.0.0.1 only, and `BASE_URL` becomes `https://certadillo.com`. Traefik's own configuration is not touched. The settings are saved in `.env`, so later updates need only `deploy/server/deploy.sh root@154.53.47.199`; the server commands below then need `-f app/deploy/server/docker-compose.traefik.yml` after the first `-f`.
+
+## Moving to a domain with nginx
 
 When certadillo.com points at the server, follow the steps at the top of `nginx-certadillo.com.conf`. The last step redeploys with `BASE_URL=https://certadillo.com BIND=127.0.0.1`, which puts the domain into new certificates' OCSP and CRL URLs and closes 8080 to the internet.
 
