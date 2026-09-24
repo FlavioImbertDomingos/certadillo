@@ -18,9 +18,11 @@ Left over from Phase 2, in rough order of demand:
 
 ## Phase 3: connectors to the platforms banks already run
 
-### Windows and AD CS (done)
+### Windows and AD CS (done, September 2026)
 
-The first tranche of Phase 3 is the Microsoft PKI work banks ask for first:
+The first tranche of Phase 3 is the Microsoft PKI work banks ask for first. It
+shipped in commits 4f61eb0 to eb8869f: 40 new tests (111 passing), ruff clean,
+verified on PostgreSQL 16, and live on the demo at certadillo.com.
 
 - **AD CS template security audit.** Certadillo reads AD CS templates and CA
   configuration (over LDAP, or from an offline export) and flags the ESC
