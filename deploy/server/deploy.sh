@@ -106,6 +106,11 @@ BUILD=--build; [ "$NO_BUILD" = "1" ] && BUILD=
 docker compose $F --env-file .env -p certadillo up -d $BUILD
 for _ in $(seq 90); do curl -fsS http://127.0.0.1:8080/healthz >/dev/null 2>&1 && break; sleep 2; done
 curl -fsS http://127.0.0.1:8080/healthz && echo
+# Traefik only routes to containers Docker reports healthy; wait for that too
+for _ in $(seq 60); do
+  [ "$(docker inspect -f '{{.State.Health.Status}}' certadillo-certadillo-1 2>/dev/null)" = healthy ] && break; sleep 1
+done
+echo "container health: $(docker inspect -f '{{.State.Health.Status}}' certadillo-certadillo-1)"
 # keep the five newest releases
 ls -1dt releases/* 2>/dev/null | tail -n +6 | xargs -r rm -rf
 REMOTE

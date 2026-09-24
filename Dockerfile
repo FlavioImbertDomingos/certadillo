@@ -19,6 +19,8 @@ USER 10001
 ENV CERTADILLO_DATA_DIR=/var/lib/certadillo \
     PYTHONUNBUFFERED=1
 EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=3s CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz').status==200 else 1)"
+# start-interval: check every 2s while starting, so a proxy that waits for "healthy"
+# (Traefik skips starting containers) sends traffic within seconds of a restart
+HEALTHCHECK --interval=30s --timeout=3s --start-period=60s --start-interval=2s CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz').status==200 else 1)"
 ENTRYPOINT ["certadillo"]
 CMD ["serve", "--port", "8080"]
