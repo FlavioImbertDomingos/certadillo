@@ -231,7 +231,7 @@ async def new_account(request: Request, p: Platform = Depends(platform)):
         cred = p.s.get(AcmeEab, eab_prot.get("kid", ""))
         if cred is None or cred.used:
             raise AcmeError("unauthorized", "EAB key id unknown or already used", 401)
-        mac = hmac.new(b64u_dec(cred.hmac_key_b64), f"{eab['protected']}.{eab['payload']}".encode(), hashlib.sha256)
+        mac = hmac.new(b64u_dec(p.eab_hmac_key(cred)), f"{eab['protected']}.{eab['payload']}".encode(), hashlib.sha256)
         if eab_prot.get("alg") != "HS256" or not hmac.compare_digest(mac.digest(), b64u_dec(eab["signature"])):
             raise AcmeError("unauthorized", "EAB signature invalid", 401)
         if json.loads(b64u_dec(eab["payload"])) != jwk:

@@ -120,6 +120,8 @@ def evaluate(session, settings, policies: dict) -> list[Alert]:
                          f"audit hash chain broken at event {chain['broken_at']}", {},
                          runbook=RUNBOOK + "auditchainbroken"))
 
+    out.extend(_integrity_alerts(session, settings, now))
+
     for camp in session.query(RenewalCampaign).filter_by(status="active").all():
         if now > as_utc(camp.window_end):
             from certadillo.enrollment.ari import campaign_status
@@ -155,6 +157,46 @@ def evaluate(session, settings, policies: dict) -> list[Alert]:
             out.append(Alert(_fp("approval", req.id), "ApprovalPending", "warning",
                              f"approval #{req.id} ({req.action}) waiting since {as_utc(req.created_at):%Y-%m-%d}",
                              {"approval": req.id}, runbook=RUNBOOK + "approvalpending"))
+    return out
+
+
+PRIVILEGED_ROLES = {"admin", "approver", "gateway"}
+
+
+def _integrity_alerts(session, settings, now) -> list[Alert]:
+    """Rows changed outside the application, a rewritten audit history, and new
+    privileged credentials (the first thing an intruder creates)."""
+    from certadillo import integrity
+    from certadillo.audit.log import load_anchors, verify_against_anchors
+    from certadillo.db import AuditEvent
+
+    out: list[Alert] = []
+    for item in integrity.scan(session):
+        out.append(Alert(_fp("seal", item["kind"], item["id"]), "IntegritySealBroken", "critical",
+                         f"{item['kind']} {item['label']}: {item['problem']}; it was changed outside Certadillo",
+                         {"kind": item["kind"], "id": item["id"]}, runbook=RUNBOOK + "integritysealbroken"))
+
+    path = settings.audit_anchor_file
+    if path:
+        import os
+
+        if os.path.exists(path):
+            res = verify_against_anchors(session, load_anchors(path))
+            if res["chain_valid"] and res["mismatches"]:
+                first = res["mismatches"][0]
+                out.append(Alert(_fp("anchor"), "AuditAnchorMismatch", "critical",
+                                 f"the audit history no longer matches {len(res['mismatches'])} saved anchor(s); "
+                                 f"first at event {first['event_id']}: {first['problem']}",
+                                 {"mismatches": len(res["mismatches"])}, runbook=RUNBOOK + "auditanchormismatch"))
+
+    since = now - timedelta(hours=24)
+    for ev in session.query(AuditEvent).filter(AuditEvent.action == "principal.create", AuditEvent.ts >= since):
+        role = (ev.details or {}).get("role")
+        if role in PRIVILEGED_ROLES and ev.actor != "system":
+            out.append(Alert(_fp("privileged", ev.id), "PrivilegedPrincipalCreated", "warning",
+                             f"{ev.actor} created {role} credential '{ev.target}'; confirm it was expected",
+                             {"principal": ev.target, "role": role, "by": ev.actor},
+                             runbook=RUNBOOK + "privilegedprincipalcreated"))
     return out
 
 
@@ -205,10 +247,23 @@ def reconcile(session, settings, policies: dict, notifiers: list, team_notifier_
             by_team.setdefault(a.labels["team"], []).append(a)
     for team_name, alerts in by_team.items():
         team = session.query(Team).filter_by(name=team_name).one_or_none()
-        if team and team.webhook_url:
+        url = team_webhook_url(team, settings) if team else None
+        if url:
             factory = team_notifier_factory or _team_notifier
-            deliver(factory(team.webhook_url), alerts)
+            deliver(factory(url), alerts)
     return {"firing": len(firing), "notified": len(to_send)}
+
+
+def team_webhook_url(team, settings) -> str | None:
+    """The team's alert webhook, decrypted (legacy rows may be plaintext)."""
+    if team.webhook_enc:
+        from certadillo.crypto.fieldcipher import get_cipher
+
+        try:
+            return get_cipher(settings).decrypt_str(team.webhook_enc)
+        except Exception:  # noqa: BLE001 - an undecryptable webhook just means no team notification
+            return None
+    return team.webhook_url
 
 
 def _team_notifier(url: str):

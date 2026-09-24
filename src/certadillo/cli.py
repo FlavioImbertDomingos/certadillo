@@ -83,15 +83,127 @@ def audit():
 
 
 @audit.command("verify")
-def audit_verify():
-    """Verify the audit hash chain; exit 1 if broken."""
-    from certadillo.audit.log import verify_chain
+@click.option("--anchors", type=click.Path(exists=True), help="JSONL file of saved chain anchors to check against")
+def audit_verify(anchors):
+    """Verify the audit hash chain; exit 1 if broken.
+
+    With --anchors, also check that every saved anchor is still in the chain,
+    which catches a history rewritten by someone able to recompute the hashes."""
+    from certadillo.audit.log import load_anchors, verify_against_anchors, verify_chain
     from certadillo.runtime import init_runtime
 
     with init_runtime().platform() as p:
-        res = verify_chain(p.s)
+        res = verify_against_anchors(p.s, load_anchors(anchors)) if anchors else verify_chain(p.s)
     click.echo(json.dumps(res))
     sys.exit(0 if res["valid"] else 1)
+
+
+@audit.command("anchor")
+def audit_anchor():
+    """Send the current chain head to CERTADILLO_AUDIT_ANCHOR_FILE / _URL now."""
+    from certadillo.audit.log import make_anchor, publish_anchor, record
+    from certadillo.runtime import init_runtime
+
+    rt = init_runtime()
+    with rt.platform() as p:
+        a = make_anchor(p.s, rt.settings.base_url)
+        if a is None:
+            raise click.ClickException("the audit chain is empty or broken; nothing to anchor")
+        sinks = publish_anchor(a, rt.settings)
+        if not sinks:
+            raise click.ClickException("set CERTADILLO_AUDIT_ANCHOR_FILE or CERTADILLO_AUDIT_ANCHOR_URL")
+        record(p.s, "cli", "audit.anchor", f"event:{a['event_id']}", {"hash": a["hash"], "sinks": sinks})
+        p.commit()
+    click.echo(json.dumps({**a, "sinks": sinks}))
+
+
+@main.group()
+def integrity():
+    """Integrity seals on principals, approvals and certificate status."""
+
+
+@integrity.command("check")
+def integrity_check():
+    """List rows changed outside Certadillo; exit 1 if any."""
+    from certadillo import integrity as seals
+    from certadillo.runtime import init_runtime
+
+    with init_runtime().platform() as p:
+        problems = seals.scan(p.s)
+    click.echo(json.dumps({"ok": not problems, "problems": problems}, indent=2))
+    sys.exit(1 if problems else 0)
+
+
+@integrity.command("reseal")
+def integrity_reseal():
+    """After rotating CERTADILLO_SEAL_KEY: reseal rows that verify under the
+    current or CERTADILLO_SEAL_KEY_PREVIOUS key. Broken rows stay broken."""
+    from certadillo import integrity as seals
+    from certadillo.audit.log import record
+    from certadillo.runtime import init_runtime
+
+    with init_runtime().platform() as p:
+        res = seals.reseal_all(p.s)
+        record(p.s, "cli", "integrity.reseal", "seals", res)
+        p.commit()
+    click.echo(json.dumps(res))
+
+
+@main.group()
+def db():
+    """Database schema and hardening."""
+
+
+@db.command("migrate")
+def db_migrate():
+    """Create missing tables and columns and install the audit guards. Run with
+    the owner credential in CERTADILLO_DB_URL before starting a new version."""
+    from certadillo import db as dbm
+    from certadillo.config import get_settings
+
+    engine = dbm.init_db(get_settings().db_url)
+    click.echo(json.dumps({"migrated": True, "audit_guards": dbm.install_audit_guards(engine)}))
+
+
+@db.command("harden")
+@click.option("--app-role", required=True, help="the PostgreSQL role the application connects as")
+def db_harden(app_role):
+    """PostgreSQL: give the application role only the rights it needs, and no
+    UPDATE, DELETE or TRUNCATE on audit_events. Run as the table owner (the
+    migration role). The application then connects as --app-role, which cannot
+    drop the audit triggers because it does not own the table."""
+    import re
+
+    from sqlalchemy import text
+
+    from certadillo import db as dbm
+    from certadillo.config import get_settings
+
+    if not re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", app_role):
+        raise click.ClickException("role names are lowercase letters, digits and underscores")
+    engine = dbm.init_db(get_settings().db_url)
+    if engine.dialect.name != "postgresql":
+        raise click.ClickException("db harden is for PostgreSQL")
+    r = f'"{app_role}"'
+    with engine.begin() as conn:
+        if not conn.execute(text("SELECT 1 FROM pg_roles WHERE rolname = :r"), {"r": app_role}).first():
+            raise click.ClickException(f"role {app_role} does not exist; create it first (CREATE ROLE {app_role} "
+                                       "LOGIN PASSWORD '...'), then rerun")
+        owner = conn.execute(text("SELECT tableowner FROM pg_tables WHERE tablename = 'audit_events'")).scalar()
+        if owner == app_role:
+            raise click.ClickException(f"{app_role} owns the tables; the application role must not be the owner. "
+                                       "Run this as a separate owner role and point the app at the restricted role")
+        for stmt in (
+            f"GRANT USAGE ON SCHEMA public TO {r}",
+            f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {r}",
+            f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {r}",
+            f"REVOKE UPDATE, DELETE, TRUNCATE ON audit_events FROM {r}",
+            f"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {r}",
+            f"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO {r}",
+        ):
+            conn.execute(text(stmt))
+    click.echo(json.dumps({"hardened": True, "owner": owner, "app_role": app_role,
+                           "audit_events": "SELECT, INSERT only for the app role"}))
 
 
 @main.group()

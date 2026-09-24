@@ -505,6 +505,10 @@ def handle_poll(p: Platform, r: Responder, req: CmpRequest, prot: Protection) ->
     if txn is None or txn.status != "pending":
         raise CmpError(BAD_REQUEST, "nothing is pending in this transaction")
     approval = p.s.get(ApprovalRequest, txn.approval_id)
+    if approval is None or not p.approval_intact(approval):
+        txn.status = "rejected"
+        p.commit()
+        raise CmpError(NOT_AUTHORIZED, "the approval for this request failed its integrity check")
     if approval.status == "pending":
         p.commit()
         return r.message(ctx(26, seq(seq(integer(txn.cert_req_id), integer(30)))))

@@ -55,8 +55,16 @@ def respond(session, ca_service, der_request: bytes) -> bytes:
     row = session.query(Certificate).filter_by(serial_hex=serial_hex, ca_id=ca.id).one_or_none()
     now = datetime.now(timezone.utc)
     rev_time = rev_reason = None
+    from certadillo import integrity
+
     if row is None:
         status = ocsp.OCSPCertStatus.UNKNOWN
+    elif row.status != "revoked" and integrity.trusted_status(session, row) == "revoked":
+        # The status row was changed outside the application (for example a
+        # revoked certificate set back to active, or an old copy restored). Fail closed.
+        status = ocsp.OCSPCertStatus.REVOKED
+        rev_time = as_utc(row.revoked_at) or now
+        rev_reason = REASONS["unspecified"]
     elif row.status == "revoked":
         status = ocsp.OCSPCertStatus.REVOKED
         rev_time = as_utc(row.revoked_at)

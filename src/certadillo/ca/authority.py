@@ -88,6 +88,18 @@ class CAService:
             raise ValueError(f"CA {parent.name} has pathlen 0 and cannot issue subordinate CAs")
         return pl
 
+    def _name_constraints(self) -> x509.NameConstraints | None:
+        """Name constraints for new subordinate CAs, from CERTADILLO_CA_PERMITTED_DNS,
+        _EXCLUDED_DNS and _PERMITTED_EMAIL. A stolen key for a constrained CA
+        can only mint certificates that relying parties accept for those names."""
+        s = self.settings
+        permitted = [_dns_subtree(d) for d in s.ca_permitted_dns]
+        permitted += [x509.RFC822Name(e.strip()) for e in s.ca_permitted_email]
+        excluded = [_dns_subtree(d) for d in s.ca_excluded_dns]
+        if not permitted and not excluded:
+            return None
+        return x509.NameConstraints(permitted_subtrees=permitted or None, excluded_subtrees=excluded or None)
+
     def signer_for(self, ca: CertificateAuthority):
         return self.keystore.load(ca.key_ref)
 
@@ -160,6 +172,10 @@ class CAService:
             )
             .add_extension(self._cdp(parent.name), critical=False)
         )
+        nc = self._name_constraints()
+        if nc is not None:
+            # RFC 5280 4.2.1.10: conforming CAs mark name constraints critical
+            b = b.add_extension(nc, critical=True)
         cert = sign_x509(b, parent_signer)
         ca = CertificateAuthority(
             name=name,
@@ -397,13 +413,23 @@ class CAService:
             .add_extension(x509.CRLNumber(ca.crl_number), critical=False)
             .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_cert.public_key()), critical=False)
         )
+        from certadillo import integrity
+
         revoked = self.s.query(Certificate).filter_by(ca_id=ca.id, status="revoked").all()
-        for r in revoked:
+        # A certificate whose status row was changed outside the application is
+        # listed as revoked too (fail closed), whatever its status column says.
+        audit_revoked = integrity.revoked_serials(self.s)
+        tampered = [c for c in self.s.query(Certificate).filter(Certificate.ca_id == ca.id,
+                                                                  Certificate.status != "revoked")
+                    if not integrity.verify(c) or c.serial_hex in audit_revoked]
+        for r in revoked + tampered:
+            ok = r.status == "revoked" and integrity.verify(r)
             rc = (
                 x509.RevokedCertificateBuilder()
                 .serial_number(int(r.serial_hex, 16))
-                .revocation_date(as_utc(r.revoked_at))
-                .add_extension(x509.CRLReason(REASONS[r.revocation_reason or "unspecified"]), critical=False)
+                .revocation_date(as_utc(r.revoked_at) or now)
+                .add_extension(x509.CRLReason(REASONS[(r.revocation_reason if ok else None) or "unspecified"]),
+                               critical=False)
                 .build()
             )
             b = b.add_revoked_certificate(rc)
@@ -441,6 +467,11 @@ def _ca_key_usage() -> x509.KeyUsage:
         encipher_only=False,
         decipher_only=False,
     )
+
+
+def _dns_subtree(value: str) -> x509.DNSName:
+    # "*.bank.internal" and ".bank.internal" both mean the bank.internal subtree
+    return x509.DNSName(value.strip().lstrip("*").lstrip("."))
 
 
 def _profile_ekus(profile: str, policies: dict) -> list[str]:

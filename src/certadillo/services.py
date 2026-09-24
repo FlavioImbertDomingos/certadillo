@@ -104,6 +104,12 @@ class Platform:
         p = self.s.query(Principal).filter_by(key_hash=hash_key(raw_key), active=True).one_or_none()
         if p is None:
             return None
+        from certadillo import integrity
+
+        if not integrity.verify(p):
+            # inserted or edited outside the application: never trust it
+            self.note_auth_failure("api_key", f"principal {p.name!r} failed its integrity check")
+            return None
         if p.app_id:
             app = self.s.get(App, p.app_id)
             if app is None or app.status != "active":
@@ -141,6 +147,17 @@ class Platform:
             return None
         return Actor(name=name, role="app", app_id=app.id)
 
+    def approval_intact(self, req) -> bool:
+        """False when the approval row was changed outside the application."""
+        from certadillo import integrity
+
+        ok = integrity.verify(req)
+        if not ok:
+            import logging
+
+            logging.getLogger("certadillo.integrity").error("approval %s failed its integrity check", req.id)
+        return ok
+
     def note_auth_failure(self, kind: str, detail: str) -> None:
         """A rejected credential. Logged, not written to the hash-chained audit
         trail, because the caller is unauthenticated."""
@@ -155,7 +172,8 @@ class Platform:
         if self.s.query(Team).filter_by(name=name).first():
             raise ValueError(f"team {name} already exists")
         t = Team(name=name, contact_email=contact_email, chat_channel=chat_channel,
-                 webhook_url=webhook_url, cost_center=cost_center)
+                 webhook_url=None, webhook_enc=self.cipher.encrypt(webhook_url) if webhook_url else None,
+                 cost_center=cost_center)
         self.s.add(t)
         self.s.flush()
         record(self.s, actor.name, "team.create", name, {"contact": contact_email, "cost_center": cost_center})
@@ -215,7 +233,7 @@ class Platform:
             raise Forbidden(f"app is {app.status}")
         kid = "eab_" + secrets.token_hex(8)
         key = base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode()
-        self.s.add(AcmeEab(kid=kid, hmac_key_b64=key, app_id=app_id))
+        self.s.add(AcmeEab(kid=kid, hmac_key_b64="", hmac_key_enc=self.cipher.encrypt(key), app_id=app_id))
         self.s.flush()
         record(self.s, actor.name, "acme.eab.create", app.name, {"kid": kid})
         return {"kid": kid, "hmac_key": key}
@@ -278,9 +296,22 @@ class Platform:
         record(self.s, who, "est.trust_anchor.add", f"app:{p['app_id']}", {"name": p["name"], "subject": subject})
         return {"id": ta.id, "name": ta.name, "subject": subject}
 
-    def _secret_box(self):
-        """Encrypts CMP shared secrets at rest. The MAC needs the plaintext, so
-        they cannot be stored as hashes the way API keys are."""
+    @property
+    def cipher(self):
+        """Field encryption for secret columns (local key or Vault Transit)."""
+        from certadillo.crypto.fieldcipher import get_cipher
+
+        return get_cipher(self.settings)
+
+    def eab_hmac_key(self, cred) -> str:
+        """The EAB HMAC key (base64url), decrypted; legacy rows may be plaintext."""
+        if cred.hmac_key_enc:
+            return self.cipher.decrypt_str(cred.hmac_key_enc)
+        return cred.hmac_key_b64
+
+    def _legacy_cmp_box(self):
+        """How CMP secrets were encrypted before field encryption; kept to read
+        and re-encrypt old rows."""
         import base64
 
         from cryptography.fernet import Fernet
@@ -307,14 +338,18 @@ class Platform:
         ref = "cmp-" + secrets.token_hex(6)
         raw = secrets.token_urlsafe(18)
         expires = datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes)
-        self.s.add(CmpSecret(reference=ref, secret_enc=self._secret_box().encrypt(raw.encode()).decode(),
+        self.s.add(CmpSecret(reference=ref, secret_enc=self.cipher.encrypt(raw),
                              app_id=app_id, expires_at=expires))
         self.s.flush()
         record(self.s, actor.name, "cmp.secret.create", app.name, {"reference": ref, "expires": expires.isoformat()})
         return {"reference": ref, "secret": raw, "expires": expires.isoformat()}
 
     def cmp_secret_plain(self, row) -> bytes:
-        return self._secret_box().decrypt(row.secret_enc.encode())
+        from certadillo.crypto.fieldcipher import is_encrypted
+
+        if is_encrypted(row.secret_enc):
+            return self.cipher.decrypt(row.secret_enc)
+        return self._legacy_cmp_box().decrypt(row.secret_enc.encode())
 
     # ------------------------------------------------------------- dual control
     def _request_approval(self, actor: Actor, action: str, payload: dict) -> ApprovalRequest:
@@ -329,6 +364,8 @@ class Platform:
         req = self.s.get(ApprovalRequest, approval_id)
         if req is None:
             raise NotFound("approval not found")
+        if not self.approval_intact(req):
+            raise Forbidden("this approval request failed its integrity check and cannot be decided")
         if req.status != "pending":
             raise ValueError(f"approval already {req.status}")
         if req.requested_by == actor.name:

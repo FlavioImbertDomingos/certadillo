@@ -422,6 +422,9 @@ def _poll(p: Platform, txid: str, client_cert: x509.Certificate, fail, success, 
             client_cert.public_key().public_bytes(serialization.Encoding.DER, spki):
         return fail(BAD_MESSAGE_CHECK, "CertPoll must be signed by the key that sent the request")
     req = p.s.get(ApprovalRequest, txn.approval_id) if txn.approval_id else None
+    if req is not None and not p.approval_intact(req):
+        txn.status = "rejected"
+        return fail(BAD_REQUEST, "the approval for this request failed its integrity check")
     if req is None or req.status == "rejected":
         txn.status = "rejected"
         return fail(BAD_REQUEST, f"request rejected by {req.decided_by if req else 'the RA'}")

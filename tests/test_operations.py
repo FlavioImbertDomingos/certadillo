@@ -144,9 +144,21 @@ def test_ticketing_notifiers():
 
 
 def test_audit_chain_detects_tampering(client):
+    import pytest
+    from sqlalchemy import text
+    from sqlalchemy.exc import IntegrityError
+
     onboard(client)
     assert client.get("/api/v1/audit/verify", headers=ADMIN).json()["valid"]
+    # the table is append-only: an ordinary UPDATE is refused by the database
     with get_session() as s:
+        ev = s.query(AuditEvent).order_by(AuditEvent.id).offset(2).first()
+        ev.details = {**ev.details, "tampered": True}
+        with pytest.raises(IntegrityError):
+            s.commit()
+    # an attacker with owner rights drops the guard first; the hash chain still catches it
+    with get_session() as s:
+        s.execute(text("DROP TRIGGER audit_events_no_update"))
         ev = s.query(AuditEvent).order_by(AuditEvent.id).offset(2).first()
         ev.details = {**ev.details, "tampered": True}
         s.commit()

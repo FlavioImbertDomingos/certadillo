@@ -248,6 +248,9 @@ def run_housekeeping() -> dict:
                 ocsp_cert = x509.load_pem_x509_certificate(ca.ocsp_cert_pem.encode())
                 if ocsp_cert.not_valid_after_utc - now < timedelta(days=7):
                     p.ca.rotate_ocsp_signer(ca)
+        from certadillo.audit.log import maybe_anchor
+
+        maybe_anchor(p.s, rt.settings)
         return reconcile(p.s, rt.settings, rt.policies, build_global_notifiers(rt.settings))
 
 
@@ -817,6 +820,45 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
     def audit_verify(p: Platform = Depends(platform), who: Actor = Depends(actor)):
         who.require("admin", "operator", "approver", "auditor")
         return verify_chain(p.s)
+
+    @app.get("/api/v1/audit/head", tags=["governance"])
+    def audit_head(p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        """The current chain head as a signed anchor, for an external monitor to
+        pull and keep. Nothing is written or sent."""
+        from certadillo.audit.log import make_anchor
+
+        who.require("admin", "auditor")
+        a = make_anchor(p.s, p.settings.base_url)
+        if a is None:
+            raise PolicyError([("audit_chain", "the chain is empty or broken; nothing to anchor")])
+        return a
+
+    @app.post("/api/v1/audit/anchor", tags=["governance"])
+    def audit_anchor(p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        """Anchor now, to the configured file and/or URL."""
+        from certadillo.audit.log import make_anchor, publish_anchor
+        from certadillo.audit.log import record as audit_record
+
+        who.require("admin")
+        a = make_anchor(p.s, p.settings.base_url)
+        if a is None:
+            raise PolicyError([("audit_chain", "the chain is empty or broken; nothing to anchor")])
+        sinks = publish_anchor(a, p.settings)
+        if not sinks:
+            raise PolicyError([("audit_anchor", "set CERTADILLO_AUDIT_ANCHOR_FILE or CERTADILLO_AUDIT_ANCHOR_URL")])
+        audit_record(p.s, who.name, "audit.anchor", f"event:{a['event_id']}", {"hash": a["hash"], "sinks": sinks})
+        p.commit()
+        return {**a, "sinks": sinks}
+
+    @app.get("/api/v1/integrity", tags=["governance"])
+    def integrity_scan(p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        """Rows whose integrity seal does not match (changed outside Certadillo),
+        and active certificates the audit trail says were revoked."""
+        from certadillo import integrity
+
+        who.require("admin", "operator", "auditor")
+        problems = integrity.scan(p.s)
+        return {"ok": not problems, "problems": problems}
 
     @app.get("/api/v1/reports/summary", tags=["reports"])
     def report_summary(p: Platform = Depends(platform), who: Actor = Depends(actor)):

@@ -42,6 +42,9 @@ def init_runtime(settings: Settings | None = None) -> Runtime:
     global _rt
     settings = settings or get_settings()
     db.init_db(settings.db_url)
+    from certadillo import integrity
+
+    integrity.configure(settings)
     rt = Runtime(settings=settings, policies=load_policies(settings.policy_file), keystore=build_keystore(settings))
     register_inventory_collector(db.get_session)
     bootstrap(rt)
@@ -56,8 +59,14 @@ def get_runtime() -> Runtime:
 
 
 def bootstrap(rt: Runtime) -> None:
+    from certadillo import integrity
+    from certadillo.crypto.fieldcipher import backfill_encrypted_fields
+
     with rt.platform() as p:
         s = p.s
+        # once per deployment: seal rows written before sealing existed, then enforce
+        integrity.backfill(s, rt.settings)
+        backfill_encrypted_fields(p)
         for raw, name, role in (
             (rt.settings.bootstrap_admin_key, "bootstrap-admin", "admin"),
             (rt.settings.bootstrap_approver_key, "bootstrap-approver", "approver"),

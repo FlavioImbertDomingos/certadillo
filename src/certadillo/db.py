@@ -41,6 +41,8 @@ class Team(Base):
     contact_email: Mapped[str] = mapped_column(String(255))
     chat_channel: Mapped[str | None] = mapped_column(String(255), nullable=True)
     webhook_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    # encrypted at rest (webhook URLs are bearer secrets); webhook_url is legacy plaintext
+    webhook_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
     cost_center: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     apps: Mapped[list["App"]] = relationship(back_populates="team")
@@ -75,6 +77,8 @@ class Principal(Base):
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_by: Mapped[str] = mapped_column(String(120), default="system")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # HMAC over the fields that decide access; see certadillo.integrity
+    seal: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class CertificateAuthority(Base):
@@ -126,6 +130,7 @@ class Certificate(Base):
     replaced_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
     last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    seal: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class ApprovalRequest(Base):
@@ -139,6 +144,7 @@ class ApprovalRequest(Base):
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    seal: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class AuditEvent(Base):
@@ -226,7 +232,8 @@ class AcmeEab(Base):
 
     __tablename__ = "acme_eab"
     kid: Mapped[str] = mapped_column(String(64), primary_key=True)
-    hmac_key_b64: Mapped[str] = mapped_column(String(128))
+    hmac_key_b64: Mapped[str] = mapped_column(String(128))  # legacy plaintext; empty once encrypted
+    hmac_key_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
     app_id: Mapped[int] = mapped_column(ForeignKey("apps.id"))
     used: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -399,6 +406,7 @@ def init_db(url: str):
     _engine = create_engine(url, future=True, **kwargs)
     Base.metadata.create_all(_engine)
     add_missing_columns(_engine)
+    install_audit_guards(_engine)
     SessionLocal = sessionmaker(bind=_engine, expire_on_commit=False, future=True)
     return _engine
 
@@ -424,6 +432,62 @@ def add_missing_columns(engine) -> list[str]:
                 conn.execute(text(f'ALTER TABLE {table.name} ADD COLUMN {col.name} {ddl}'))
                 added.append(f"{table.name}.{col.name}")
     return added
+
+
+AUDIT_GUARD_SQLITE = [
+    "CREATE TRIGGER IF NOT EXISTS audit_events_no_update BEFORE UPDATE ON audit_events "
+    "BEGIN SELECT RAISE(ABORT, 'audit_events is append-only'); END",
+    "CREATE TRIGGER IF NOT EXISTS audit_events_no_delete BEFORE DELETE ON audit_events "
+    "BEGIN SELECT RAISE(ABORT, 'audit_events is append-only'); END",
+]
+
+AUDIT_GUARD_POSTGRES = [
+    "CREATE OR REPLACE FUNCTION certadillo_audit_append_only() RETURNS trigger LANGUAGE plpgsql AS $$ "
+    "BEGIN RAISE EXCEPTION 'audit_events is append-only'; END $$",
+    "CREATE TRIGGER audit_events_append_only BEFORE UPDATE OR DELETE ON audit_events "
+    "FOR EACH ROW EXECUTE FUNCTION certadillo_audit_append_only()",
+    "CREATE TRIGGER audit_events_no_truncate BEFORE TRUNCATE ON audit_events "
+    "FOR EACH STATEMENT EXECUTE FUNCTION certadillo_audit_append_only()",
+]
+
+
+def install_audit_guards(engine) -> str:
+    """Make audit_events append-only in the database itself, so a bug, an
+    injected UPDATE or a hand-run DELETE is refused rather than merely detected
+    later by the hash chain. On PostgreSQL the table owner can still drop the
+    trigger; `certadillo db harden` moves ownership away from the application
+    role so its credential cannot. Returns what was done, for logging."""
+    import logging
+
+    from sqlalchemy import text
+
+    name = engine.dialect.name
+    try:
+        with engine.begin() as conn:
+            # OCSP and the CRL look up revocation events by serial
+            if name == "sqlite" or (name == "postgresql" and not conn.execute(
+                    text("SELECT 1 FROM pg_indexes WHERE indexname = 'ix_audit_action_target'")).first()):
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audit_action_target "
+                                  "ON audit_events (action, target)"))
+            if name == "sqlite":
+                for stmt in AUDIT_GUARD_SQLITE:
+                    conn.execute(text(stmt))
+                return "sqlite triggers"
+            if name == "postgresql":
+                have = {r[0] for r in conn.execute(text(
+                    "SELECT tgname FROM pg_trigger WHERE tgrelid = 'audit_events'::regclass AND NOT tgisinternal"))}
+                if {"audit_events_append_only", "audit_events_no_truncate"} <= have:
+                    return "postgresql triggers present"
+                conn.execute(text(AUDIT_GUARD_POSTGRES[0]))
+                if "audit_events_append_only" not in have:
+                    conn.execute(text(AUDIT_GUARD_POSTGRES[1]))
+                if "audit_events_no_truncate" not in have:
+                    conn.execute(text(AUDIT_GUARD_POSTGRES[2]))
+                return "postgresql triggers installed"
+    except Exception as exc:  # noqa: BLE001 - a hardened app role may not own the table; harden installs them
+        logging.getLogger("certadillo").warning("could not install audit guards: %s", exc)
+        return f"not installed: {exc}"
+    return f"no guard for {name}"
 
 
 def get_session():

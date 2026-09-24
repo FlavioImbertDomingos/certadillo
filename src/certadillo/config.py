@@ -92,6 +92,28 @@ class Settings:
     oidc_clock_skew: int = field(default_factory=lambda: int(_env("OIDC_CLOCK_SKEW", "60") or 60))
     oidc_entra_tenant: str | None = field(default_factory=lambda: _env("OIDC_ENTRA_TENANT"))
     oidc_vault_issuer: str | None = field(default_factory=lambda: _env("OIDC_VAULT_ISSUER"))
+    # Integrity seals: HMAC key for principals, approvals and certificate status.
+    # Not stored in the database. Hex or base64; if unset it is derived from
+    # KEY_PASSPHRASE. SEAL_KEY_PREVIOUS lets `certadillo integrity reseal` rotate it.
+    seal_key: str | None = field(default_factory=lambda: _env("SEAL_KEY"))
+    seal_key_previous: str | None = field(default_factory=lambda: _env("SEAL_KEY_PREVIOUS"))
+    # Audit chain anchoring: the chain head is sent here once a day.
+    audit_anchor_url: str | None = field(default_factory=lambda: _env("AUDIT_ANCHOR_URL"))
+    audit_anchor_file: str | None = field(default_factory=lambda: _env("AUDIT_ANCHOR_FILE"))
+    audit_anchor_hours: int = field(default_factory=lambda: int(_env("AUDIT_ANCHOR_HOURS", "24") or 24))
+    # Field encryption for secret columns: "local" (key derived from KEY_PASSPHRASE)
+    # or "vault" (HashiCorp Vault Transit; the key never leaves Vault).
+    field_cipher: str = field(default_factory=lambda: _env("FIELD_CIPHER", "local") or "local")
+    vault_addr: str | None = field(default_factory=lambda: _env("VAULT_ADDR"))
+    vault_token: str | None = field(default_factory=lambda: _env("VAULT_TOKEN"))
+    vault_namespace: str | None = field(default_factory=lambda: _env("VAULT_NAMESPACE"))
+    vault_transit_mount: str = field(default_factory=lambda: _env("VAULT_TRANSIT_MOUNT", "transit") or "transit")
+    vault_transit_key: str = field(default_factory=lambda: _env("VAULT_TRANSIT_KEY", "certadillo-fields") or "certadillo-fields")
+    # Name constraints written into new issuing and subordinate CAs (RFC 5280
+    # 4.2.1.10), so a stolen CA key can only mint for these names.
+    ca_permitted_dns: list[str] = field(default_factory=lambda: _list("CA_PERMITTED_DNS"))
+    ca_excluded_dns: list[str] = field(default_factory=lambda: _list("CA_EXCLUDED_DNS"))
+    ca_permitted_email: list[str] = field(default_factory=lambda: _list("CA_PERMITTED_EMAIL"))
     # AD CS template audit: the live LDAP collector reads the Configuration
     # naming context. Read-only; a bind account with default domain read is enough.
     adcs_ldap_url: str | None = field(default_factory=lambda: _env("ADCS_LDAP_URL"))
