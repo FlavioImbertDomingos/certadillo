@@ -111,9 +111,13 @@ credential. Each control has a test that fails when the control is removed.
 
 Next:
 
-- **CA keys in Vault Transit.** A `vault-transit` signer so issuing CA keys
-  live in Vault and never enter the application process, next to the existing
-  PKCS#11 signer. The signer layer already signs to-be-signed bytes externally.
+- ~~CA keys in Vault Transit~~ **Done (September 2026).** `CERTADILLO_SIGNER=vault-transit`:
+  CA keys are non-exportable Transit keys with pinned versions, every signature
+  is verified before use, the shipped policy keeps the root unusable by the
+  application, and new CAs come from a two-person ceremony with an exact-path
+  token (`certadillo ca ceremony-policy`, `ca create-issuing`). Tested against a
+  real Vault in CI, including the shipped policies and Vault Agent config. See
+  [key custody](HSM.md).
 - **Offline root ceremony.** `certadillo init` creates the root online today.
   Add a mode that takes an issuing CA certificate signed by an offline root,
   so the root key never touches the server.

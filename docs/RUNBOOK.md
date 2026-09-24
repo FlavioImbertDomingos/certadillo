@@ -135,6 +135,16 @@ A new admin, approver or gateway credential was created in the last 24 hours. Pl
 2. If it was not: `POST /api/v1/principals/{name}/deactivate`, then treat the creator's credential as compromised and rotate it.
 3. The alert clears by itself 24 hours after creation.
 
+## CAKeyUnhealthy
+
+A CA key held outside the process (Vault Transit or an HSM) cannot sign, or its protection was weakened. Issuance and CRL signing for that CA fail closed until it is fixed.
+
+1. `certadillo ca keys` (or `GET /api/v1/cas/keys`) shows each CA's key, its backend and the problem.
+2. "returned 403": the application's Vault token expired or was revoked. Check Vault Agent on the host (`/run/certadillo/vault-token` should be fresh) and the AppRole's secret ID.
+3. "unreachable": network or Vault outage. Certificates already issued keep working; OCSP answers keep flowing (the OCSP responder key is local). CRLs stop being re-signed, so `CRLStale` follows if it lasts.
+4. "made exportable" or "deletion is allowed": someone with Vault admin rights changed the key's configuration. Treat it as a security incident. Find who in Vault's audit log. Treat the key as possibly copied: create a new issuing CA in a ceremony, move certificates with a renewal campaign, and revoke the old CA.
+5. "does not match CA ... certificate" or "version ... is no longer in Vault": the key was replaced or trimmed. Nothing can be signed for that CA until the original key version is back. Same incident path as above.
+
 ## Mass revocation after a key compromise
 
 Revoking first takes every affected service down until someone installs a new certificate. When time allows, replace first and revoke second:

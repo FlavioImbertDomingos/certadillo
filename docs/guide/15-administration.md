@@ -82,7 +82,7 @@ All settings are environment variables.
 | `CERTADILLO_BASE_URL` | `http://localhost:8080` | written into AIA and CDP URLs; set to the public HTTPS name |
 | `CERTADILLO_ORG_NAME` | `Example Bank` | O= in CA and leaf subjects |
 | `CERTADILLO_POLICY_FILE` | built-in | profile file |
-| `CERTADILLO_SIGNER` | `software` | `software` or `pkcs11` |
+| `CERTADILLO_SIGNER` | `software` | where new CA keys are created: `software`, `pkcs11` or `vault-transit` ([key custody](../HSM.md)); existing keys load from where their `key_ref` points |
 | `CERTADILLO_KEY_PASSPHRASE` | dev value | encrypts software keys; set a real secret |
 | `CERTADILLO_PKCS11_LIB` / `_TOKEN` / `_PIN` | | HSM access |
 | `CERTADILLO_BOOTSTRAP_ADMIN_KEY` / `_APPROVER_KEY` | | first principals |
@@ -114,7 +114,10 @@ All settings are environment variables.
 | `CERTADILLO_AUDIT_ANCHOR_FILE` / `_URL` | | where the daily audit chain head goes (a JSONL file you ship to WORM storage, and/or a webhook) |
 | `CERTADILLO_AUDIT_ANCHOR_HOURS` | `24` | how often to anchor |
 | `CERTADILLO_FIELD_CIPHER` | `local` | `local` or `vault`: where the key for encrypted secret columns lives |
-| `CERTADILLO_VAULT_ADDR` / `_TOKEN` / `_NAMESPACE` | | Vault for `FIELD_CIPHER=vault` |
+| `CERTADILLO_VAULT_ADDR` / `_NAMESPACE` | | Vault, for `SIGNER=vault-transit` and `FIELD_CIPHER=vault` |
+| `CERTADILLO_VAULT_TOKEN_FILE` / `_TOKEN` | | the token: a file Vault Agent keeps fresh (re-read on every call; wins over `_TOKEN`), or a static token |
+| `CERTADILLO_VAULT_CACERT` | | CA bundle for Vault's TLS certificate |
+| `CERTADILLO_VAULT_SIGNER_MOUNT` / `_KEY_PREFIX` | `transit` / `certadillo-` | where CA keys live in Vault; key name is prefix + CA name |
 | `CERTADILLO_VAULT_TRANSIT_MOUNT` / `_KEY` | `transit` / `certadillo-fields` | the Transit key used for field encryption |
 | `CERTADILLO_CA_PERMITTED_DNS` / `_EXCLUDED_DNS` / `_PERMITTED_EMAIL` | | name constraints written into new issuing CAs |
 | `CERTADILLO_CRL_INTERVAL_HOURS` | `12` | CRL re-signing interval |

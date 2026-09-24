@@ -58,7 +58,7 @@ PAGES = [
     ("architecture", "ARCHITECTURE.md", "Reference", "Architecture", None),
     ("security", "SECURITY.md", "Reference", "Security model", None),
     ("threat-model", "THREAT_MODEL.md", "Reference", "Threat model", None),
-    ("hsm", "HSM.md", "Reference", "HSM guide", None),
+    ("hsm", "HSM.md", "Reference", "Key custody (HSM, Vault)", None),
     ("standards", "STANDARDS.md", "Reference", "Standards map", None),
     ("runbook", "RUNBOOK.md", "Reference", "Runbook", None),
     ("roadmap", "ROADMAP.md", "Reference", "Roadmap", None),

@@ -26,7 +26,7 @@ Every row below has automated tests. "Interop" means a third-party client was ru
 | Area | What you get | Evidence |
 | --- | --- | --- |
 | CA hierarchy | Offline-style root (P-384, 20y, pathlen 1) and issuing CA (5y, pathlen 0); more sub-CAs through dual control | `tests/test_lifecycle.py` |
-| Key custody | CA keys in any PKCS#11 HSM (tested on SoftHSM2), generated sensitive and non-extractable; software keys for labs | `test_ca_keys_in_pkcs11_hsm` |
+| Key custody | CA keys in any PKCS#11 HSM (tested on SoftHSM2), generated sensitive and non-extractable, or in HashiCorp Vault Transit (non-exportable, root unusable by the app, two-person ceremony for new CAs); software keys for labs | `test_ca_keys_in_pkcs11_hsm`, `tests/test_vault_signer.py` (real Vault) |
 | Registration authority | Teams, apps, per-app name scope (DNS, SPIFFE IDs, mail domains), profiles, environments | `test_policy_violations` |
 | Dual control | Maker-checker for prod onboarding, code signing, new CAs; the requester cannot approve | `test_prod_onboarding_needs_second_person` |
 | Policy engine | Key type and size, curves, SAN scope, wildcards, validity caps, forced key rotation on renewal, change ticket for prod revocations | `test_policy_violations`, `test_renewal_requires_new_key` |
@@ -60,7 +60,7 @@ Local, SQLite, software keys:
 
 ```bash
 pip install -e ".[dev,hsm]"
-make test                                      # 150 tests; the HSM test runs if SoftHSM2 is installed
+make test                                      # 169 tests; the HSM test runs if SoftHSM2 is installed
 make run                                       # http://localhost:8080, admin key "admin-key"
 make demo                                      # seed teams, apps, certificates and some bad legacy certs
 ```

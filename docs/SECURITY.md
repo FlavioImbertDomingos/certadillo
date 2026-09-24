@@ -17,7 +17,7 @@
 
 | Threat | Control in this codebase |
 | --- | --- |
-| CA key theft | PKCS#11 signer: keys generated on the HSM as `CKA_SENSITIVE=true`, `CKA_EXTRACTABLE=false` (asserted in tests). Software keys are PKCS#8 encrypted and meant for labs only. |
+| CA key theft | PKCS#11 signer: keys generated on the HSM as `CKA_SENSITIVE=true`, `CKA_EXTRACTABLE=false` (asserted in tests). Vault Transit signer: keys created non-exportable with plaintext backup off, version pinned, every signature verified against the CA certificate's key; the shipped application policy cannot sign with the root or change any key. Software keys are PKCS#8 encrypted and meant for labs only. |
 | Mis-issuance to the wrong name | Every DNS SAN, SPIFFE ID, email address and host-name CN is checked against the app's approved scope. URI and email SANs are only accepted by the profiles meant for them. ACME orders outside the scope are refused before any challenge. |
 | A single insider issuing code-signing certs or new CAs | Maker-checker: only the approver role decides, the requester cannot approve, and an approver credential minted by the requester cannot approve that requester's requests. Approvals are audited. Production onboarding also needs a second person. |
 | Stolen app credential | Scope-limited to one app's names and profile, and no read access to other apps or reports; short certificate lifetimes; `POST /api/v1/principals/{name}/deactivate`; renewal forces a new key pair. |

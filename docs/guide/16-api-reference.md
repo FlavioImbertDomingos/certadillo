@@ -52,6 +52,7 @@ Authenticate with `X-API-Key: <key>` or `Authorization: Bearer <key>`. Errors ar
 | `POST` | `/api/v1/inventory/import` | admin, operator | import PEM certificates |
 | `GET` | `/api/v1/cas` | admin, operator, approver, auditor | list CAs |
 | `POST` | `/api/v1/cas` | admin | request a subordinate CA (dual control) |
+| `GET` | `/api/v1/cas/keys` | admin, operator, auditor | where each CA key lives and whether it is reachable and intact (live check for Vault keys) |
 | `GET` | `/api/v1/alerts` | admin, operator, approver, auditor | open alerts (`include_resolved`) |
 | `POST` | `/api/v1/alerts/evaluate` | admin, operator | publish due CRLs and evaluate alerts now |
 | `GET` | `/api/v1/audit` | admin, operator, approver, auditor | audit events, newest first (`limit`) |

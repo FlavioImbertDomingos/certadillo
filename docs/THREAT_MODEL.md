@@ -80,11 +80,12 @@ The process holds everything it needs to work: the key passphrase, the seal
 key, the DB credential. With software CA keys, the attacker decrypts them and
 walks away with them. That is the worst realistic outcome.
 
-Controls: keep CA keys in an HSM, a cloud KMS or Vault Transit. The attacker can
+Controls: keep CA keys in an HSM (`CERTADILLO_SIGNER=pkcs11`) or Vault Transit (`vault-transit`). The attacker can
 then ask for signatures while they are inside, but cannot export the key, so the
 compromise ends when access is cut, and every signature they obtain goes through
-code paths that record it. Run the root offline: after it signs the issuing CA,
-it should not be reachable by the application at all. Pin and hash dependencies,
+code paths that record it. With Vault, the shipped application policy only allows
+signing with issuing CA keys, so a compromised server cannot use the root to mint
+a new intermediate. Run the root fully offline once it has signed the issuing CA. Pin and hash dependencies,
 run the container as non-root with a read-only filesystem.
 
 ### Root on the host
@@ -142,7 +143,8 @@ integrity.
 
 | Priority | Control | Status |
 | --- | --- | --- |
-| P0 | CA keys in an HSM, cloud KMS or Vault Transit; root offline after signing the issuing CA | PKCS#11 supported; Vault Transit and offline-root ceremony on the roadmap |
+| P0 | CA keys in an HSM or Vault Transit, never in the application process | Done: `pkcs11` and `vault-transit` signers; the shipped Vault policy keeps the root key unusable by the application, and new CAs are created in a two-person ceremony with an exact-path token |
+| P0 | Root fully offline after signing the issuing CA | Roadmap: import an issuing CA signed by an offline root |
 | P0 | Dedicated issuing CA for Windows logon; only it in NTAuth | Documented; operator choice |
 | P0 | Encrypted, off-host database backups | `deploy.sh` backups are local and unencrypted today; to do |
 | P0 | Branch protection and signed commits on `main` | GitHub settings; to do |
