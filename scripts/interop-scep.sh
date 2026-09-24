@@ -17,8 +17,8 @@ if [ -z "$CLIENT" ]; then
   unzip -q "$WORK/scep.zip" -d "$WORK" && CLIENT=$WORK/scepclient-linux-amd64 && chmod +x "$CLIENT"
 fi
 
-CERTADILLO_DATA_DIR=$WORK/data CERTADILLO_BOOTSTRAP_ADMIN_KEY=admin-key CERTADILLO_BASE_URL=$S \
-CERTADILLO_SCEP_ALLOW_DES=true certadillo serve --port "$PORT" > "$WORK/server.log" 2>&1 &
+CERTADILLO_DATA_DIR=$WORK/data CERTADILLO_BOOTSTRAP_ADMIN_KEY=admin-key CERTADILLO_BOOTSTRAP_APPROVER_KEY=approver-key \
+CERTADILLO_BASE_URL=$S CERTADILLO_SCEP_ALLOW_DES=true certadillo serve --port "$PORT" > "$WORK/server.log" 2>&1 &
 SERVER=$!
 trap 'kill $SERVER 2>/dev/null || true' EXIT
 for _ in $(seq 30); do curl -sf "$S/healthz" >/dev/null && break; sleep 0.5; done
@@ -45,4 +45,23 @@ if enroll rtr-0043.routers.bank.internal "$CH"; then echo "FAIL: challenge was r
 echo "SCEP: reused challenge refused"
 if enroll evil.other.example "$(challenge)"; then echo "FAIL: out-of-scope name issued"; exit 1; fi
 echo "SCEP: out-of-scope name refused"
+
+# dual control: the first reply is PENDING, scepclient polls every 30 seconds,
+# a second person approves, and the next poll returns the certificate
+curl -sf -X POST "${A[@]}" "$S/api/v1/apps" -d '{"team_id":1,"name":"firmware-signing","environment":"dev","profile":"code-signing","allowed_domains":["*.build.bank.internal"]}' >/dev/null
+CH=$(curl -sf -X POST "${A[@]}" "$S/api/v1/apps/2/scep-challenge" | python3 -c 'import json,sys;print(json.load(sys.stdin)["challenge"])')
+mkdir -p "$WORK/pending"
+(cd "$WORK/pending" && timeout 90 "$CLIENT" -server-url "$S/scep" -challenge "$CH" -cn fw.build.bank.internal \
+    -dnsname fw.build.bank.internal -keySize 3072 -private-key key.pem -certificate cert.pem \
+    -key-encipherment-selector > client.log 2>&1) &
+POLLER=$!
+for _ in $(seq 20); do
+  AP=$(curl -sf "${A[@]}" "$S/api/v1/approvals?status=pending" | python3 -c 'import json,sys;d=json.load(sys.stdin);print(d[0]["id"] if d else "")')
+  [ -n "$AP" ] && break; sleep 1
+done
+grep -q "pkiStatus=PENDING" "$WORK/pending/client.log" && echo "SCEP: code-signing request is PENDING"
+curl -sf -X POST -H "X-API-Key: approver-key" "$S/api/v1/approvals/$AP/approve" >/dev/null
+wait $POLLER || true
+openssl verify -CAfile "$WORK/root.pem" -untrusted "$WORK/issuing.pem" "$WORK/pending/cert.pem"
+echo "SCEP: approved by a second person, picked up by the polling client"
 echo "interop OK"

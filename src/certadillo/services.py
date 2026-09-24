@@ -275,7 +275,10 @@ class Platform:
         elif req.action == "issue_certificate":
             app = self.s.get(App, p["app_id"])
             csr = x509.load_pem_x509_csr(p["csr_pem"].encode())
-            decision = self.engine.evaluate(csr, p["profile"], app.allowed_domains, p.get("days"), p.get("hours"))
+            # pop_verified: the protocol front end checked proof of possession over the
+            # client's original bytes before normalising the CSR (SCEP clients)
+            decision = self.engine.evaluate(csr, p["profile"], app.allowed_domains, p.get("days"), p.get("hours"),
+                                            pop_verified=bool(p.get("pop_verified")))
             row = self._sign(csr, decision, app, p.get("protocol", "rest"), Actor(req.requested_by, "app", app.id))
             if p.get("previous_id"):
                 prev = self.s.get(Certificate, p["previous_id"])
@@ -340,6 +343,7 @@ class Platform:
             return self._request_approval(actor, "issue_certificate", {
                 "app_id": app.id, "csr_pem": csr_pem, "profile": profile, "days": days, "hours": hours,
                 "protocol": protocol, "previous_id": previous.id if previous else None,
+                "pop_verified": pop_verified,
             })
         row = self._sign(csr, decision, app, protocol, actor)
         if previous is not None:

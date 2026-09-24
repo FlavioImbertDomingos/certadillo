@@ -123,6 +123,10 @@ class ChangeRefIn(BaseModel):
     change_ref: str | None = None
 
 
+class AppOptionsIn(BaseModel):
+    scep_validation: str | None = Field(default=None, pattern=r"^(challenge|webhook)$")
+
+
 class TrustAnchorIn(BaseModel):
     name: str = Field(min_length=2, max_length=120)
     cert_pem: str
@@ -177,7 +181,7 @@ def app_json(a: App) -> dict:
     return {
         "id": a.id, "name": a.name, "team_id": a.team_id, "environment": a.environment, "profile": a.profile,
         "allowed_domains": a.allowed_domains, "data_classification": a.data_classification, "status": a.status,
-        "created_by": a.created_by, "created_at": as_utc(a.created_at).isoformat(),
+        "created_by": a.created_by, "created_at": as_utc(a.created_at).isoformat(), "options": a.options or {},
     }
 
 
@@ -364,6 +368,24 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
         p.commit()
         out["server_url"] = str(request.base_url).rstrip("/") + "/scep"
         return out
+
+    @app.put("/api/v1/apps/{app_id}/options", tags=["onboarding"])
+    def set_app_options(app_id: int, body: AppOptionsIn, p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        """Protocol settings per app. scep_validation: "challenge" (one-time challenges
+        from this platform) or "webhook" (challenges issued by an MDM such as Intune,
+        checked by CERTADILLO_SCEP_VALIDATION_URL)."""
+        from certadillo.audit.log import record
+
+        who.require("admin", "operator")
+        a = p.s.get(App, app_id)
+        if a is None:
+            raise NotFound("app not found")
+        opts = dict(a.options or {})
+        opts.update({k: v for k, v in body.model_dump().items() if v is not None})
+        a.options = opts
+        record(p.s, who.name, "app.options", a.name, opts)
+        p.commit()
+        return app_json(a)
 
     @app.post("/api/v1/apps/{app_id}/est-trust-anchors", status_code=201, tags=["onboarding"])
     def add_trust_anchor(app_id: int, body: TrustAnchorIn, p: Platform = Depends(platform), who: Actor = Depends(actor)):
