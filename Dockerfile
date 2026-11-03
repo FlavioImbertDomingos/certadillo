@@ -14,7 +14,7 @@ RUN apt-get update \
  && useradd --system --uid 10001 --home /var/lib/certadillo certadillo \
  && mkdir -p /var/lib/certadillo && chown certadillo /var/lib/certadillo
 COPY --from=build /dist/*.whl /tmp/
-RUN pip install --no-cache-dir "$(ls /tmp/*.whl)[postgres,hsm]" && rm /tmp/*.whl
+RUN pip install --no-cache-dir "$(ls /tmp/*.whl)[postgres,hsm,provisioning]" && rm /tmp/*.whl
 USER 10001
 ENV CERTADILLO_DATA_DIR=/var/lib/certadillo \
     PYTHONUNBUFFERED=1

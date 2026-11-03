@@ -47,6 +47,7 @@
 | CA keys protected by a passphrase anyone can read | There is no built-in passphrase. Unset, a random one is generated into the data directory with mode 0600; known placeholders and short values are refused at startup. |
 | A ceremony token creating its CA key as exportable | The generated ceremony policy allowlists the key-creation parameters (`exportable` and `allow_plaintext_backup` only as false). A denylist would not work: Vault compares values literally, so `"true"` as a string gets past a deny on `true`. Tested against Vault. |
 | A certificate row flipped back to active in SQL being used to log in to EST | Certificate login uses the sealed status, the same check OCSP and the CRL use. |
+| Push provisioning credentials (SSH keys, F5 passwords, cluster tokens) leaking from Certadillo | Targets hold references (`env:`, `file:`, `vault:`), never values, and a config with secret-looking keys is refused. SSH host keys are pinned, paths are limited to the target's allowed directories, and the reload command is set by an admin. A target serves only its own team's apps. Targets and installations carry integrity seals, so a database write that repoints a target or adds a reload command stops the run before it connects. Centrally generated keys live only in the run's memory; a certificate whose push failed is revoked. |
 
 ## Known gaps in this MVP
 

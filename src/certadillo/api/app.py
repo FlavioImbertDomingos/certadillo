@@ -34,6 +34,9 @@ from certadillo.db import (
     AuditEvent,
     Certificate,
     CertificateAuthority,
+    Installation,
+    ProvisioningRun,
+    ProvisioningTarget,
     Team,
     as_utc,
 )
@@ -52,6 +55,26 @@ log = logging.getLogger("certadillo.api")
 
 
 # ------------------------------------------------------------------ schemas
+class TargetIn(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    kind: str
+    team_id: int
+    config: dict = Field(default_factory=dict)
+    credential_ref: str | None = None
+
+
+class InstallationIn(BaseModel):
+    app_id: int | None = None
+    target_id: int
+    common_name: str = Field(min_length=1, max_length=255)
+    sans: list[str] = Field(default_factory=list)
+    key_type: str = "ec-p256"
+    key_location: str = "central"
+    params: dict = Field(default_factory=dict)
+    validate_endpoint: str | None = None
+    auto_renew: bool = True
+
+
 class TeamIn(BaseModel):
     name: str = Field(min_length=2, max_length=120)
     contact_email: str
@@ -252,6 +275,13 @@ def run_housekeeping() -> dict:
         from certadillo.audit.log import maybe_anchor
 
         maybe_anchor(p.s, rt.settings)
+        from certadillo.provisioning.engine import renew_due
+
+        try:
+            renew_due(p)
+        except Exception:  # noqa: BLE001 - one bad target must not stop CRLs and alerts
+            log.exception("push provisioning cycle failed")
+            p.s.rollback()
         return reconcile(p.s, rt.settings, rt.policies, build_global_notifiers(rt.settings))
 
 
@@ -951,6 +981,68 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
     app.include_router(acme.router)
     app.include_router(scep.router)
     app.include_router(cmp.router)
+
+    # ---------------------------------------------------------- push provisioning
+    from certadillo.provisioning import engine as prov
+    from certadillo.provisioning.drivers import kinds as provisioning_kinds
+
+    @app.get("/api/v1/provisioning/kinds", tags=["provisioning"])
+    def prov_kinds(who: Actor = Depends(actor)):
+        return provisioning_kinds()
+
+    @app.post("/api/v1/targets", status_code=201, tags=["provisioning"])
+    def create_target(body: TargetIn, p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        t = prov.create_target(p, who, body.name, body.kind, body.team_id, body.config, body.credential_ref)
+        p.commit()
+        return prov.target_json(t)
+
+    @app.get("/api/v1/targets", tags=["provisioning"])
+    def list_targets(p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        who.require("admin", "operator", "auditor")
+        return [prov.target_json(t) for t in p.s.query(ProvisioningTarget).order_by(ProvisioningTarget.id).all()]
+
+    @app.post("/api/v1/installations", status_code=201, tags=["provisioning"])
+    def create_installation(body: InstallationIn, p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        app_id = body.app_id or who.app_id
+        if app_id is None:
+            raise ValueError("app_id is required")
+        i = prov.create_installation(p, who, app_id, body.target_id, body.common_name, body.sans, body.key_type,
+                                     body.key_location, body.params, body.validate_endpoint, body.auto_renew)
+        p.commit()
+        return prov.installation_json(i)
+
+    def _installation(p: Platform, who: Actor, inst_id: int) -> Installation:
+        i = p.s.get(Installation, inst_id)
+        if i is None or (who.role == "app" and i.app_id != who.app_id):
+            raise NotFound("installation not found")
+        if who.role not in ("app", "admin", "operator", "auditor"):
+            raise Forbidden("role cannot read installations")
+        return i
+
+    @app.get("/api/v1/installations", tags=["provisioning"])
+    def list_installations(p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        q = p.s.query(Installation)
+        if who.role == "app":
+            q = q.filter_by(app_id=who.app_id)
+        else:
+            who.require("admin", "operator", "auditor")
+        return [prov.installation_json(i) for i in q.order_by(Installation.id).all()]
+
+    @app.get("/api/v1/installations/{inst_id}", tags=["provisioning"])
+    def get_installation(inst_id: int, p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        i = _installation(p, who, inst_id)
+        runs = p.s.query(ProvisioningRun).filter_by(installation_id=i.id).order_by(ProvisioningRun.id.desc()).limit(20).all()
+        return prov.installation_json(i, runs)
+
+    @app.post("/api/v1/installations/{inst_id}/provision", tags=["provisioning"])
+    def provision_now(inst_id: int, p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        i = _installation(p, who, inst_id)
+        if who.role == "auditor":
+            raise Forbidden("auditors cannot provision")
+        run = prov.provision(p, i.id, who.name, "manual")
+        p.commit()
+        runs = p.s.query(ProvisioningRun).filter_by(installation_id=i.id).order_by(ProvisioningRun.id.desc()).limit(1).all()
+        return JSONResponse(prov.installation_json(i, runs), 200 if run.status == "ok" else 502)
 
     # ---------------------------------------------------------- web console
     static_dir = resources.files("certadillo").joinpath("web/static")

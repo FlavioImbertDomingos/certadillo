@@ -21,8 +21,8 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: ${{ matrix.python }}
-      - name: SoftHSM2 for the PKCS#11 tests
-        run: sudo apt-get update && sudo apt-get install -y softhsm2
+      - name: SoftHSM2, sshd and nginx for the PKCS#11 and push provisioning tests
+        run: sudo apt-get update && sudo apt-get install -y softhsm2 openssh-server nginx
       - name: HashiCorp Vault for the Transit signer tests (checksum-verified)
         env:
           VAULT_VERSION: "2.1.1"

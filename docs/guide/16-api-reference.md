@@ -96,3 +96,10 @@ Authenticate with `X-API-Key: <key>` or `Authorization: Bearer <key>`. Errors ar
 | `GET` | `/scep/{app_name}` | as /scep, or a webhook-validated challenge | per-app SCEP URL |
 | `POST` | `/.well-known/cmp/p/{label}` | as /.well-known/cmp, for one app | CMP for a named app |
 | `POST` | `/.well-known/cmp` | CMP MAC (one-time secret) or signature | CMP (RFC 9483 lightweight profile) |
+| `GET` | `/api/v1/provisioning/kinds` | any | target kinds this server can push to |
+| `GET` | `/api/v1/targets` | admin, operator, auditor | list push targets |
+| `POST` | `/api/v1/targets` | admin | add a push target (ssh, kubernetes, f5, aws-acm); credentials by reference only |
+| `GET` | `/api/v1/installations` | admin, operator, auditor; app (own) | list installations |
+| `POST` | `/api/v1/installations` | admin, operator; app (own) | bind a certificate to a place on a target |
+| `GET` | `/api/v1/installations/{inst_id}` | admin, operator, auditor; app (own) | one installation with its recent runs |
+| `POST` | `/api/v1/installations/{inst_id}/provision` | admin, operator; app (own) | issue, install and validate now (502 if the run failed) |

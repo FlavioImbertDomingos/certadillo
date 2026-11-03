@@ -107,6 +107,19 @@ An AD CS gateway job has been pending or claimed for more than an hour, so a req
 2. Check the gateway worker: the scheduled task on the domain-joined host, its network path to the CA, and that its account may still enroll the template (issue), has Certificate Manager rights (revoke) or database read (inventory).
 3. A job stuck in `claimed` means a worker took it and did not report back; look for the error in the worker's log. Once fixed, the next run picks up pending work; a permanently failed job can be completed with an `error` so it stops alerting.
 
+## ProvisioningFailed
+
+A push to a target failed. The alert names the installation and target, and the
+last error says which step broke.
+
+1. `GET /api/v1/installations/<id>` shows the recent runs with their steps.
+2. Host key mismatch: the server was rebuilt or something is in the middle. Check the host key out of band before changing the pinned value on the target.
+3. Credential errors (`environment variable ... is not set`, Vault read failed): fix the reference on the Certadillo side; nothing reached the target.
+4. "does not serve the new certificate": the files or objects are on the target but the service did not pick them up. Check the reload command or the profile, then `POST /api/v1/installations/<id>/provision`.
+5. An undelivered certificate is revoked automatically and shows up in the run's steps; the certificate already on the target stays active until a later run replaces it.
+
+Retries back off from 5 minutes to 24 hours. The alert turns critical after three failures in a row.
+
 ## IntegritySealBroken
 
 A principal, approval or certificate row was changed outside Certadillo (in SQL, not through the application), or a certificate the audit trail records as revoked is back to "active". Treat it as a security incident: someone had write access to the database.

@@ -41,7 +41,7 @@ from pathlib import Path
 from sqlalchemy import event, inspect
 from sqlalchemy.orm import Session
 
-from certadillo.db import ApprovalRequest, AuditEvent, Certificate, Principal
+from certadillo.db import ApprovalRequest, AuditEvent, Certificate, Installation, Principal, ProvisioningTarget
 
 log = logging.getLogger("certadillo.integrity")
 
@@ -54,8 +54,14 @@ FIELDS = {
     ApprovalRequest: ("action", "payload", "requested_by", "status", "decided_by"),
     Certificate: ("fingerprint_sha256", "serial_hex", "ca_id", "app_id", "status", "revocation_reason", "source",
                   "backend"),
+    # where a push goes and what it runs there: a changed host, path or reload
+    # command would turn a database write into code execution on the target
+    ProvisioningTarget: ("name", "kind", "team_id", "config", "credential_ref", "status"),
+    Installation: ("app_id", "target_id", "common_name", "sans", "key_type", "key_location", "params",
+                   "validate_endpoint"),
 }
-KIND = {Principal: "principal", ApprovalRequest: "approval", Certificate: "certificate"}
+KIND = {Principal: "principal", ApprovalRequest: "approval", Certificate: "certificate",
+        ProvisioningTarget: "provisioning_target", Installation: "installation"}
 
 _state = {"key": None, "previous": None, "enforce": False}
 

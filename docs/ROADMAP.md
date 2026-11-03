@@ -126,6 +126,34 @@ Next:
 - **Container hardening:** non-root user, read-only root filesystem, dropped
   capabilities.
 
+## Phase 7: the lifecycle features enterprise CLM suites ship
+
+Commercial machine-identity platforms (CyberArk Certificate Manager, formerly
+Venafi TLS Protect, is the one most banks run) combine four things Certadillo
+did not have together: pushing certificates to where they are used, a policy
+tree, many upstream CAs, and discovery beyond network scans. This phase builds
+those capabilities in Certadillo's own design. Nothing of those products' code,
+names or interfaces is copied.
+
+1. **Push provisioning (done, November 2026).** Targets, installations and
+   runs; SSH (nginx, Apache, HAProxy), Kubernetes TLS secrets, F5 BIG-IP and
+   AWS ACM; key generated in memory or on the host; endpoint validation before
+   the old certificate is retired; renewal, retries with backoff and a
+   `ProvisioningFailed` alert. See [Push provisioning](guide/22-push-provisioning.md).
+   Next targets: IIS and the Windows certificate store over WinRM (or through
+   the AD CS gateway worker), Citrix NetScaler (NITRO), Azure Key Vault,
+   Java keystores over SSH, Palo Alto and Fortinet.
+2. **Policy folder tree.** Folders with inherited and locked settings (CA, key
+   types, validity, approvers, allowed names), apps placed in folders, and the
+   effective policy shown for every app.
+3. **Public and enterprise CA drivers.** The issuer backends listed under
+   Phase 3: an ACME client backend for Let's Encrypt and other ACME CAs,
+   DigiCert CertCentral, AWS Private CA, EJBCA, Google CAS.
+4. **Wider discovery.** A host agent that finds PEM, JKS and PKCS#12 files and
+   the Windows certificate store, cloud discovery (ACM, Azure Key Vault, GCP
+   Certificate Manager), and Certificate Transparency monitoring for public
+   certificates nobody requested through Certadillo.
+
 ## Phase 4: workload identity
 
 - SPIRE integration: issue SPIRE's intermediate through dual control (`spire-intermediate` profile), then either the SPIRE `disk` UpstreamAuthority or a small Go UpstreamAuthority plugin that calls Certadillo.

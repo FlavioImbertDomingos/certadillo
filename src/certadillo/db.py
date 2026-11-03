@@ -494,3 +494,61 @@ def get_session():
     if SessionLocal is None:
         raise RuntimeError("database not initialised")
     return SessionLocal()
+
+
+class ProvisioningTarget(Base):
+    """A place Certadillo pushes certificates to: a load balancer, a host over
+    SSH, a Kubernetes cluster or a cloud certificate store. Credentials are a
+    reference (env:, file: or vault:), never the secret itself."""
+
+    __tablename__ = "provisioning_targets"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), unique=True)
+    kind: Mapped[str] = mapped_column(String(32))  # ssh | kubernetes | f5 | aws-acm
+    team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"))  # only this team's apps may use it
+    config: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    credential_ref: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="active")  # active | pending_approval | disabled
+    created_by: Mapped[str] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # sealed: a database write must not be able to repoint a target or change its reload command
+    seal: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class Installation(Base):
+    """One certificate kept installed at one place on a target: Certadillo
+    issues it, pushes it, checks the endpoint serves it, and renews it."""
+
+    __tablename__ = "installations"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    app_id: Mapped[int] = mapped_column(ForeignKey("apps.id"), index=True)
+    target_id: Mapped[int] = mapped_column(ForeignKey("provisioning_targets.id"), index=True)
+    common_name: Mapped[str] = mapped_column(String(255))
+    sans: Mapped[list[str]] = mapped_column(JSON, default=list)
+    key_type: Mapped[str] = mapped_column(String(16), default="ec-p256")  # ec-p256 | ec-p384 | rsa-2048 | rsa-3072
+    key_location: Mapped[str] = mapped_column(String(16), default="central")  # central | device
+    params: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)  # driver-specific placement
+    validate_endpoint: Mapped[str | None] = mapped_column(String(255), nullable=True)  # host:port to check
+    auto_renew: Mapped[bool] = mapped_column(Boolean, default=True)
+    certificate_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="new")  # new | installed | validated | failed
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    failures: Mapped[int] = mapped_column(Integer, default=0)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by: Mapped[str] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    seal: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class ProvisioningRun(Base):
+    __tablename__ = "provisioning_runs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    installation_id: Mapped[int] = mapped_column(ForeignKey("installations.id"), index=True)
+    trigger: Mapped[str] = mapped_column(String(32))  # manual | renewal | retry | campaign
+    status: Mapped[str] = mapped_column(String(16))  # running | ok | failed
+    certificate_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    steps: Mapped[list[str]] = mapped_column(JSON, default=list)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    actor: Mapped[str] = mapped_column(String(120))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

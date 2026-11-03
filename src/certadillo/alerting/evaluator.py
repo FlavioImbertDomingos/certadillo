@@ -153,6 +153,20 @@ def evaluate(session, settings, policies: dict) -> list[Alert]:
                              f"{(now - as_utc(job.created_at)).seconds // 3600 + 1}h; check the gateway worker",
                              {"job": job.id, "type": job.job_type}, runbook=RUNBOOK + "adcsgatewayjobstuck"))
 
+    from certadillo.db import Installation, ProvisioningTarget
+
+    for inst in session.query(Installation).filter_by(status="failed").all():
+        target = session.get(ProvisioningTarget, inst.target_id)
+        owner = session.get(App, inst.app_id)
+        team = teams.get(owner.team_id) if owner else None
+        sev = "critical" if inst.failures >= 3 else "warning"
+        out.append(Alert(_fp("provisioning", inst.id), "ProvisioningFailed", sev,
+                         f"pushing {inst.common_name} to {target.name if target else inst.target_id} failed "
+                         f"{inst.failures} time(s): {(inst.last_error or '')[:160]}",
+                         {"installation": inst.id, "target": target.name if target else None,
+                          "team": team.name if team else ""},
+                         runbook=RUNBOOK + "provisioningfailed"))
+
     for req in session.query(ApprovalRequest).filter_by(status="pending").all():
         if now - as_utc(req.created_at) > timedelta(hours=24):
             out.append(Alert(_fp("approval", req.id), "ApprovalPending", "warning",

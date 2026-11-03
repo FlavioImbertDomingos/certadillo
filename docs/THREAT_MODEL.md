@@ -145,6 +145,17 @@ leave the token in `.git/config`, the workflow token is read-only by default,
 and only the job that uploads scan results gets `security-events: write`. The
 Vault binary used in CI is checked against HashiCorp's published SHA-256 sums.
 
+### Push provisioning widens the blast radius
+
+A Certadillo that installs certificates also holds the means to log in to load
+balancers, hosts and clusters. Someone who controls the Certadillo process can
+use those credentials directly. That is why targets store only references:
+Vault leases, mounted secret files or environment variables that the platform
+team scopes and rotates on their own. Prefer `key_location: device` on hosts
+that can generate keys, so the key never crosses the network, and keep the SSH
+account to the minimum (writing the TLS directory and running one reload
+command through sudo). Every run is audited without secrets.
+
 ### Windows logon raises the stakes
 
 An issuing CA published to NTAuth can mint smart-card logon certificates for any

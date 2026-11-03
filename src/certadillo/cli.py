@@ -247,6 +247,40 @@ def ca_create_issuing(name, parent, years, operator, witness):
 
 
 @main.group()
+def provision():
+    """Push provisioning: install certificates on targets."""
+
+
+@provision.command("due")
+def provision_due():
+    """Run every installation that is due now (new, failed and past its backoff,
+    in its renewal window, or covered by a renewal campaign). The server does
+    this on its own timer; use this from cron when the API runs without it."""
+    from certadillo.provisioning.engine import renew_due
+    from certadillo.runtime import init_runtime
+
+    with init_runtime().platform() as p:
+        click.echo(json.dumps(renew_due(p)))
+
+
+@provision.command("run")
+@click.argument("installation_id", type=int)
+def provision_run(installation_id):
+    """Provision one installation now."""
+    from certadillo.provisioning.engine import installation_json, provision as run_one
+    from certadillo.runtime import init_runtime
+
+    with init_runtime().platform() as p:
+        run = run_one(p, installation_id, "cli", "manual")
+        p.commit()
+        from certadillo.db import Installation
+
+        click.echo(json.dumps({**installation_json(p.s.get(Installation, installation_id)),
+                               "run": {"status": run.status, "steps": run.steps, "error": run.error}}))
+        sys.exit(0 if run.status == "ok" else 1)
+
+
+@main.group()
 def db():
     """Database schema and hardening."""
 
