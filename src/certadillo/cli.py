@@ -497,6 +497,23 @@ def provision_run(installation_id):
         sys.exit(0 if run.status == "ok" else 1)
 
 
+@main.command("import-keycensus")
+@click.argument("inventory", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+def import_keycensus(inventory):
+    """Import a keycensus inventory.json (keys from HSMs, KMS and Vault, and the
+    applications linked to keys and certificates)."""
+    from certadillo.discovery.keycensus import import_inventory
+    from certadillo.runtime import init_runtime
+
+    with init_runtime().platform() as p:
+        try:
+            res = import_inventory(p, "cli", json.loads(inventory.read_text()))
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from None
+        p.commit()
+    click.echo(json.dumps(res, indent=2))
+
+
 @main.group()
 def agent():
     """Host agent: find certificates and keystores on this machine."""

@@ -1,0 +1,345 @@
+{
+  "tool": "keycensus",
+  "generated_at": "2026-11-04T16:24:18Z",
+  "policy": "default",
+  "summary": {
+    "assets": 3,
+    "sources": 1,
+    "sources_failed": 0,
+    "applications": 1,
+    "assets_linked": 3,
+    "assets_unlinked": 0,
+    "findings": 8,
+    "findings_by_severity": {
+      "critical": 0,
+      "high": 0,
+      "medium": 2,
+      "low": 3,
+      "info": 3
+    },
+    "assets_by_kind": {
+      "certificate": 2,
+      "key": 1
+    },
+    "assets_by_algorithm": {
+      "EC-P-256": 1,
+      "EC-P-384": 1,
+      "RSA-2048": 1
+    }
+  },
+  "sources": [
+    {
+      "name": "payments-disk",
+      "type": "pem",
+      "assets": 3,
+      "error": null,
+      "duration_seconds": 0.005
+    }
+  ],
+  "applications": [
+    {
+      "name": "card-api",
+      "version": "2.4.1",
+      "bom_ref": null,
+      "purl": null,
+      "owner": "team-payments",
+      "description": null,
+      "sbom_path": null,
+      "sbom_serial": null,
+      "sbom_components": null,
+      "sbom_format": null,
+      "uses": [
+        {
+          "source": "payments-disk"
+        }
+      ],
+      "asset_ids": [
+        "kc-f2463a5a258a",
+        "kc-29cb87132493",
+        "kc-eebf2a1c5e40"
+      ],
+      "matches": {
+        "kc-f2463a5a258a": [
+          "source payments-disk"
+        ],
+        "kc-29cb87132493": [
+          "source payments-disk"
+        ],
+        "kc-eebf2a1c5e40": [
+          "source payments-disk"
+        ]
+      },
+      "ref": "app:card-api@2.4.1",
+      "assets": 3
+    }
+  ],
+  "assets": [
+    {
+      "source": "payments-disk",
+      "source_type": "pem",
+      "kind": "certificate",
+      "name": "known.pay.bank.internal",
+      "native_id": "/opt/payments/tls/known.pem#562c67efc31c2aad",
+      "algorithm": "EC",
+      "key_size": 256,
+      "curve": "P-256",
+      "key_type": "public-key",
+      "purposes": [
+        "verify"
+      ],
+      "created": "2026-11-03T16:24:18Z",
+      "last_rotated": null,
+      "expires": "2036-11-01T16:24:18Z",
+      "state": "active",
+      "rotation_enabled": null,
+      "exportable": null,
+      "hardware_backed": false,
+      "fips_validated": null,
+      "location": "/opt/payments/tls/known.pem",
+      "subject": "CN=known.pay.bank.internal",
+      "issuer": "CN=known.pay.bank.internal",
+      "signature_algorithm": "ecdsa-with-SHA256",
+      "signature_hash": "SHA256",
+      "self_signed": true,
+      "fingerprint_sha256": "562c67efc31c2aad3b9188f4f39485254f1631be38d89ac9f537f98d690cca80",
+      "protocol": null,
+      "protocol_version": null,
+      "cipher_suites": [],
+      "weak_versions_accepted": [],
+      "tags": {},
+      "extra": {
+        "serial": "7b1502451e23bed66fc92401f700895c8e9bd61",
+        "sans": [
+          "known.pay.bank.internal"
+        ],
+        "is_ca": false
+      },
+      "used_by": [],
+      "applications": [
+        "card-api"
+      ],
+      "id": "kc-f2463a5a258a",
+      "age_days": 1.0,
+      "days_until_expiry": 3650.0,
+      "display_algorithm": "EC-P-256"
+    },
+    {
+      "source": "payments-disk",
+      "source_type": "pem",
+      "kind": "key",
+      "name": "payments-signing.key",
+      "native_id": "/opt/payments/tls/payments-signing.key",
+      "algorithm": "EC",
+      "key_size": 384,
+      "curve": "P-384",
+      "key_type": "private-key",
+      "purposes": [
+        "sign",
+        "decrypt"
+      ],
+      "created": null,
+      "last_rotated": null,
+      "expires": null,
+      "state": "unknown",
+      "rotation_enabled": null,
+      "exportable": true,
+      "hardware_backed": false,
+      "fips_validated": null,
+      "location": "/opt/payments/tls/payments-signing.key",
+      "subject": null,
+      "issuer": null,
+      "signature_algorithm": null,
+      "signature_hash": null,
+      "self_signed": null,
+      "fingerprint_sha256": null,
+      "protocol": null,
+      "protocol_version": null,
+      "cipher_suites": [],
+      "weak_versions_accepted": [],
+      "tags": {},
+      "extra": {
+        "file_mtime": "2026-11-04T16:24:18.154667+00:00"
+      },
+      "used_by": [],
+      "applications": [
+        "card-api"
+      ],
+      "id": "kc-29cb87132493",
+      "age_days": null,
+      "days_until_expiry": null,
+      "display_algorithm": "EC-P-384"
+    },
+    {
+      "source": "payments-disk",
+      "source_type": "pem",
+      "kind": "certificate",
+      "name": "shadow.pay.bank.internal",
+      "native_id": "/opt/payments/tls/shadow.pem#3d50caf8fab7200a",
+      "algorithm": "RSA",
+      "key_size": 2048,
+      "curve": null,
+      "key_type": "public-key",
+      "purposes": [
+        "verify"
+      ],
+      "created": "2026-11-03T16:24:18Z",
+      "last_rotated": null,
+      "expires": "2036-11-01T16:24:18Z",
+      "state": "active",
+      "rotation_enabled": null,
+      "exportable": null,
+      "hardware_backed": false,
+      "fips_validated": null,
+      "location": "/opt/payments/tls/shadow.pem",
+      "subject": "CN=shadow.pay.bank.internal",
+      "issuer": "CN=shadow.pay.bank.internal",
+      "signature_algorithm": "sha256WithRSAEncryption",
+      "signature_hash": "SHA256",
+      "self_signed": true,
+      "fingerprint_sha256": "3d50caf8fab7200a63068c3d63bce0bea9fbbd080b6283369307aceefa772e19",
+      "protocol": null,
+      "protocol_version": null,
+      "cipher_suites": [],
+      "weak_versions_accepted": [],
+      "tags": {},
+      "extra": {
+        "serial": "775d6fd80732f841ba0a318c7aef91c2bc7ae5c6",
+        "sans": [
+          "shadow.pay.bank.internal"
+        ],
+        "is_ca": false
+      },
+      "used_by": [],
+      "applications": [
+        "card-api"
+      ],
+      "id": "kc-eebf2a1c5e40",
+      "age_days": 1.0,
+      "days_until_expiry": 3650.0,
+      "display_algorithm": "RSA-2048"
+    }
+  ],
+  "findings": [
+    {
+      "rule_id": "key-exportable",
+      "severity": "medium",
+      "title": "Key is marked exportable / extractable",
+      "detail": "payments-signing.key in payments-disk can be exported in plaintext or wrapped form.",
+      "remediation": "Unless there is a documented backup/escrow need, regenerate as non-exportable.",
+      "asset_id": "kc-29cb87132493",
+      "asset_name": "payments-signing.key",
+      "source": "payments-disk",
+      "controls": [
+        "PCI-DSS-4.0:3.7.3",
+        "PCI-DSS-4.0:3.6.1"
+      ],
+      "references": []
+    },
+    {
+      "rule_id": "quantum-vulnerable-encryption",
+      "severity": "medium",
+      "title": "EC-P-384 protects confidentiality and is quantum-vulnerable",
+      "detail": "payments-signing.key: data encrypted or wrapped under this key can be harvested now and decrypted once a CRQC exists. Elliptic-curve: broken by Shor's algorithm; migrate to ML-KEM / ML-DSA (NIST IR 8547: deprecated 2030, disallowed 2035).",
+      "remediation": "Prioritise for ML-KEM migration (ML-KEM-768 is NIST's default; a hybrid is an accepted bridge, not the end state); shorten the lifetime of data protected by it.",
+      "asset_id": "kc-29cb87132493",
+      "asset_name": "payments-signing.key",
+      "source": "payments-disk",
+      "controls": [
+        "NIST-IR-8547",
+        "US-EO-14412",
+        "PCI-DSS-4.0:12.3.3"
+      ],
+      "references": []
+    },
+    {
+      "rule_id": "quantum-vulnerable",
+      "severity": "low",
+      "title": "EC-P-256 is quantum-vulnerable",
+      "detail": "known.pay.bank.internal: Elliptic-curve: broken by Shor's algorithm; migrate to ML-KEM / ML-DSA (NIST IR 8547: deprecated 2030, disallowed 2035).",
+      "remediation": "Add to the PQC migration plan required by PCI DSS 12.3.3; target ML-DSA / SLH-DSA for signatures.",
+      "asset_id": "kc-f2463a5a258a",
+      "asset_name": "known.pay.bank.internal",
+      "source": "payments-disk",
+      "controls": [
+        "NIST-IR-8547",
+        "US-EO-14412",
+        "PCI-DSS-4.0:12.3.3"
+      ],
+      "references": []
+    },
+    {
+      "rule_id": "key-software-backed",
+      "severity": "low",
+      "title": "Key material lives in software, not an HSM",
+      "detail": "payments-signing.key in payments-disk is not hardware-backed.",
+      "remediation": "Move high-value keys (KEKs, PAN-encrypting keys, CA keys) into an HSM or a KMS with HSM backing.",
+      "asset_id": "kc-29cb87132493",
+      "asset_name": "payments-signing.key",
+      "source": "payments-disk",
+      "controls": [
+        "PCI-DSS-4.0:3.6.1",
+        "NIST-FIPS-140-3"
+      ],
+      "references": []
+    },
+    {
+      "rule_id": "quantum-vulnerable",
+      "severity": "low",
+      "title": "RSA-2048 is quantum-vulnerable",
+      "detail": "shadow.pay.bank.internal: Broken by Shor's algorithm; migrate to ML-KEM / ML-DSA (NIST IR 8547: deprecated 2030, disallowed 2035).",
+      "remediation": "Add to the PQC migration plan required by PCI DSS 12.3.3; target ML-DSA / SLH-DSA for signatures.",
+      "asset_id": "kc-eebf2a1c5e40",
+      "asset_name": "shadow.pay.bank.internal",
+      "source": "payments-disk",
+      "controls": [
+        "NIST-IR-8547",
+        "US-EO-14412",
+        "PCI-DSS-4.0:12.3.3"
+      ],
+      "references": []
+    },
+    {
+      "rule_id": "cert-self-signed",
+      "severity": "info",
+      "title": "Self-signed certificate",
+      "detail": "known.pay.bank.internal is self-signed (subject == issuer).",
+      "remediation": "Fine for a private root CA; for a server cert, issue from a managed CA so trust can be revoked.",
+      "asset_id": "kc-f2463a5a258a",
+      "asset_name": "known.pay.bank.internal",
+      "source": "payments-disk",
+      "controls": [
+        "PCI-DSS-4.0:4.2.1"
+      ],
+      "references": []
+    },
+    {
+      "rule_id": "no-creation-date",
+      "severity": "info",
+      "title": "No creation date: cryptoperiod cannot be assessed",
+      "detail": "payments-signing.key in payments-disk reports no creation/rotation timestamp.",
+      "remediation": "Record key creation dates in the source system or a key register (PCI DSS 3.6.1.1 / 12.3.3 inventory).",
+      "asset_id": "kc-29cb87132493",
+      "asset_name": "payments-signing.key",
+      "source": "payments-disk",
+      "controls": [
+        "PCI-DSS-4.0:12.3.3",
+        "PCI-DSS-4.0:3.6.1.1"
+      ],
+      "references": []
+    },
+    {
+      "rule_id": "cert-self-signed",
+      "severity": "info",
+      "title": "Self-signed certificate",
+      "detail": "shadow.pay.bank.internal is self-signed (subject == issuer).",
+      "remediation": "Fine for a private root CA; for a server cert, issue from a managed CA so trust can be revoked.",
+      "asset_id": "kc-eebf2a1c5e40",
+      "asset_name": "shadow.pay.bank.internal",
+      "source": "payments-disk",
+      "controls": [
+        "PCI-DSS-4.0:4.2.1"
+      ],
+      "references": []
+    }
+  ]
+}

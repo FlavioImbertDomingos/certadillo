@@ -98,6 +98,8 @@ Authenticate with `X-API-Key: <key>` or `Authorization: Bearer <key>`. Errors ar
 | `POST` | `/.well-known/cmp/p/{label}` | as /.well-known/cmp, for one app | CMP for a named app |
 | `POST` | `/.well-known/cmp` | CMP MAC (one-time secret) or signature | CMP (RFC 9483 lightweight profile) |
 | `POST` | `/api/v1/discovery/agent-report` | agent, admin, operator | a host agent's certificates and key file permissions |
+| `POST` | `/api/v1/inventory/keycensus` | admin, operator | import a keycensus inventory.json (keys, certificates, linked applications) |
+| `GET` | `/api/v1/inventory/external` | admin, operator, auditor | assets imported from keycensus (`kind`, `application`, `certificate_id`, `status`) |
 | `GET` | `/api/v1/ssh-keys` | admin, operator, auditor | static SSH keys from host agents (`host`, `account`, `owner`, `owner=none`, `status`) |
 | `PUT` | `/api/v1/ssh-keys/{key_id}/owner` | admin, operator | record the owner of a key everywhere it appears |
 | `GET` | `/api/v1/audit/shipping` | admin, auditor | per audit sink: events behind, oldest unsent, failures, last error |

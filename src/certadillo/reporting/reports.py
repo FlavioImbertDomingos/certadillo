@@ -125,7 +125,8 @@ def _alg_ref(c: Certificate) -> tuple[str, dict]:
 
 
 def cbom(s) -> dict:
-    """CycloneDX 1.6 cryptography bill of materials for the certificate estate."""
+    """CycloneDX 1.6 cryptography bill of materials for the certificate estate, plus the keys
+    imported from keycensus (HSM, KMS, Vault)."""
     comps: dict[str, dict] = {}
     for c in s.query(Certificate).filter(Certificate.status == "active").all():
         alg_ref, alg = _alg_ref(c)
@@ -172,8 +173,14 @@ def cbom(s) -> dict:
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "tools": {"components": [{"type": "application", "name": "certadillo", "version": __version__}]},
         },
-        "components": list(comps.values()),
+        "components": list(comps.values()) + _keycensus_components(s),
     }
+
+
+def _keycensus_components(s) -> list[dict]:
+    from certadillo.discovery.keycensus import cbom_components
+
+    return cbom_components(s)
 
 
 PCI_FIELDS = ["common_name", "sans", "serial", "issuer", "not_after", "key", "signature", "status", "source",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import logging
 import time
 import uuid
@@ -1083,6 +1084,42 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
             out.update(res)
         p.commit()
         return out
+
+    @app.post("/api/v1/inventory/keycensus", tags=["inventory"])
+    async def import_keycensus(request: Request, p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        """Import a keycensus inventory.json: keys from HSMs, KMS and Vault, and the
+        applications linked to each key and certificate."""
+        who.require("admin", "operator")
+        from certadillo.discovery.keycensus import import_inventory
+
+        raw = await request.body()
+        if len(raw) > 64 * 1024 * 1024:
+            raise ValueError("inventory larger than 64 MB")
+        try:
+            doc = json.loads(raw)
+        except ValueError:
+            raise ValueError("the body is not JSON") from None
+        res = import_inventory(p, who.name, doc)
+        p.commit()
+        return res
+
+    @app.get("/api/v1/inventory/external", tags=["inventory"])
+    def external_assets(kind: str | None = None, application: str | None = None, certificate_id: int | None = None,
+                        status: str = "present", p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        """Assets imported from keycensus. Filter by kind, by an application keycensus linked, or by
+        the Certadillo certificate they match."""
+        who.require("admin", "operator", "auditor")
+        from certadillo.db import ExternalAsset
+        from certadillo.discovery.keycensus import as_json
+
+        q = p.s.query(ExternalAsset).filter_by(status=status)
+        if kind:
+            q = q.filter_by(kind=kind)
+        if certificate_id is not None:
+            q = q.filter_by(certificate_id=certificate_id)
+        rows = [a for a in q.order_by(ExternalAsset.id).limit(20000).all()
+                if application is None or application in (a.applications or [])]
+        return [as_json(a) for a in rows]
 
     @app.get("/api/v1/ssh-keys", tags=["inventory"])
     def ssh_keys(host: str | None = None, account: str | None = None, owner: str | None = None,

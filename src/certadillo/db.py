@@ -634,6 +634,38 @@ class SshKey(Base):
     owner_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
 
+class ExternalAsset(Base):
+    """A cryptographic asset Certadillo does not manage itself, imported from
+    another inventory (keycensus: HSM, KMS, Vault and Voltage keys, and the
+    certificates it saw), with the applications linked to it there."""
+
+    __tablename__ = "external_assets"
+    __table_args__ = (UniqueConstraint("source", "asset_id", name="uq_external_asset"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source: Mapped[str] = mapped_column(String(32))  # keycensus
+    asset_id: Mapped[str] = mapped_column(String(64))
+    kind: Mapped[str] = mapped_column(String(16))  # key | certificate | protocol
+    name: Mapped[str] = mapped_column(String(255))
+    origin: Mapped[str | None] = mapped_column(String(255), nullable=True)  # the source system in keycensus
+    origin_type: Mapped[str | None] = mapped_column(String(32), nullable=True)  # pkcs11, aws-kms, vault ...
+    algorithm: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    key_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    curve: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    location: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    state: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    hardware_backed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    exportable: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    expires: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_rotated: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    fingerprint_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    applications: Mapped[list[str]] = mapped_column(JSON, default=list)
+    used_by: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    certificate_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # matched Certadillo certificate
+    status: Mapped[str] = mapped_column(String(16), default="present")  # present | removed
+    first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class AuditShipCursor(Base):
     """How far each audit sink has been sent. At-least-once: a batch is sent,
     then the cursor moves. Receivers de-duplicate by event hash, and every

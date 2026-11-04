@@ -160,3 +160,29 @@ curl -s -H "X-API-Key: $OPERATOR_KEY" -H "Content-Type: application/json" \
 | Dashboard summary | `GET /api/v1/reports/summary` |
 
 The crypto report counts RSA/ECC certificates, flags CA certificates that outlive the 2035 cutoff in NIST IR 8547, shows how much issuance is automated, and lists recommendations.
+
+## Keys and applications from keycensus
+
+[keycensus](https://github.com/FlavioImbertDomingos/keycensus) inventories the
+keys Certadillo never sees (HSM objects over PKCS#11, AWS KMS, Vault, Voltage)
+and links every key and certificate to the applications that use it, from
+their SBOMs. Import its `inventory.json` to answer "which applications depend
+on this certificate or key" in one place:
+
+```bash
+keycensus scan -c sources.yaml -o out -f json
+certadillo import-keycensus out/inventory.json
+# or
+curl -s -H "X-API-Key: $OPERATOR_KEY" -X POST $S/api/v1/inventory/keycensus --data-binary @out/inventory.json
+```
+
+| What | Where it goes |
+| --- | --- |
+| A certificate keycensus saw that Certadillo knows (same SHA-256 fingerprint) | linked to it: `GET /api/v1/inventory/external?certificate_id=<id>` shows the applications |
+| A certificate Certadillo does not know | an `untracked_certificate` finding with the applications that use it: issued outside the platform |
+| HSM, KMS and Vault keys | `GET /api/v1/inventory/external?kind=key`, and in the CycloneDX CBOM (`/api/v1/reports/cbom`) with their applications |
+| An asset missing from a later export | marked `removed`; its finding closes |
+
+`GET /api/v1/inventory/external?application=card-api` lists everything one
+application depends on. Run the import after each keycensus scan (it is
+idempotent); the import is in the audit trail.

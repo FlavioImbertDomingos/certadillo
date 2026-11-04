@@ -13,6 +13,7 @@ Installed with the package (`pip install git+https://github.com/FlavioImbertDomi
 | `certadillo audit verify` | verify the audit chain; exit code 1 if broken |
 | `certadillo ca offline-csr` / `ca import-issuing` / `ca import-crl` | the server side of the [offline root ceremony](26-offline-root.md) |
 | `certadillo offline-root init` / `sign` / `revoke` / `crl` | the offline side, on an air-gapped machine |
+| `certadillo import-keycensus FILE` | import a keycensus inventory.json |
 | `certadillo audit ship` | send unshipped audit events to every configured sink now |
 | `certadillo audit verify-export FILE --public-key KEY` | check a shipped JSONL copy (hashes, links, signatures); exit code 1 on any problem |
 | `certadillo audit signing-key` | print the public key receivers use to verify shipped records |

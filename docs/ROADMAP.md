@@ -77,7 +77,7 @@ Issuer backends (`CABackend`):
 
 Inventory connectors (`InventoryConnector`):
 
-- [ ] keycensus: import its `inventory.json` (certificates, owners and the applications linked to each key, from HSMs, KMS, Vault, Voltage and TLS scans)
+- [x] keycensus: import its `inventory.json` (November 2026). Certificates matched by fingerprint get the applications keycensus linked; unknown ones become findings; HSM, KMS and Vault keys go into the CBOM. See [discovery](guide/12-discovery-inventory.md#keys-and-applications-from-keycensus)
 - [ ] Venafi TLS Protect Datacenter: Web SDK `GET /vedsdk/Certificates/` with an OAuth token
 - [ ] Keyfactor Command: `GET /KeyfactorAPI/Certificates`
 - [ ] DigiCert CertCentral inventory: `GET /services/v2/order/certificate`
