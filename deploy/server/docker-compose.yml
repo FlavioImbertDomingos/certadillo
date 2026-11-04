@@ -33,15 +33,26 @@ services:
       CERTADILLO_BOOTSTRAP_APPROVER_KEY: ${CERTADILLO_BOOTSTRAP_APPROVER_KEY:?missing}
       CERTADILLO_ALERT_INTERVAL: "300"
       CERTADILLO_DEV_DOMAINS: ${CERTADILLO_DEV_DOMAINS:-}
+      # Ship the audit trail off the host (docs/guide/25-audit-shipping.md)
+      CERTADILLO_AUDIT_SHIP: ${CERTADILLO_AUDIT_SHIP:-}
+      CERTADILLO_AUDIT_SHIP_TOKEN_REF: ${CERTADILLO_AUDIT_SHIP_TOKEN_REF:-}
+      CERTADILLO_AUDIT_SHIP_CACERT: ${CERTADILLO_AUDIT_SHIP_CACERT:-}
+      CERTADILLO_AUDIT_SHIP_SPLUNK_INDEX: ${CERTADILLO_AUDIT_SHIP_SPLUNK_INDEX:-}
       # Set to * only when 8080 is bound to 127.0.0.1 behind your reverse proxy.
       FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
     volumes: [cadata:/var/lib/certadillo]
+    # Hardening: the image runs as uid 10001; the root filesystem is read-only
+    # (state lives in the cadata volume), no Linux capabilities, no privilege gain.
+    read_only: true
+    tmpfs: ["/tmp:size=64m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     # Bind address is configurable so a reverse proxy can take over later
     # (CERTADILLO_BIND=127.0.0.1 keeps 8080 off the public interface).
     ports: ["${CERTADILLO_BIND:-0.0.0.0}:8080:8080"]
     deploy:
       resources:
-        limits: {memory: 512m}
+        limits: {memory: 512m, pids: 256}
     logging: {driver: json-file, options: {max-size: "10m", max-file: "5"}}
 
 volumes:

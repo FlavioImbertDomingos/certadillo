@@ -140,6 +140,23 @@ Certificate Transparency shows a publicly trusted certificate for one of your zo
 
 The last run of a configured discovery source failed. The error names the source and what broke: an expired token behind `token_ref`, missing permissions, or the service unreachable. `GET /api/v1/discovery/sources` shows the last run; `POST /api/v1/discovery/sources/{name}/run` retries.
 
+## AuditShippingFailing
+
+Audit events are not reaching a configured sink. The message names the sink and the last error. See [audit shipping](guide/25-audit-shipping.md).
+
+Warning: the sink is unreachable or refusing (TLS trust, expired HEC token, S3 permissions, collector returning 5xx), or the oldest unsent event is more than 15 minutes old. Events are not lost: the cursor stays where it was and the next pass resends from there.
+
+1. `GET /api/v1/audit/shipping` shows how far behind each sink is and its last error.
+2. Fix the cause (renew the token behind `CERTADILLO_AUDIT_SHIP_TOKEN_REF`, the CA in `CERTADILLO_AUDIT_SHIP_CACERT`, the bucket policy), then run `certadillo audit ship` and check `behind` drops to 0.
+
+Critical with "chain break" in the message: the database no longer continues the chain that was already shipped, so shipped history was rewritten in the database. Shipping to that sink has stopped on purpose. Treat it as an incident:
+
+1. Snapshot the database before anything else.
+2. The shipped copy is the reference. Export it (SIEM search, S3 objects) and run `certadillo audit verify-export <file> --public-key <key>` to confirm it is intact.
+3. Compare it with `GET /api/v1/audit` from the event after the one named in the message to see what was changed.
+4. Find how it happened as for `AuditAnchorMismatch` below, and run `certadillo db harden`.
+5. Shipping resumes only after the database history matches what was shipped again (restore from backup) or the sink's cursor is reset deliberately by an admin in SQL, which itself shows up in the next shipped record.
+
 ## IntegritySealBroken
 
 A principal, approval or certificate row was changed outside Certadillo (in SQL, not through the application), or a certificate the audit trail records as revoked is back to "active". Treat it as a security incident: someone had write access to the database.

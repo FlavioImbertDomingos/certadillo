@@ -71,6 +71,13 @@ Controls:
   sent off the host, to a webhook or an append-only file you ship to WORM
   storage. `certadillo audit verify --anchors` checks the current chain against
   every saved anchor, so a rewritten history no longer verifies.
+- Audit shipping. Every event leaves the host within seconds to a SIEM
+  (syslog over TLS, Splunk HEC, HTTPS) and/or S3 with Object Lock in
+  COMPLIANCE mode. Records carry their chain hashes and an Ed25519 signature;
+  receivers hold only the public key, so they can verify but not forge. The
+  shipper refuses to continue past a rewritten history and raises a critical
+  `AuditShippingFailing`. Once shipped, an event can no longer be removed by
+  anyone who controls only the Certadillo host.
 
 ### Running code inside the application
 
@@ -85,8 +92,12 @@ then ask for signatures while they are inside, but cannot export the key, so the
 compromise ends when access is cut, and every signature they obtain goes through
 code paths that record it. With Vault, the shipped application policy only allows
 signing with issuing CA keys, so a compromised server cannot use the root to mint
-a new intermediate. Run the root fully offline once it has signed the issuing CA. Pin and hash dependencies,
-run the container as non-root with a read-only filesystem.
+a new intermediate. Run the root fully offline once it has signed the issuing CA. Pin and hash dependencies.
+The shipped compose files run the container as uid 10001 with a read-only root
+filesystem, no Linux capabilities, `no-new-privileges` and a process limit, so
+code that gets in cannot install tools, persist outside the data volume or
+escalate inside the container. Audit events shipped before the compromise stay
+out of reach in the SIEM and the Object Lock bucket.
 
 ### Root on the host
 
@@ -191,6 +202,7 @@ integrity.
 | P0 | Application port reachable only through the TLS proxy | `deploy.sh` sets `CERTADILLO_BIND=127.0.0.1` for the Traefik and nginx setups; check with `curl -m5 http://<server-ip>:8080/healthz` from outside (it should not connect) |
 | P1 | Append-only audit table (triggers; role split on PostgreSQL) | Done |
 | P1 | Audit chain anchored off the host, verifiable against saved anchors | Done |
+| P1 | Every audit event shipped off the host (SIEM, S3 Object Lock), signed, with chain-break detection | Done |
 | P1 | Integrity seals on principals, approvals and certificate status, with rollback check | Done |
 | P1 | Field encryption for EAB keys, CMP secrets and team webhooks (local key or Vault Transit) | Done |
 | P1 | Name constraints on new issuing CAs | Done |
@@ -200,7 +212,7 @@ integrity.
 | P1 | Onboarding approval decided by scope, not the environment label; scope shape checked | Done |
 | P1 | LDAP to the directory over validated TLS only | Done |
 | P1 | No built-in key passphrase; ceremony policy allowlists key parameters | Done |
-| P2 | Container hardening (non-root, read-only filesystem, dropped capabilities) | To do |
+| P2 | Container hardening (non-root, read-only filesystem, dropped capabilities) | Done: both compose files; `no-new-privileges` and a pids limit too |
 | P2 | Per-principal rate limits, egress restrictions | To do |
 
 ## For the public demo

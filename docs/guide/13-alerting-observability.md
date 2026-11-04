@@ -21,6 +21,18 @@ curl -s -H "X-API-Key: $OPERATOR_KEY" $S/api/v1/alerts
 | `CRLStale` | critical | an issuing CA's CRL was not re-signed for twice the CRL interval |
 | `AuditChainBroken` | critical | the audit hash chain fails verification |
 | `ApprovalPending` | warning | an approval has waited over 24 hours |
+| `RenewalCampaignOverdue` | critical | a renewal campaign passed its deadline with certificates not replaced |
+| `AdcsTemplateVulnerable` | critical / warning | the AD CS audit found a critical / high ESC finding |
+| `AdcsGatewayJobStuck` | warning | an AD CS gateway job has been pending or claimed for over an hour |
+| `CAKeyUnhealthy` | critical | an HSM or Vault CA key failed its health check |
+| `IntegritySealBroken` | critical | a sealed row was changed outside Certadillo, or a revoked certificate is active again |
+| `AuditAnchorMismatch` | critical | the audit history no longer contains a saved anchor |
+| `AuditShippingFailing` | warning / critical | a sink is failing or over 15 minutes behind / five failures in a row, or shipped history was rewritten |
+| `PrivilegedPrincipalCreated` | warning | someone created an admin, approver or gateway credential in the last 24 hours |
+| `ProvisioningFailed` | warning / critical | a push installation failed / failed three times in a row |
+| `PrivateKeyExposed` | critical | the host agent found a private key file readable by every user |
+| `UnknownPublicCertificate` | warning | CT shows a public certificate for the bank's zones that Certadillo did not issue |
+| `DiscoverySourceFailing` | warning | the last run of a cloud or CT discovery source failed |
 
 Each alert is sent when it starts, repeated every 4 hours (critical), 24 hours (warning) or 7 days (info) while it lasts, and sent once more as resolved. Every alert links to its [runbook](../RUNBOOK.md) section.
 

@@ -130,6 +130,12 @@ All settings are environment variables.
 | `CERTADILLO_SEAL_KEY_PREVIOUS` | | the old key while rotating; then run `certadillo integrity reseal` |
 | `CERTADILLO_AUDIT_ANCHOR_FILE` / `_URL` | | where the daily audit chain head goes (a JSONL file you ship to WORM storage, and/or a webhook) |
 | `CERTADILLO_AUDIT_ANCHOR_HOURS` | `24` | how often to anchor |
+| `CERTADILLO_AUDIT_SHIP` | | sinks every audit event is shipped to: `file:`, `syslog+tls://`, `syslog+tcp://`, `splunk+https://`, `https://`, `s3://` ([audit shipping](25-audit-shipping.md)) |
+| `CERTADILLO_AUDIT_SHIP_INTERVAL` | `15` | seconds between shipping passes |
+| `CERTADILLO_AUDIT_SHIP_TOKEN_REF` | | `env:`, `file:` or `vault:` reference to the HEC or bearer token |
+| `CERTADILLO_AUDIT_SHIP_CACERT` | | CA bundle for the syslog TLS, Splunk and HTTPS sinks |
+| `CERTADILLO_AUDIT_SHIP_SPLUNK_INDEX` | | Splunk index |
+| `CERTADILLO_AUDIT_SHIP_S3_RETENTION_DAYS` | `2555` | Object Lock (COMPLIANCE) retention for the S3 sink |
 | `CERTADILLO_FIELD_CIPHER` | `local` | `local` or `vault`: where the key for encrypted secret columns lives |
 | `CERTADILLO_VAULT_ADDR` / `_NAMESPACE` | | Vault, for `SIGNER=vault-transit` and `FIELD_CIPHER=vault` |
 | `CERTADILLO_VAULT_TOKEN_FILE` / `_TOKEN` | | the token: a file Vault Agent keeps fresh (re-read on every call; wins over `_TOKEN`), or a static token |
@@ -169,6 +175,8 @@ CERTADILLO_DB_URL=postgresql+psycopg://certadillo_app:...@db/certadillo
 The app role then has SELECT and INSERT on `audit_events` and no way to change or drop its triggers. Run `db migrate` with the owner credential before starting each new version.
 
 Audit anchoring. Set `CERTADILLO_AUDIT_ANCHOR_FILE` and/or `_URL`. Once a day (and on `certadillo audit anchor` or `POST /api/v1/audit/anchor`) the verified chain head, with a MAC under the seal key, goes there. Ship the file to storage with object lock. `certadillo audit verify --anchors <file>` fails if the history was rewritten after any saved anchor, even when the rewritten chain re-hashes cleanly.
+
+Audit shipping. Set `CERTADILLO_AUDIT_SHIP` so every event leaves the host within seconds, signed with an Ed25519 key whose public half receivers use to verify. See [audit shipping](25-audit-shipping.md).
 
 Field encryption. EAB HMAC keys, CMP secrets and team webhook URLs are encrypted at rest. The default key is derived from the passphrase; with `CERTADILLO_FIELD_CIPHER=vault`, Vault Transit holds it and every decrypt is a Vault call you can audit and revoke. Existing plaintext values are encrypted at the next start.
 

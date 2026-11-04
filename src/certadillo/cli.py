@@ -118,6 +118,64 @@ def audit_anchor():
     click.echo(json.dumps({**a, "sinks": sinks}))
 
 
+@audit.command("ship")
+def audit_ship():
+    """Send unshipped audit events to every configured sink now."""
+    from certadillo.audit.shipping import ship
+    from certadillo.runtime import init_runtime
+
+    rt = init_runtime()
+    with rt.platform() as p:
+        click.echo(json.dumps(ship(p.s, rt.settings)))
+
+
+@audit.command("verify-export")
+@click.argument("path", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--public-key", "public_key", type=click.Path(exists=True, dir_okay=False, path_type=Path),
+              help="the audit signing public key (from `certadillo audit signing-key`); checks every signature")
+@click.option("--no-mac", is_flag=True, help="skip the MAC check (when the seal key is not available here)")
+def audit_verify_export(path, public_key, no_mac):
+    """Check a shipped JSONL copy of the audit trail on its own: every record's
+    hash, the links between records, the signatures (with --public-key) and the
+    MACs (needs the seal key). Exit 1 on any problem, or if neither the
+    signatures nor the MACs could be checked."""
+    from certadillo.audit.shipping import load_public_key, verify_records
+
+    if not no_mac:
+        from certadillo import integrity
+        from certadillo.config import get_settings
+
+        try:
+            integrity.configure(get_settings())
+        except Exception:  # noqa: BLE001 - no key material here; signatures can still be checked
+            if public_key is None:
+                raise
+    pub = load_public_key(public_key.read_bytes()) if public_key else None
+    records = [json.loads(ln) for ln in path.read_text().splitlines() if ln.strip()]
+    res = verify_records(records, check_mac=not no_mac, public_key=pub)
+    if not (res["signatures_checked"] or res["macs_checked"]):
+        res["valid"] = False
+        res["problems"].insert(0, {"id": None, "problem": "origin not checked: pass --public-key or run with the seal key"})
+    click.echo(json.dumps(res, indent=2))
+    sys.exit(0 if res["valid"] else 1)
+
+
+@audit.command("signing-key")
+def audit_signing_key():
+    """Print the public key that verifies shipped audit records. Give it to the
+    SIEM or storage team; it can check records but not forge them."""
+    from certadillo.audit.shipping import SIGNING_KEY_FILE, key_id, load_public_key, public_key_pem
+    from certadillo.config import get_settings
+
+    settings = get_settings()
+    if not (Path(settings.data_dir) / SIGNING_KEY_FILE).exists():
+        raise click.ClickException("no audit signing key in this data directory yet; it is created when the "
+                                   "server starts with CERTADILLO_AUDIT_SHIP set")
+    pem = public_key_pem(settings)
+    click.echo(f"# key id {key_id(load_public_key(pem.encode()))}")
+    click.echo(pem, nl=False)
+
+
 @main.group()
 def integrity():
     """Integrity seals on principals, approvals and certificate status."""

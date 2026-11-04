@@ -20,39 +20,50 @@ flowchart LR
     A3[Ansible, PowerShell,<br/>CLI, CI pipelines<br/>REST]
     A4[Operators<br/>web console]
     A5[Workloads<br/>SPIFFE SVIDs]
+    A7[Host agents<br/>certadillo agent scan]
   end
   subgraph Certadillo
     E[Enrollment front ends<br/>acme.py, est.py, scep.py, cmp.py, REST v1]
     ARI[Renewal campaigns<br/>ari.py]
     RA[RA service layer<br/>services.py]
-    P[Policy engine<br/>default_policies.yaml]
+    P[Policy engine<br/>profiles, folder tree<br/>policy/folders.py]
     DC[Dual control<br/>approvals]
     CA[CA service<br/>authority.py, ssh.py]
-    BK[Issuer backends<br/>local, Vault/OpenBao]
+    BK[Issuer backends<br/>local, Vault/OpenBao, AD CS,<br/>ACME CAs, DigiCert, AWS PCA, EJBCA<br/>ca/issuers/]
     S[Signer layer<br/>software, PKCS#11]
     R[Revocation<br/>CRL, OCSP]
-    D[Discovery<br/>scanner, connectors]
+    D[Discovery<br/>scanner, connectors, agent,<br/>cloud stores, CT<br/>discovery/]
+    PV[Push provisioning<br/>SSH, Kubernetes, F5, ACM<br/>provisioning/]
     AL[Alert evaluator<br/>notifiers]
-    AU[Audit chain]
+    AU[Audit chain<br/>audit/log.py]
+    SH[Audit shipper<br/>audit/shipping.py]
     M[Metrics collector]
     REP[Reports<br/>CBOM, PCI, PQC]
   end
   HSM[(HSM<br/>Luna / nShield /<br/>CloudHSM / SoftHSM2)]
   DB[(PostgreSQL)]
+  SIEM[(SIEM: syslog TLS, Splunk HEC<br/>S3 Object Lock)]
+  TG[Load balancers, hosts,<br/>clusters, ACM]
+  UP[Public and enterprise CAs]
   PR[Prometheus] --> AM[Alertmanager] --> OC[PagerDuty / Slack /<br/>ServiceNow]
   G[Grafana] --> PR
   A1 & A2 & A3 & A4 & A5 & A6 --> E --> RA
+  A7 --> D
   ARI --> E
   RA --> P
   RA --> DC
   RA --> CA --> BK
   CA --> S --> HSM
   RA --> AU
+  AU --> SH --> SIEM
+  PV --> RA
+  PV --> TG
+  BK --> UP
   R --> CA
   D --> RA
   AL --> OC
   M --> PR
-  RA & CA & D & AL & AU & REP --> DB
+  RA & CA & D & AL & AU & REP & PV --> DB
 ```
 
 ## Request flow: issuing a certificate
@@ -89,15 +100,22 @@ In production the root is created in a key ceremony on an offline HSM and signs 
 
 | Table | Purpose |
 | --- | --- |
-| teams, apps | Ownership and RA scope from onboarding |
+| teams, apps | Ownership and RA scope from onboarding; each app sits in a policy folder |
+| policy_folders | The policy tree: settings with `{value, locked}`, inherited downwards |
 | principals | Hashed API keys with a role; app keys point at their app |
 | cas | CA certificates, key references (`file:` or `pkcs11:` label), CRL number |
 | certificates | Every certificate issued, discovered or imported, with source, location, protocol, backend and status |
 | approvals | Maker-checker requests and decisions |
 | audit_events | Hash-chained event log |
+| audit_ship_cursors | Per sink: last shipped event and hash (for chain-break detection), failures, last error |
 | alerts | Alert state for de-duplication, repeat intervals and resolve notices |
 | ssh_certificates | Issued SSH certificates |
 | acme_* | ACME accounts, orders, authorizations, nonces, EAB credentials |
+| provisioning_targets, installations, provisioning_runs | Push provisioning: where to install, what to keep installed, every attempt |
+| discovery_runs, discovery_findings | Scheduled discovery runs and what they found (readable keys, unknown public certificates) |
+| scep_*, cmp_*, est_trust_anchors | Protocol state: challenges, transactions, secrets, manufacturer CAs |
+| renewal_campaigns, renewal_advice | ARI windows and planned early renewal |
+| adcs_jobs, adcs_findings | The AD CS gateway queue and template audit results |
 
 ## Expiry alerting that works with short-lived certificates
 
@@ -132,7 +150,10 @@ The API is stateless apart from the database, so it scales horizontally. The hou
 
 | To add | Implement | Registered by |
 | --- | --- | --- |
-| A new CA (AD CS, EJBCA, AWS Private CA, DigiCert) | `CABackend.sign()` and `.revoke()` | `register_backend()`, then `issuer:` in a profile |
+| A new upstream CA | `CABackend.sign()` and `.revoke()` (see `ca/issuers/` for ACME, DigiCert, AWS PCA, EJBCA) | a `type` in `ca/issuers/__init__.py:build()`, then `issuers:` in the policy YAML and `issuer:` on a profile or folder |
+| A new push target (IIS, NetScaler, Azure Key Vault) | `Driver.check_config()`, `.check_params()` and `.install()` in `provisioning/drivers/` | the `@register` decorator |
+| A new scheduled discovery source | `collect()` yielding `(certificate, location)` | a `type` in `discovery/sources.py:build()`, then `discovery.sources` in the policy YAML |
+| A new audit sink | `Sink.send(records)` in `audit/shipping.py` | a scheme in `shipping.build()` |
 | A new inventory source (F5, ACM, Key Vault, Venafi) | `InventoryConnector.collect()` yielding `(cert, location)` | call `Platform.ingest()` |
 | A new HSM or KMS | `Signer.sign()` and `.public_key()` plus a key store | `build_keystore()` |
 | A new alert channel | `Notifier.send()` | `build_global_notifiers()` |

@@ -71,6 +71,8 @@ DESCRIBE = {
     ("POST", "/api/v1/adcs/inventory"): ("admin, operator", "queue an AD CS CA database inventory job"),
     ("GET", "/api/v1/audit/head"): ("admin, auditor", "the current chain head as a signed anchor, for an external monitor"),
     ("POST", "/api/v1/audit/anchor"): ("admin", "send the chain head to the configured anchor file or URL now"),
+    ("GET", "/api/v1/audit/shipping"): ("admin, auditor", "per audit sink: events behind, oldest unsent, failures, last error"),
+    ("GET", "/api/v1/audit/signing-key"): ("admin, auditor", "the Ed25519 public key that verifies shipped audit records"),
     ("GET", "/api/v1/integrity"): ("admin, operator, auditor", "rows whose integrity seal fails, and certificates whose revocation was rolled back"),
     ("GET", "/api/v1/ssh/ca"): ("public", "SSH CA public key for TrustedUserCAKeys"),
     ("POST", "/api/v1/ssh/certificates"): ("app, admin, operator", "issue an SSH user or host certificate"),

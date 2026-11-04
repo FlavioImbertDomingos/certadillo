@@ -48,7 +48,7 @@ Every row below has automated tests. "Interop" means a third-party client was ru
 | Alerting | Lifetime-aware expiry thresholds, weak crypto, unowned certs, CA expiry, stale CRL, broken audit chain; routed per team; Slack, webhook, Jira, ServiceNow | `test_alert_lifecycle_and_routing`, `test_ticketing_notifiers` |
 | Observability | Prometheus metrics, JSON logs with request IDs, Prometheus rules, Alertmanager routing, Grafana dashboard | `promtool check rules`, compose stack |
 | Zero-trust access | OIDC/JWT bearer tokens from an external IdP (Entra ID, Vault, or any OIDC issuer) validated against the issuer's JWKS, mapped to roles by claim, fail-closed; API keys still work alongside | `tests/test_oidc_auth.py` |
-| Audit | SHA-256 hash-chained audit log in an append-only table (database triggers; PostgreSQL role split), anchored off the host daily, verify endpoint, metric and alerts on tampering | `test_audit_chain_detects_tampering`, `tests/test_integrity.py` |
+| Audit | SHA-256 hash-chained audit log in an append-only table (database triggers; PostgreSQL role split), anchored off the host daily, verify endpoint, metric and alerts on tampering; every event shipped within seconds to syslog over TLS, Splunk HEC, HTTPS or S3 Object Lock, signed with Ed25519 so receivers can verify but not forge, with an offline `verify-export` | `test_audit_chain_detects_tampering`, `tests/test_integrity.py`, `tests/test_audit_shipping.py` (real TLS syslog receiver, moto for S3 Object Lock) |
 | Database tamper resistance | HMAC integrity seals on principals, approvals and certificate status (a row changed in SQL cannot log in, cannot be approved, and reads as revoked); secret columns encrypted with a local key or Vault Transit; name constraints on issuing CAs. See the [threat model](docs/THREAT_MODEL.md) | `tests/test_integrity.py` |
 | Crypto agility / PQC | CycloneDX 1.6 CBOM, PQC readiness report, CA-outlives-2035 check, algorithm-agnostic signer layer | `test_reports` |
 | Automation | CLI (`cert request`, `cert renew-if-due`), Ansible role, PowerShell module, Python demo seeder | Ansible and PowerShell run against a live server |
@@ -62,7 +62,7 @@ Local, SQLite, software keys:
 
 ```bash
 pip install -e ".[dev,hsm]"
-make test                                      # 232 tests; the HSM test runs if SoftHSM2 is installed
+make test                                      # 240 tests; the HSM test runs if SoftHSM2 is installed
 make run                                       # http://localhost:8080, prints a random admin key
 make demo                                      # seed teams, apps, certificates and some bad legacy certs
 ```

@@ -324,6 +324,25 @@ def run_housekeeping() -> dict:
         return reconcile(p.s, rt.settings, rt.policies, build_global_notifiers(rt.settings))
 
 
+def run_audit_shipping() -> dict:
+    rt = get_runtime()
+    if not rt.settings.audit_ship:
+        return {}
+    from certadillo.audit.shipping import ship
+
+    with rt.platform() as p:
+        return ship(p.s, rt.settings)
+
+
+async def _ship_loop(interval: int):
+    while True:
+        try:
+            await asyncio.to_thread(run_audit_shipping)
+        except Exception:  # noqa: BLE001
+            log.exception("audit shipping failed")
+        await asyncio.sleep(interval)
+
+
 async def _loop(interval: int):
     while True:
         try:
@@ -340,9 +359,12 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
 
     @asynccontextmanager
     async def lifespan(_app):
-        task = asyncio.create_task(_loop(get_runtime().settings.alert_interval_seconds)) if background else None
+        settings = get_runtime().settings
+        tasks = [asyncio.create_task(_loop(settings.alert_interval_seconds))] if background else []
+        if background and settings.audit_ship:
+            tasks.append(asyncio.create_task(_ship_loop(settings.audit_ship_interval)))
         yield
-        if task:
+        for task in tasks:
             task.cancel()
 
     app = FastAPI(title="Certadillo", version=__version__, lifespan=lifespan,
@@ -1033,6 +1055,21 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
         out = disc.ingest_agent_report(p, who, body.host, body.certificates, body.key_files)
         p.commit()
         return out
+
+    @app.get("/api/v1/audit/shipping", tags=["governance"])
+    def audit_shipping(p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        who.require("admin", "auditor")
+        from certadillo.audit.shipping import lag
+
+        return [{k: v for k, v in row.items() if k != "spec"} for row in lag(p.s, p.settings)]
+
+    @app.get("/api/v1/audit/signing-key", tags=["governance"])
+    def audit_signing_key(p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        who.require("admin", "auditor")
+        from certadillo.audit.shipping import key_id, load_public_key, public_key_pem
+
+        pem = public_key_pem(p.settings)
+        return {"algorithm": "Ed25519", "key_id": key_id(load_public_key(pem.encode())), "public_key_pem": pem}
 
     @app.get("/api/v1/discovery/sources", tags=["inventory"])
     def discovery_sources(p: Platform = Depends(platform), who: Actor = Depends(actor)):

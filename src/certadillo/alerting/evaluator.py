@@ -155,6 +155,19 @@ def evaluate(session, settings, policies: dict) -> list[Alert]:
 
     from certadillo.db import DiscoveryFinding, DiscoveryRun, Installation, ProvisioningTarget
 
+    if settings.audit_ship:
+        from certadillo.audit.shipping import lag
+
+        for row in lag(session, settings):
+            stale = row["oldest_unsent"] and now - datetime.fromisoformat(row["oldest_unsent"]) > timedelta(minutes=15)
+            if row["failures"] or stale:
+                chain_break = "chain break" in (row["last_error"] or "")
+                out.append(Alert(_fp("auditship", row["sink"]), "AuditShippingFailing",
+                                 "critical" if chain_break or row["failures"] >= 5 else "warning",
+                                 f"audit events are not reaching {row['sink']}: {row['behind']} behind"
+                                 + (f"; {row['last_error'][:160]}" if row["last_error"] else ""),
+                                 {"sink": row["sink"]}, runbook=RUNBOOK + "auditshippingfailing"))
+
     for f in session.query(DiscoveryFinding).filter_by(status="open").all():
         if f.kind == "key_readable":
             out.append(Alert(_fp("finding", f.key), "PrivateKeyExposed", "critical",

@@ -606,3 +606,19 @@ class DiscoveryFinding(Base):
     first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     acknowledged_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
+
+
+class AuditShipCursor(Base):
+    """How far each audit sink has been sent. At-least-once: a batch is sent,
+    then the cursor moves. Receivers de-duplicate by event hash, and every
+    record carries prev_hash, so a skipped range shows up as a break in the
+    receiver's copy of the chain."""
+
+    __tablename__ = "audit_ship_cursors"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sink: Mapped[str] = mapped_column(String(255), unique=True)
+    last_event_id: Mapped[int] = mapped_column(Integer, default=0)
+    last_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    failures: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

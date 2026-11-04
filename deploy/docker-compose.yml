@@ -33,11 +33,23 @@ services:
       CERTADILLO_DEV_DOMAINS: ${CERTADILLO_DEV_DOMAINS:-}
       CERTADILLO_WEBHOOK_URLS: ${CERTADILLO_WEBHOOK_URLS:-}
       CERTADILLO_SLACK_WEBHOOK_URLS: ${CERTADILLO_SLACK_WEBHOOK_URLS:-}
+      # Ship the audit trail off the host (docs/guide/25-audit-shipping.md)
+      CERTADILLO_AUDIT_SHIP: ${CERTADILLO_AUDIT_SHIP:-}
+      CERTADILLO_AUDIT_SHIP_TOKEN_REF: ${CERTADILLO_AUDIT_SHIP_TOKEN_REF:-}
+      CERTADILLO_AUDIT_SHIP_CACERT: ${CERTADILLO_AUDIT_SHIP_CACERT:-}
+      CERTADILLO_AUDIT_SHIP_SPLUNK_INDEX: ${CERTADILLO_AUDIT_SHIP_SPLUNK_INDEX:-}
       # Uncomment to keep CA keys in the bundled SoftHSM2 token (see docs/HSM.md)
       # CERTADILLO_SIGNER: pkcs11
       # CERTADILLO_PKCS11_LIB: /usr/lib/softhsm/libsofthsm2.so
       # CERTADILLO_PKCS11_PIN: ${PKCS11_PIN}
     volumes: [cadata:/var/lib/certadillo]
+    # Hardening: the image runs as uid 10001; the root filesystem is read-only
+    # (state lives in the cadata volume), no Linux capabilities, no privilege gain.
+    read_only: true
+    tmpfs: ["/tmp:size=64m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 256
     ports: ["${CERTADILLO_PORT:-8080}:8080"]
 
   prometheus:

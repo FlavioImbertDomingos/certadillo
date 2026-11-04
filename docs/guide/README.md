@@ -37,6 +37,7 @@ Pick the protocol your client already speaks. They all go through the same onboa
 - [Push provisioning: install certificates on F5, hosts, Kubernetes and ACM](22-push-provisioning.md)
 - [Discovery and inventory](12-discovery-inventory.md)
 - [Alerting and observability](13-alerting-observability.md)
+- [Audit shipping: signed, tamper-evident copies to a SIEM and S3 Object Lock](25-audit-shipping.md)
 - [Automation: CLI, Ansible, PowerShell, CI](14-automation.md)
 - [Zero-trust access with an external IdP (Entra ID, Vault, OIDC)](21-zero-trust-auth.md)
 - [Administration: roles, approvals, CAs, HSM, configuration](15-administration.md)

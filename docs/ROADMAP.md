@@ -120,8 +120,18 @@ Next:
   so the root key never touches the server.
 - **Encrypted, off-host backups** in `deploy.sh` (age or gpg to a key that is
   not on the server).
-- **Container hardening:** non-root user, read-only root filesystem, dropped
-  capabilities.
+- ~~Container hardening~~ **Done (November 2026).** Non-root user, read-only
+  root filesystem, all capabilities dropped, `no-new-privileges`, a pids limit,
+  Dependabot on the base image.
+- ~~Audit shipping~~ **Done (November 2026).** Every event to syslog over TLS,
+  Splunk HEC, HTTPS or S3 Object Lock, signed with Ed25519, with chain-break
+  detection and `audit verify-export`. See [audit shipping](guide/25-audit-shipping.md).
+- **Separate signing service.** Move CA signing into a small process with its
+  own credential (or keep it entirely in the HSM or Vault), so the web-facing
+  process can ask for signatures under policy but never holds key material.
+- **Supply chain:** hash-pinned lock file for the image build, `pip-audit` and
+  an SBOM in CI, signed images (cosign), and fuzzing of the DER, CMS and CMP
+  parsers.
 
 ## Phase 7: the lifecycle features enterprise CLM suites ship
 
@@ -179,7 +189,6 @@ names or interfaces is copied.
 - Console single sign-on on top of the zero-trust access work in Phase 3.5 (the token validation and role mapping live there).
 - Leader election for housekeeping (PostgreSQL advisory lock), HSM session pooling, per-principal rate limits.
 - OpenTelemetry traces across enrollment, policy and signing.
-- Audit shipping to Splunk HEC / S3 Object Lock, with the chain head anchored daily.
 - Helm chart and a Terraform module (EKS or ECS, RDS PostgreSQL, CloudHSM).
 - Alembic migrations.
 - Oracle Database support, for banks that standardize on it. A compile of the

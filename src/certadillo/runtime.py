@@ -53,6 +53,11 @@ def init_runtime(settings: Settings | None = None) -> Runtime:
     from certadillo.discovery.sources import configured
 
     rt.discovery_sources = configured(rt.policies, settings)
+    from certadillo.audit.shipping import check_config, signing_key
+
+    check_config(settings)  # a mistyped sink stops startup instead of silently shipping nowhere
+    if settings.audit_ship:
+        signing_key(settings)  # created (or unlocked) now, so a wrong passphrase fails at startup
     register_inventory_collector(db.get_session)
     bootstrap(rt)
     _rt = rt

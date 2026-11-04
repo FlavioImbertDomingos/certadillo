@@ -105,6 +105,16 @@ class Settings:
     audit_anchor_url: str | None = field(default_factory=lambda: _env("AUDIT_ANCHOR_URL"))
     audit_anchor_file: str | None = field(default_factory=lambda: _env("AUDIT_ANCHOR_FILE"))
     audit_anchor_hours: int = field(default_factory=lambda: int(_env("AUDIT_ANCHOR_HOURS", "24") or 24))
+    # Audit shipping: every audit event, with its chain hashes and a MAC under the
+    # seal key, sent to these sinks (comma-separated). See certadillo.audit.shipping.
+    #   file:/var/log/certadillo/audit.jsonl   syslog+tls://siem:6514   syslog+tcp://host:514
+    #   splunk+https://splunk:8088            https://collector/ingest  s3://bucket/prefix
+    audit_ship: list[str] = field(default_factory=lambda: _list("AUDIT_SHIP"))
+    audit_ship_interval: int = field(default_factory=lambda: int(_env("AUDIT_SHIP_INTERVAL", "15") or 15))
+    audit_ship_token_ref: str | None = field(default_factory=lambda: _env("AUDIT_SHIP_TOKEN_REF"))
+    audit_ship_cacert: str | None = field(default_factory=lambda: _env("AUDIT_SHIP_CACERT"))
+    audit_ship_s3_retention_days: int = field(default_factory=lambda: int(_env("AUDIT_SHIP_S3_RETENTION_DAYS", "2555") or 2555))
+    audit_ship_splunk_index: str | None = field(default_factory=lambda: _env("AUDIT_SHIP_SPLUNK_INDEX"))
     # Field encryption for secret columns: "local" (key derived from KEY_PASSPHRASE)
     # or "vault" (HashiCorp Vault Transit; the key never leaves Vault).
     field_cipher: str = field(default_factory=lambda: _env("FIELD_CIPHER", "local") or "local")
