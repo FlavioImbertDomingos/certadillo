@@ -1334,4 +1334,158 @@
       }
     ]
   });
+  // ------------------------------------------------------------------ Offline root ceremony
+  S.register({
+    id: "offlineroot",
+    title: "Offline root ceremony",
+    dilly: "server",
+    chainAt: "db",
+    chainOffset: [1.2, 0.2],
+    camera: { theta: 0.3, phi: 1.1, radius: 21.5 },
+    actors: [
+      { id: "operator", kind: "person", label: "Operator", sub: "runs the ceremony", x: -2.8, z: 7.0 },
+      { id: "witness", kind: "person", label: "Witness", sub: "a second person", x: 1.4, z: 7.2 },
+      { id: "offline", kind: "laptop", label: "Air-gapped machine", sub: "certadillo offline-root", x: -7.2, z: 1.0, anchorY: 0.8 },
+      { id: "root", kind: "ca", label: "Root CA", sub: "key on removable media", x: -6.6, z: -4.4, anchorY: 1.6, labelY: 3.0 },
+      { id: "server", kind: "shield", label: "Certadillo server", sub: "never holds the root key", x: 1.0, z: -1.0, anchorY: 1.4 },
+      { id: "hsm", kind: "hsm", label: "HSM", sub: "issuing CA key", x: 6.6, z: -3.6, anchorY: 0.6, labelY: 1.5 },
+      { id: "db", kind: "db", label: "Inventory + audit", x: 5.4, z: 3.6, anchorY: 1.1 }
+    ],
+    steps: [
+      {
+        phase: "Root", title: "The root is born offline",
+        body: "On a machine that has never been on a network, the root key is generated, encrypted with a passphrase of at least 16 characters, and written to removable media with its self-signed certificate. The fingerprint goes on the ceremony form; every later step is checked against it.",
+        payload: "certadillo offline-root init --dir /media/root-ca --org \"Example Bank\" --years 20\n\n{\"root\": \"/media/root-ca/root.pem\",\n \"sha256\": \"68a4e733a3e901ac584dbd36131145087ca396f41a3fd41a78faacbee99cbd89\",\n \"not_after\": \"2046-11-04T06:07:03+00:00\"}",
+        moves: [
+          { from: "operator", to: "offline", label: "init (passphrase)", kind: "secret" },
+          { from: "offline", to: "root", label: "root key, encrypted", kind: "secret", effect: "sign" }
+        ]
+      },
+      {
+        phase: "Issuing CA", title: "The issuing key is made in the HSM",
+        body: "On the server side, the issuing CA's key is generated where CA keys live and never leaves it. Certadillo writes a CSR asking for a CA with pathlen 0 and the name constraints it is configured to require. Operator and witness are recorded.",
+        payload: "certadillo ca offline-csr --name issuing-ca-1 --operator alice --witness bob --out issuing.csr\n\naudit: ca.offline.csr  key_ref pkcs11:issuing-ca-1  spki_sha256 d3cd9ea6...",
+        moves: [
+          { from: "server", to: "hsm", label: "generate key", kind: "secret", effect: "hsm" },
+          { from: "server", to: "db", label: "audit: ca.offline.csr", kind: "response", effect: "store" }
+        ]
+      },
+      {
+        phase: "Issuing CA", title: "The root signs, offline",
+        body: "The CSR travels on media. Only the subject, the public key and the name constraints are taken from it; the CA flags, key usage, validity cap and CRL location are set by the tool. The subject and fingerprint are read aloud for the witness.",
+        payload: "certadillo offline-root sign --dir /media/root-ca --csr issuing.csr --out issuing.pem \\\n  --years 5 --crl-url https://pki.bank.internal/pki/crl/root-ca.crl\n\nBasicConstraints CA:TRUE pathlen:0 (critical)\nKeyUsage keyCertSign, cRLSign (critical)\nNameConstraints permitted DNS:bank.internal (critical, from the CSR)",
+        moves: [
+          { from: "server", to: "offline", label: "issuing.csr (media)", kind: "local" },
+          { from: "root", to: "offline", label: "sign", effect: "sign" },
+          { from: "witness", to: "offline", label: "checks the fingerprint", effect: "check" }
+        ]
+      },
+      {
+        phase: "Import", title: "The server checks everything it is given",
+        body: "The signed certificate must carry the key generated in the HSM, verify with the root's key (not just name it), be a pathlen 0 CA inside the root's validity, and keep the required name constraints. The root is stored with no key at all.",
+        payload: "certadillo ca import-issuing --name issuing-ca-1 --cert issuing.pem --root root.pem \\\n  --operator alice --witness bob\n\nroot-ca       key_ref offline:68a4e733...   signer offline\nissuing-ca-1  key_ref pkcs11:issuing-ca-1   signer pkcs11",
+        moves: [
+          { from: "offline", to: "server", label: "issuing.pem + root.pem", kind: "response" },
+          { from: "server", to: "hsm", label: "key matches?", effect: "check", dilly: "happy" },
+          { from: "server", to: "db", label: "audit: ca.offline.import", kind: "response", effect: "store" }
+        ]
+      },
+      {
+        phase: "Import", title: "A certificate with someone else's key is refused",
+        body: "If the certificate that comes back carries a different key, even one signed by the real root, the import stops. The same happens for a forged root that copies the real root's name, or a certificate that dropped the name constraints.",
+        payload: "ceremony error: the certificate does not carry the key generated for this ceremony\nceremony error: the certificate's signature does not verify with the root's key\nceremony error: the certificate does not carry the name constraints this server requires",
+        moves: [
+          { from: "offline", to: "server", label: "wrong key", kind: "reject", effect: "reject", dilly: "worried" }
+        ]
+      },
+      {
+        phase: "CRL", title: "The root CRL, twice a year",
+        body: "Only the offline root can sign its CRL, so it is signed at the ceremony and imported. The server checks the signature and refuses a CRL whose number is not newer, so an old CRL cannot be replayed to take a revocation back. CRLStale warns 30 days before it expires.",
+        payload: "certadillo offline-root crl --dir /media/root-ca --out root.crl --days 180\ncertadillo ca import-crl --ca root-ca root.crl\n{\"ca\": \"root-ca\", \"crl_number\": 2, \"next_update\": \"2027-05-03T...\", \"revoked\": 0}\n\nreplay of CRL #1 -> 400 CRL number 1 is not newer than the current 2",
+        moves: [
+          { from: "root", to: "offline", label: "sign CRL", effect: "sign" },
+          { from: "offline", to: "server", label: "root.crl (media)", kind: "local" },
+          { from: "server", to: "db", label: "audit: ca.crl.import", kind: "response", effect: "store" }
+        ]
+      }
+    ]
+  });
+
+  // ------------------------------------------------------------------ Code signing
+  S.register({
+    id: "codesign",
+    title: "Code signing without handing out the key",
+    dilly: "svc",
+    chainAt: "db",
+    chainOffset: [1.2, 0.2],
+    camera: { theta: 0.3, phi: 1.1, radius: 21.5 },
+    actors: [
+      { id: "ci", kind: "terminal", label: "Build pipeline", sub: "certadillo sign", x: -7.2, z: 1.8, anchorY: 0.9, labelY: 1.9 },
+      { id: "svc", kind: "shield", label: "Signing service", sub: "owning app only", x: -1.2, z: -0.6, anchorY: 1.4 },
+      { id: "approver", kind: "person", label: "Approver", sub: "release manager", x: -3.4, z: 6.6 },
+      { id: "hsm", kind: "hsm", label: "HSM", sub: "signing key", x: 4.4, z: -4.6, anchorY: 0.6, labelY: 1.5 },
+      { id: "tsa", kind: "gateway", label: "Time stamping", sub: "RFC 3161 /tsa", x: 6.8, z: 0.4, anchorY: 1.2 },
+      { id: "verifier", kind: "laptop", label: "Anyone verifying", sub: "openssl cms -verify", x: 3.4, z: 6.4, anchorY: 0.8 },
+      { id: "db", kind: "db", label: "Audit", x: 0.6, z: 4.2, anchorY: 1.1 }
+    ],
+    steps: [
+      {
+        phase: "Key", title: "A signing key is a second-person decision",
+        body: "An operator asks for a release key for the release-bot app. An approver who is not the requester decides. The key is generated in the HSM and gets a certificate from the code-signing profile, which lands in the inventory so its expiry is watched.",
+        payload: "POST /api/v1/signing/keys {\"name\": \"payments-release\", \"app_id\": 7, \"purpose\": \"release\"}\n202 {\"status\": \"pending_approval\", \"approval_id\": 41}\nPOST /api/v1/approvals/41/approve   (approver)\naudit: codesign.key.create  key_ref pkcs11:codesign-payments-release",
+        moves: [
+          { from: "approver", to: "svc", label: "approve #41", effect: "check" },
+          { from: "svc", to: "hsm", label: "generate key", kind: "secret", effect: "hsm" },
+          { from: "svc", to: "db", label: "audit", kind: "response", effect: "store" }
+        ]
+      },
+      {
+        phase: "Sign", title: "The build sends a digest, not the file",
+        body: "The pipeline hashes its artifact locally and sends the digest with the artifact name, version and commit. Only the owning app's credential can ask this key. A release key does not sign yet: the request waits for an approver.",
+        payload: "certadillo sign dist/payments-api-3.0.0.tar.gz --key payments-release --version 3.0.0 --commit 8a925e3\n\nPOST /api/v1/signing/sign {\"key\": \"payments-release\", \"digest_alg\": \"sha384\",\n  \"digest\": \"ba46caa66521b492...\", \"artifact\": {\"name\": \"payments-api-3.0.0.tar.gz\", ...}}\n202 {\"id\": 18, \"status\": \"pending\", \"approval_id\": 52}",
+        moves: [
+          { from: "ci", to: "svc", label: "digest + artifact" },
+          { from: "svc", to: "db", label: "approval #52", kind: "response", effect: "store" }
+        ]
+      },
+      {
+        phase: "Sign", title: "Approved, then signed in the HSM",
+        body: "The release manager approves. The HSM signs the CMS signed attributes, which carry the artifact's digest; it never sees the artifact. The request now holds a CMS detached signature with the certificate chain.",
+        payload: "POST /api/v1/approvals/52/approve\n\nSignerInfo { digestAlgorithm sha384, signedAttrs { contentType data, signingTime,\n  messageDigest ba46caa6... }, signatureAlgorithm ecdsa-with-SHA384 }",
+        moves: [
+          { from: "approver", to: "svc", label: "approve #52", effect: "check", dilly: "happy" },
+          { from: "svc", to: "hsm", label: "sign signed attrs", kind: "secret", effect: "hsm" },
+          { from: "hsm", to: "svc", label: "signature", kind: "response", effect: "sign" }
+        ]
+      },
+      {
+        phase: "Sign", title: "A timestamp keeps it valid after the certificate expires",
+        body: "The signature value is time-stamped by Certadillo's RFC 3161 unit and the token is attached as an unsigned attribute. Later, a verifier can show the signature was made while the certificate was valid.",
+        payload: "TimeStampToken over SHA-256(signature)\nTSTInfo { policy 2.25.<uuid>, genTime 2026-11-04T16:52:07Z, accuracy 1s }\nsigner: Time Stamping Unit issuing-ca-1 (EKU timeStamping, critical)",
+        moves: [
+          { from: "svc", to: "tsa", label: "hash of signature" },
+          { from: "tsa", to: "svc", label: "timestamp token", kind: "response", effect: "sign" },
+          { from: "svc", to: "db", label: "audit: codesign.sign", kind: "response", effect: "store" },
+          { from: "svc", to: "ci", label: "payments-api-3.0.0.tar.gz.p7s", kind: "response" }
+        ]
+      },
+      {
+        phase: "Verify", title: "Anyone checks it with standard tools",
+        body: "The signature is plain CMS. openssl verifies it against the artifact and the chain, and openssl ts verifies the embedded timestamp. A changed artifact fails.",
+        payload: "openssl cms -verify -binary -inform DER -in payments-api-3.0.0.tar.gz.p7s \\\n  -content payments-api-3.0.0.tar.gz -CAfile chain.pem -purpose any\nCMS Verification successful",
+        moves: [
+          { from: "ci", to: "verifier", label: "artifact + .p7s", kind: "local" },
+          { from: "verifier", to: "verifier", local: true, label: "signature + timestamp", effect: "check" }
+        ]
+      },
+      {
+        phase: "Refuse", title: "Another team's pipeline cannot use the key",
+        body: "A credential from a different app asks the release key for a signature and is refused. A rejected release request never gets a signature, and both are in the audit trail.",
+        payload: "POST /api/v1/signing/sign {\"key\": \"payments-release\", ...}   (app: online-banking-web)\n403 {\"error\": \"forbidden\", \"message\": \"this signing key belongs to another app\"}",
+        moves: [
+          { from: "ci", to: "svc", label: "other app's key", kind: "reject", effect: "reject", dilly: "worried" }
+        ]
+      }
+    ]
+  });
 })();

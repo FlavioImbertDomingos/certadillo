@@ -30,7 +30,7 @@ Every row below has automated tests. "Interop" means a third-party client was ru
 | Area | What you get | Evidence |
 | --- | --- | --- |
 | CA hierarchy | Offline-style root (P-384, 20y, pathlen 1) and issuing CA (5y, pathlen 0); more sub-CAs through dual control | `tests/test_lifecycle.py` |
-| Key custody | CA keys in any PKCS#11 HSM (tested on SoftHSM2), generated sensitive and non-extractable, or in HashiCorp Vault Transit (non-exportable, root unusable by the app, two-person ceremony for new CAs); software keys for labs | `test_ca_keys_in_pkcs11_hsm`, `tests/test_vault_signer.py` (real Vault) |
+| Key custody | CA keys in any PKCS#11 HSM (tested on SoftHSM2), generated sensitive and non-extractable, or in HashiCorp Vault Transit (non-exportable, root unusable by the app, two-person ceremony for new CAs); software keys for labs; an offline root ceremony so the root key never touches the server (`certadillo offline-root` on an air-gapped machine, signed CSR imported only if it carries the HSM-held key and chains to the root) | `test_ca_keys_in_pkcs11_hsm`, `tests/test_vault_signer.py` (real Vault), `tests/test_offline_root.py` |
 | Registration authority | Teams, apps, per-app name scope (DNS, SPIFFE IDs, mail domains), profiles, environments | `test_policy_violations` |
 | Dual control | Maker-checker for onboarding outside the dev zones, policy changes, code signing, new CAs; the requester cannot approve | `test_prod_onboarding_needs_second_person` |
 | Policy engine | Key type and size, curves, SAN scope, wildcards, validity caps, forced key rotation on renewal, change ticket for prod revocations | `test_policy_violations`, `test_renewal_requires_new_key` |
@@ -53,6 +53,7 @@ Every row below has automated tests. "Interop" means a third-party client was ru
 | Observability | Prometheus metrics, JSON logs with request IDs, Prometheus rules, Alertmanager routing, Grafana dashboard | `promtool check rules`, compose stack |
 | Zero-trust access | OIDC/JWT bearer tokens from an external IdP (Entra ID, Vault, or any OIDC issuer) validated against the issuer's JWKS, mapped to roles by claim, fail-closed; API keys still work alongside | `tests/test_oidc_auth.py` |
 | Audit | SHA-256 hash-chained audit log in an append-only table (database triggers; PostgreSQL role split), anchored off the host daily, verify endpoint, metric and alerts on tampering; every event shipped within seconds to syslog over TLS, Splunk HEC, HTTPS or S3 Object Lock, signed with Ed25519 so receivers can verify but not forge, with an offline `verify-export` | `test_audit_chain_detects_tampering`, `tests/test_integrity.py`, `tests/test_audit_shipping.py` (real TLS syslog receiver, moto for S3 Object Lock) |
+| Supply chain | Image pinned by digest, dependencies only from a hash-pinned lock, pip-audit, Trivy and an SBOM in CI, release images signed with Sigstore keyless signing and an SBOM attestation, Hypothesis fuzzing of every unauthenticated parser; encrypted off-host backups with age | `tests/test_fuzz_parsers.py`, `tests/test_backup_scripts.py` |
 | Database tamper resistance | HMAC integrity seals on principals, approvals and certificate status (a row changed in SQL cannot log in, cannot be approved, and reads as revoked); secret columns encrypted with a local key or Vault Transit; name constraints on issuing CAs. See the [threat model](docs/THREAT_MODEL.md) | `tests/test_integrity.py` |
 | Crypto agility / PQC | CycloneDX 1.6 CBOM, PQC readiness report, CA-outlives-2035 check, algorithm-agnostic signer layer | `test_reports` |
 | Automation | CLI (`cert request`, `cert renew-if-due`), Ansible role, PowerShell module, Python demo seeder | Ansible and PowerShell run against a live server |
@@ -66,7 +67,7 @@ Local, SQLite, software keys:
 
 ```bash
 pip install -e ".[dev,hsm]"
-make test                                      # 240 tests; the HSM test runs if SoftHSM2 is installed
+make test                                      # 268 tests; the HSM test runs if SoftHSM2 is installed
 make run                                       # http://localhost:8080, prints a random admin key
 make demo                                      # seed teams, apps, certificates and some bad legacy certs
 ```

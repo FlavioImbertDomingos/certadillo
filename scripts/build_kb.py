@@ -36,11 +36,11 @@ PAGES = [
     ("cmp", "guide/18-cmp.md", "Protocols", "CMP", "cmp"),
     ("ssh", "guide/08-ssh.md", "Protocols", "SSH certificates", None),
     ("spiffe", "guide/09-workload-identity.md", "Protocols", "Workload identity", None),
-    ("code-signing", "guide/10-code-signing-smime.md", "Protocols", "Code signing and S/MIME", None),
+    ("code-signing", "guide/10-code-signing-smime.md", "Protocols", "Code signing and S/MIME", "codesign"),
     ("windows-adcs", "guide/20-windows-adcs.md", "Protocols", "Windows and AD CS", "adcs"),
     ("revocation", "guide/11-revocation.md", "Operate", "Revocation: OCSP and CRL", "revocation"),
     ("campaigns", "guide/19-renewal-campaigns.md", "Operate", "Renewal campaigns (ARI)", "ari"),
-    ("offline-root", "guide/26-offline-root.md", "Operate", "Offline root ceremony", None),
+    ("offline-root", "guide/26-offline-root.md", "Operate", "Offline root ceremony", "offlineroot"),
     ("upstream-issuers", "guide/24-upstream-issuers.md", "Operate", "Upstream issuers", "upstream"),
     ("policy-tree", "guide/23-policy-tree.md", "Operate", "The policy tree", "policytree"),
     ("push-provisioning", "guide/22-push-provisioning.md", "Operate", "Push provisioning", "provision"),
@@ -65,6 +65,8 @@ PAGES = [
     ("tour-upstream", None, "3D walkthroughs", "A public ACME CA upstream", "upstream"),
     ("tour-discover", None, "3D walkthroughs", "Agent, cloud and CT discovery", "discover"),
     ("tour-auditship", None, "3D walkthroughs", "Tamper-evident audit shipping", "auditship"),
+    ("tour-offlineroot", None, "3D walkthroughs", "Offline root ceremony", "offlineroot"),
+    ("tour-codesign", None, "3D walkthroughs", "Code signing from the HSM", "codesign"),
     ("architecture", "ARCHITECTURE.md", "Reference", "Architecture", None),
     ("security", "SECURITY.md", "Reference", "Security model", None),
     ("threat-model", "THREAT_MODEL.md", "Reference", "Threat model", None),
@@ -127,6 +129,14 @@ TOURS = {
                        "Every audit event signed and shipped to a SIEM and a locked S3 bucket, verified with only the "
                        "public key, and what happens when someone rewrites history in the database.",
                        "audit-shipping"),
+    "tour-offlineroot": ("Offline root ceremony",
+                         "The root key is made on an air-gapped machine, signs an issuing CA whose key never left the "
+                         "HSM, and the server refuses anything that does not chain or carry its key.",
+                         "offline-root"),
+    "tour-codesign": ("Code signing from the HSM",
+                      "A pipeline sends a digest, an approver releases it, the HSM signs, a timestamp is attached, "
+                      "and openssl verifies the result. Another team's pipeline is refused.",
+                      "code-signing"),
 }
 
 FILE_TO_SLUG = {src.split("/")[-1]: slug for slug, src, *_ in PAGES if src}

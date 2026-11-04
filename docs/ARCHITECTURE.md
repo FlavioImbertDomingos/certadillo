@@ -28,12 +28,13 @@ flowchart LR
     RA[RA service layer<br/>services.py]
     P[Policy engine<br/>profiles, folder tree<br/>policy/folders.py]
     DC[Dual control<br/>approvals]
-    CA[CA service<br/>authority.py, ssh.py]
+    CA[CA service<br/>authority.py, ssh.py,<br/>offline.py ceremony]
     BK[Issuer backends<br/>local, Vault/OpenBao, AD CS,<br/>ACME CAs, DigiCert, AWS PCA, EJBCA<br/>ca/issuers/]
     S[Signer layer<br/>software, PKCS#11]
     R[Revocation<br/>CRL, OCSP]
     D[Discovery<br/>scanner, connectors, agent,<br/>cloud stores, CT<br/>discovery/]
     PV[Push provisioning<br/>SSH, Kubernetes, F5, ACM<br/>provisioning/]
+    CS[Code signing + TSA<br/>codesign/]
     AL[Alert evaluator<br/>notifiers]
     AU[Audit chain<br/>audit/log.py]
     SH[Audit shipper<br/>audit/shipping.py]
@@ -63,7 +64,8 @@ flowchart LR
   D --> RA
   AL --> OC
   M --> PR
-  RA & CA & D & AL & AU & REP & PV --> DB
+  CS --> S
+  RA & CA & D & AL & AU & REP & PV & CS --> DB
 ```
 
 ## Request flow: issuing a certificate
@@ -107,6 +109,9 @@ In production the root is created in a key ceremony on an offline HSM and signs 
 | certificates | Every certificate issued, discovered or imported, with source, location, protocol, backend and status |
 | approvals | Maker-checker requests and decisions |
 | audit_events | Hash-chained event log |
+| signing_keys, signing_requests | Code-signing keys (key_ref only) and every signature request with its approval and CMS result |
+| ssh_keys | Static SSH keys reported by host agents, one row per place, with owner |
+| external_assets | Keys and certificates imported from keycensus, with linked applications |
 | audit_ship_cursors | Per sink: last shipped event and hash (for chain-break detection), failures, last error |
 | alerts | Alert state for de-duplication, repeat intervals and resolve notices |
 | ssh_certificates | Issued SSH certificates |

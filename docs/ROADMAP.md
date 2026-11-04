@@ -9,14 +9,14 @@ interface it plugs into so contributors can pick one up.
 | --- | --- | --- |
 | [Phase 2: enrollment coverage](#phase-2-enrollment-coverage) | Core done, extras open | 4 of 8 |
 | [Phase 3: Windows and AD CS](#phase-3-windows-and-ad-cs) | Core done, auto-enrollment open | 3 of 4 |
-| [Phase 3: more issuers and inventory connectors](#phase-3-more-issuers-and-inventory-connectors) | Mostly open | 4 of 10 |
+| [Phase 3: more issuers and inventory connectors](#phase-3-more-issuers-and-inventory-connectors) | Four issuers and keycensus done; Google CAS and four inventory imports open | 5 of 10 |
 | [Phase 3.5: zero-trust access](#phase-35-zero-trust-access) | Done (console SSO is in Phase 6) | 4 of 4 |
-| [Security hardening](#security-hardening-from-the-threat-model) | P1 done, four items open | 6 of 10 |
-| [Phase 7: enterprise CLM features](#phase-7-enterprise-clm-features) | Four done; console, three push targets, code signing, SSH keys and follow-ups open | 4 of 12 |
+| [Security hardening](#security-hardening-from-the-threat-model) | Done except a separate signing service | 9 of 10 |
+| [Phase 7: enterprise CLM features](#phase-7-enterprise-clm-features) | Core features, console, code signing and SSH key discovery done; IIS/NetScaler/Key Vault push, native signing clients, SSH key rotation and follow-ups open | 7 of 14 |
 | [Phase 4: workload identity](#phase-4-workload-identity) | Not started | 0 of 3 |
 | [Phase 5: post-quantum](#phase-5-post-quantum) | Not started | 0 of 4 |
 | [Phase 6: production hardening](#phase-6-production-hardening) | Not started | 0 of 8 |
-| Total | | 25 of 63 |
+| Total | | 32 of 65 |
 
 Below, every item is marked done (shipped and tested) or open (not built
 yet). GitHub shows them as ticked and empty checkboxes, the knowledge base as
