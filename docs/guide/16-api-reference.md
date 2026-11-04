@@ -98,6 +98,13 @@ Authenticate with `X-API-Key: <key>` or `Authorization: Bearer <key>`. Errors ar
 | `POST` | `/.well-known/cmp/p/{label}` | as /.well-known/cmp, for one app | CMP for a named app |
 | `POST` | `/.well-known/cmp` | CMP MAC (one-time secret) or signature | CMP (RFC 9483 lightweight profile) |
 | `POST` | `/api/v1/discovery/agent-report` | agent, admin, operator | a host agent's certificates and key file permissions |
+| `GET` | `/api/v1/signing/keys` | admin, operator, approver, auditor; app (own) | code-signing keys with their certificates |
+| `POST` | `/api/v1/signing/keys` | admin, operator | ask for a code-signing key (always an approval request) |
+| `GET` | `/api/v1/signing/keys/{name}/chain` | admin, operator, approver, auditor; app (own) | the key's certificate chain, PEM |
+| `POST` | `/api/v1/signing/sign` | app (own key); admin, operator | sign an artifact digest; 202 with an approval id for a release key |
+| `GET` | `/api/v1/signing/requests/{request_id}` | admin, operator, approver, auditor; app (own) | a signing request and, once signed, the CMS signature |
+| `GET` | `/api/v1/signing/requests` | admin, operator, approver, auditor | recent signing requests (`status`) |
+| `POST` | `/tsa` | none (like OCSP) | RFC 3161 time-stamping: timestamp-query in, timestamp-reply out |
 | `POST` | `/api/v1/inventory/keycensus` | admin, operator | import a keycensus inventory.json (keys, certificates, linked applications) |
 | `GET` | `/api/v1/inventory/external` | admin, operator, auditor | assets imported from keycensus (`kind`, `application`, `certificate_id`, `status`) |
 | `GET` | `/api/v1/ssh-keys` | admin, operator, auditor | static SSH keys from host agents (`host`, `account`, `owner`, `owner=none`, `status`) |

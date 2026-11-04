@@ -120,6 +120,9 @@ class CertificateAuthority(Base):
     scep_ra_key_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
     cmp_ra_cert_pem: Mapped[str | None] = mapped_column(Text, nullable=True)
     cmp_ra_key_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # RFC 3161 time-stamping unit signed by this CA (EKU timeStamping)
+    tsa_cert_pem: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tsa_key_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -664,6 +667,42 @@ class ExternalAsset(Base):
     status: Mapped[str] = mapped_column(String(16), default="present")  # present | removed
     first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class SigningKey(Base):
+    """A code-signing key held where CA keys live (HSM, Vault), owned by one app.
+    The key never leaves; Certadillo signs digests with it on request."""
+
+    __tablename__ = "signing_keys"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(80), unique=True)
+    app_id: Mapped[int] = mapped_column(ForeignKey("apps.id"))
+    purpose: Mapped[str] = mapped_column(String(16))  # release (every signature approved) | test
+    alg: Mapped[str] = mapped_column(String(16))
+    key_ref: Mapped[str] = mapped_column(String(255))
+    signer_type: Mapped[str] = mapped_column(String(32))
+    certificate_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="active")  # active | retired
+    created_by: Mapped[str] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class SigningRequest(Base):
+    """One request to sign one artifact digest, and its result."""
+
+    __tablename__ = "signing_requests"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    key_id: Mapped[int] = mapped_column(ForeignKey("signing_keys.id"))
+    requested_by: Mapped[str] = mapped_column(String(120))
+    digest_alg: Mapped[str] = mapped_column(String(16))
+    digest_hex: Mapped[str] = mapped_column(String(128))
+    artifact: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(16), default="pending")  # pending | signed | rejected | failed
+    approval_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    signature_der: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    signed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class AuditShipCursor(Base):

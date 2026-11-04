@@ -195,12 +195,15 @@ Still missing compared with Venafi:
   NITRO (key, certificate and chain objects, then the vserver binding, old
   objects kept for rollback); Azure Key Vault certificate import with a
   managed identity. Each with endpoint validation like the existing drivers.
-- [ ] **A code-signing service.** Signing keys that never leave the HSM or
-  Vault, with Certadillo signing hashes on request: per-project keys and
-  signers, dual control on release signing, timestamping (RFC 3161), signed
-  artifacts recorded in the audit trail, and clients for signtool, jarsigner,
-  cosign and GPG. Today code-signing certificates can be issued under dual
-  control, but the requester holds the key.
+- [x] **A code-signing service** (November 2026). Signing keys generated in
+  the HSM or Vault and never exported; artifact digests signed on request as
+  CMS detached signatures with the certificate and an RFC 3161 timestamp;
+  every key and every release signature approved by a second person; an RFC
+  3161 time-stamping unit at `/tsa`; `certadillo sign` for pipelines. See
+  [code signing](guide/10-code-signing-smime.md#the-signing-service-keys-that-never-leave-the-hsm).
+- [ ] **Native signing clients**: a PKCS#11 module or Windows KSP that forwards
+  to the signing service, so signtool (Authenticode), jarsigner, cosign and GPG
+  can use the HSM-held keys directly.
 - [x] **SSH key discovery and ownership** (November 2026). The host agent
   reports authorized_keys and host keys with fingerprints, sizes, accounts and
   restrictions; keys get owners; findings and alerts for weak, shared,

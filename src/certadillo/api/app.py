@@ -202,6 +202,20 @@ class TrustAnchorIn(BaseModel):
     cert_pem: str
 
 
+class SigningKeyIn(BaseModel):
+    name: str = Field(min_length=3, max_length=61)
+    app_id: int
+    purpose: str = "release"
+    alg: str = "ec-p384"
+
+
+class SignIn(BaseModel):
+    key: str = Field(min_length=3, max_length=61)
+    digest_alg: str = "sha256"
+    digest: str = Field(min_length=64, max_length=128)
+    artifact: dict = Field(default_factory=dict)
+
+
 class CrlImportIn(BaseModel):
     crl_pem: str = Field(min_length=50, max_length=5_000_000)
 
@@ -1084,6 +1098,74 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
             out.update(res)
         p.commit()
         return out
+
+    # ---------------------------------------------------------- code signing
+    from certadillo.codesign import service as codesign
+    from certadillo.db import SigningKey, SigningRequest
+
+    @app.post("/api/v1/signing/keys", status_code=202, tags=["code signing"])
+    def create_signing_key(body: SigningKeyIn, p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        """Ask for a new signing key. Always decided by an approver."""
+        req = codesign.request_key(p, who, body.name, body.app_id, body.purpose, body.alg)
+        p.commit()
+        return {"status": "pending_approval", "approval_id": req.id}
+
+    @app.get("/api/v1/signing/keys", tags=["code signing"])
+    def list_signing_keys(p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        who.require("admin", "operator", "approver", "auditor", "app")
+        q = p.s.query(SigningKey)
+        if who.role == "app":
+            q = q.filter_by(app_id=who.app_id)
+        return [codesign.key_json(p, k) for k in q.order_by(SigningKey.id).all()]
+
+    @app.get("/api/v1/signing/keys/{name}/chain", tags=["code signing"], response_class=PlainTextResponse)
+    def signing_key_chain(name: str, p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        """The issuing chain up to the root, PEM, for verifiers."""
+        who.require("admin", "operator", "approver", "auditor", "app")
+        k = p.s.query(SigningKey).filter_by(name=name).one_or_none()
+        if k is None or (who.role == "app" and who.app_id != k.app_id):
+            raise NotFound("signing key not found")
+        return codesign.chain_pem(p, k)
+
+    @app.post("/api/v1/signing/sign", tags=["code signing"])
+    def sign_digest(body: SignIn, p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        """Sign an artifact digest. A test key answers with the signature; a release key
+        answers 202 with an approval id, and the signature appears on the request once approved."""
+        req = codesign.request_signature(p, who, body.key, body.digest_alg, body.digest, body.artifact)
+        p.commit()
+        out = codesign.request_json(p, req)
+        return JSONResponse(out, status_code=200 if req.status == "signed" else 202)
+
+    @app.get("/api/v1/signing/requests/{request_id}", tags=["code signing"])
+    def signing_request(request_id: int, p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        r = p.s.get(SigningRequest, request_id)
+        k = p.s.get(SigningKey, r.key_id) if r else None
+        if r is None or (who.role == "app" and who.app_id != k.app_id) or \
+                who.role not in ("admin", "operator", "approver", "auditor", "app"):
+            raise NotFound("signing request not found")
+        return codesign.request_json(p, r)
+
+    @app.get("/api/v1/signing/requests", tags=["code signing"])
+    def signing_requests(status: str | None = None, p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        who.require("admin", "operator", "approver", "auditor")
+        q = p.s.query(SigningRequest)
+        if status:
+            q = q.filter_by(status=status)
+        return [codesign.request_json(p, r, include_signature=False)
+                for r in q.order_by(SigningRequest.id.desc()).limit(500).all()]
+
+    @app.post("/tsa", tags=["pki"])
+    async def timestamp(request: Request, p: Platform = Depends(platform)):
+        """RFC 3161 time-stamping (application/timestamp-query in, application/timestamp-reply out)."""
+        from certadillo.codesign import tsa
+
+        body = await request.body()
+        if len(body) > 16384:
+            return Response(status_code=413)
+        der, meta = tsa.respond(p.ca, p.ca.default_issuing(), body)
+        p.commit()
+        log.info("timestamp", extra=meta)
+        return Response(der, media_type="application/timestamp-reply", headers={"Cache-Control": "no-store"})
 
     @app.post("/api/v1/inventory/keycensus", tags=["inventory"])
     async def import_keycensus(request: Request, p: Platform = Depends(platform), who: Actor = Depends(actor)):

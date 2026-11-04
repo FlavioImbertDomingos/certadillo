@@ -514,6 +514,52 @@ def import_keycensus(inventory):
     click.echo(json.dumps(res, indent=2))
 
 
+@main.command("sign")
+@click.argument("artifact", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--key", "key_name", required=True, help="the signing key's name")
+@click.option("--server", envvar="CERTADILLO_SERVER", required=True)
+@click.option("--api-key", envvar="CERTADILLO_API_KEY", help="the app's key; prefer the variable")
+@click.option("--api-key-file", envvar="CERTADILLO_API_KEY_FILE",
+              type=click.Path(path_type=Path, exists=True, dir_okay=False))
+@click.option("--version", "art_version", help="artifact version, recorded in the audit trail")
+@click.option("--commit", "art_commit", help="source commit, recorded in the audit trail")
+@click.option("--digest-alg", default="sha256", show_default=True, type=click.Choice(["sha256", "sha384", "sha512"]))
+@click.option("--wait", default=0, show_default=True, type=int,
+              help="seconds to wait for an approver when the key is a release key")
+@click.option("--out", type=click.Path(dir_okay=False, path_type=Path), help="default: ARTIFACT.p7s")
+def sign_artifact(artifact, key_name, server, api_key, api_key_file, art_version, art_commit, digest_alg, wait, out):
+    """Sign a file with a code-signing key held by Certadillo. Only the digest
+    is sent. Writes a CMS detached signature (DER) with the certificate and an
+    RFC 3161 timestamp; verify with
+    openssl cms -verify -binary -inform DER -in ARTIFACT.p7s -content ARTIFACT -CAfile chain.pem -purpose any"""
+    import base64
+    import hashlib
+    import time
+
+    h = hashlib.new(digest_alg)
+    with open(artifact, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    c = _client(server, _resolve_key(api_key, api_key_file))
+    art = {"name": artifact.name, **({"version": art_version} if art_version else {}),
+           **({"commit": art_commit} if art_commit else {})}
+    r = c.post("/api/v1/signing/sign", json={"key": key_name, "digest_alg": digest_alg, "digest": h.hexdigest(),
+                                             "artifact": art})
+    if r.status_code not in (200, 202):
+        raise click.ClickException(f"{r.status_code}: {r.text[:300]}")
+    body = r.json()
+    deadline = time.monotonic() + wait
+    while body["status"] == "pending" and time.monotonic() < deadline:
+        time.sleep(5)
+        body = c.get(f"/api/v1/signing/requests/{body['id']}").json()
+    if body["status"] != "signed":
+        click.echo(json.dumps({k: body[k] for k in ("id", "status", "approval_id")}))
+        sys.exit(0 if body["status"] == "pending" else 1)
+    out = out or artifact.with_name(artifact.name + ".p7s")
+    out.write_bytes(base64.b64decode(body["signature_cms"]))
+    click.echo(json.dumps({"signature": str(out), "request": body["id"], "digest": body["digest"]}))
+
+
 @main.group()
 def agent():
     """Host agent: find certificates and keystores on this machine."""

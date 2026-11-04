@@ -12,6 +12,8 @@ Which requirement each part of Certadillo covers. "Partial" means the platform s
 | RFC 5424 syslog, RFC 5425 TLS transport, RFC 6587 octet counting | `audit/shipping.py` syslog sink (facility 13, log audit) | Done, tested against a TLS receiver |
 | RFC 8555 ACME as a client | `ca/issuers/acme_client.py` (EAB, dns-01, revokeCert) | Done, tested against Pebble |
 | RFC 2136 dynamic DNS update with TSIG (RFC 8945) | `ca/issuers/dns_providers.py` for ACME dns-01 | Done |
+| RFC 3161 time-stamp protocol, RFC 5816 ESS signing-certificate-v2 | `codesign/tsa.py` at `/tsa`; tokens on every code signature | Done, verified with `openssl ts -verify` |
+| RFC 5652 CMS SignedData (detached) | `codesign/cms.py` for the signing service | Done, verified with `openssl cms -verify` |
 | RFC 8032 Ed25519 | signatures on shipped audit records | Done |
 | IEEE 802.1AR device identity (IDevID) | EST bootstrap with manufacturer CAs registered per app | Done (direct issuance by the registered CA) |
 | RFC 8555 ACME | `enrollment/acme.py` (EAB, http-01, dns-01 with split-horizon views, wildcards, key-change, account and authz deactivation, revocation by account or certificate key) | Done, verified with certbot (http-01, dns-01 wildcard, unregister) |

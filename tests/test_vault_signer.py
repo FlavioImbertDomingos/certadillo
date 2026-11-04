@@ -42,7 +42,7 @@ def vault():
                              f"-dev-listen-address=127.0.0.1:{port}"],
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     h = {"X-Vault-Token": ROOT_TOKEN}
-    for _ in range(100):
+    for _ in range(300):  # the 500 MB binary can take a while to start on a loaded machine
         try:
             if httpx.get(f"{addr}/v1/sys/health", timeout=1).status_code == 200:
                 break

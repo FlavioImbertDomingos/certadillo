@@ -478,13 +478,17 @@ class Platform:
         elif req.action == "onboard_prod_app":
             app = self.s.get(App, req.payload["app_id"])
             app.status = "rejected"
+        elif req.action == "code_sign":
+            from certadillo.codesign import service as codesign
+
+            codesign.reject(self, req.payload["request_id"], actor.name)
         return req
 
     def _still_valid(self, req: ApprovalRequest) -> None:
         """An approval is a decision about the world as it was when it was asked.
         Refuse to carry it out if the app or the requester changed since."""
         p = req.payload or {}
-        if req.action in ("onboard_prod_app", "issue_certificate", "add_est_trust_anchor"):
+        if req.action in ("onboard_prod_app", "issue_certificate", "add_est_trust_anchor", "codesign_key_create"):
             app = self.s.get(App, p.get("app_id"))
             want = "pending_approval" if req.action == "onboard_prod_app" else "active"
             if app is None or app.status != want:
@@ -535,6 +539,15 @@ class Platform:
         elif req.action == "policy_change":
             p.update(self._apply_policy_change(req.decided_by, p))
             req.payload = p
+        elif req.action == "codesign_key_create":
+            from certadillo.codesign import service as codesign
+
+            p.update(codesign.create_key_now(self, req.requested_by, req.decided_by, p))
+            req.payload = p
+        elif req.action == "code_sign":
+            from certadillo.codesign import service as codesign
+
+            codesign.sign_now(self, p["request_id"], req.decided_by)
         elif req.action == "campaign_revoke_remaining":
             n = self._campaign_revoke(Actor(req.requested_by, "operator"), p["campaign_id"], "remaining",
                                       p.get("change_ref"))
