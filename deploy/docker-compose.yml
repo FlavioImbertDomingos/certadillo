@@ -61,7 +61,7 @@ services:
     depends_on: [certadillo, alertmanager]
 
   alertmanager:
-    image: prom/alertmanager:v0.28.1
+    image: prom/alertmanager:v0.34.2
     volumes:
       - ./alertmanager:/etc/alertmanager:ro
     ports: ["9093:9093"]
