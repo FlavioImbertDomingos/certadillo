@@ -225,7 +225,7 @@ integrity.
 | Priority | Control | Status |
 | --- | --- | --- |
 | P0 | CA keys in an HSM or Vault Transit, never in the application process | Done: `pkcs11` and `vault-transit` signers; the shipped Vault policy keeps the root key unusable by the application, and new CAs are created in a two-person ceremony with an exact-path token |
-| P0 | Root fully offline after signing the issuing CA | Roadmap: import an issuing CA signed by an offline root |
+| P0 | Root fully offline after signing the issuing CA | Done: `certadillo offline-root` on an air-gapped machine, `ca offline-csr` / `ca import-issuing` on the server, root CRL imported; see [offline root ceremony](guide/26-offline-root.md) |
 | P0 | Dedicated issuing CA for Windows logon; only it in NTAuth | Documented; operator choice |
 | P0 | Encrypted, off-host database backups | `deploy.sh` backups are local and unencrypted today; to do |
 | P0 | Branch protection and signed commits on `main` | GitHub settings; to do |

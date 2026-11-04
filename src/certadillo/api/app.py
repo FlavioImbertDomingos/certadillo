@@ -194,6 +194,10 @@ class TrustAnchorIn(BaseModel):
     cert_pem: str
 
 
+class CrlImportIn(BaseModel):
+    crl_pem: str = Field(min_length=50, max_length=5_000_000)
+
+
 class SubCAIn(BaseModel):
     name: str = Field(pattern=r"^[a-z0-9-]+$")
     parent: str = "root-ca"
@@ -877,6 +881,16 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
             out.append({"name": ca.name, "subject": ca.subject, "root": ca.is_root, "signer": ca.signer_type,
                         "not_after": c.not_valid_after_utc.isoformat(), "crl_number": ca.crl_number})
         return out
+
+    @app.post("/api/v1/cas/{name}/crl", tags=["ca"])
+    def import_ca_crl(name: str, body: CrlImportIn, p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        """Publish a CRL signed in the offline ceremony for an offline root."""
+        who.require("admin")
+        from certadillo.ca.offline import import_crl
+
+        res = import_crl(p, name, body.crl_pem.encode(), who.name)
+        p.commit()
+        return res
 
     @app.get("/api/v1/cas/keys", tags=["ca"])
     def ca_keys(p: Platform = Depends(platform), who: Actor = Depends(actor)):

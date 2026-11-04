@@ -43,6 +43,8 @@ The CRL for an issuing CA has not been re-signed for too long (built-in evaluato
 2. Publish by hand: `certadillo alerts run`. (`GET /pki/crl/<ca>.crl` serves the cached CRL and only re-signs once it is past nextUpdate.)
 3. If signing fails, check the HSM session and PIN (see SigningLatencyHigh).
 
+For an offline root the message says so: its CRL can only be signed at the offline ceremony. Sign a new one (`certadillo offline-root crl`) and publish it with `certadillo ca import-crl` or `POST /api/v1/cas/root-ca/crl`. The alert starts 30 days before nextUpdate so there is time to book the ceremony. See [offline root ceremony](guide/26-offline-root.md).
+
 ## AuditChainBroken
 
 `/api/v1/audit/verify` reports a hash mismatch: a row in `audit_events` was modified or deleted outside the application. Treat it as a security incident.

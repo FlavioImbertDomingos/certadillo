@@ -119,7 +119,7 @@ The ceremony policy grants write access on the exact keys being created, never o
 
 ### Limits
 
-Vault open source stores Transit keys encrypted inside its own storage, not in an HSM, so Vault's own security (unseal keys, policies, who holds root tokens, audit devices) becomes part of the CA's trust boundary. For keys held in an HSM behind Vault, use Vault Enterprise managed keys, or the `pkcs11` signer directly. The root should still end up offline; see the roadmap.
+Vault open source stores Transit keys encrypted inside its own storage, not in an HSM, so Vault's own security (unseal keys, policies, who holds root tokens, audit devices) becomes part of the CA's trust boundary. For keys held in an HSM behind Vault, use Vault Enterprise managed keys, or the `pkcs11` signer directly. The root should still end up offline; see the [offline root ceremony](guide/26-offline-root.md).
 
 ## Moving an existing deployment
 

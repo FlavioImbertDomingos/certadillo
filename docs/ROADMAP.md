@@ -133,9 +133,12 @@ removed.
   detection and `audit verify-export`. See [audit shipping](guide/25-audit-shipping.md).
 - [x] **Console and API browser hardening.** Escaping template, CSP without
   inline script, Trusted Types; deny-all CSP on the API.
-- [ ] **Offline root ceremony.** `certadillo init` creates the root online
-  today. Add a mode that takes an issuing CA certificate signed by an offline
-  root, so the root key never touches the server.
+- [x] **Offline root ceremony** (November 2026). The root key lives on an
+  air-gapped machine (`certadillo offline-root`); the server generates the
+  issuing key in the HSM or Vault, sends a CSR, and imports the signed
+  certificate only if it carries that key, chains to the root and keeps the
+  required name constraints. The root CRL is signed offline and imported, with
+  replay refused. See [offline root ceremony](guide/26-offline-root.md).
 - [ ] **Encrypted, off-host backups** in `deploy.sh` (age or gpg to a key that
   is not on the server).
 - [ ] **Separate signing service.** Move CA signing into a small process with

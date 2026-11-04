@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import shutil
+import subprocess
+from pathlib import Path
+
 import pytest
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
@@ -11,6 +15,24 @@ from certadillo.config import Settings
 
 ADMIN = {"X-API-Key": "admin-key"}
 APPROVER = {"X-API-Key": "approver-key"}
+SOFTHSM_LIBS = ["/usr/lib/softhsm/libsofthsm2.so", "/usr/lib/x86_64-linux-gnu/softhsm/libsofthsm2.so",
+                "/opt/homebrew/lib/softhsm/libsofthsm2.so", "/usr/local/lib/softhsm/libsofthsm2.so"]
+
+
+@pytest.fixture
+def softhsm(tmp_path, monkeypatch):
+    lib = next((p for p in SOFTHSM_LIBS if Path(p).exists()), None)
+    if lib is None or shutil.which("softhsm2-util") is None:
+        pytest.skip("SoftHSM2 not installed")
+    pytest.importorskip("pkcs11")
+    tokens = tmp_path / "tokens"
+    tokens.mkdir()
+    conf = tmp_path / "softhsm2.conf"
+    conf.write_text(f"directories.tokendir = {tokens}\nobjectstore.backend = file\nlog.level = ERROR\n")
+    monkeypatch.setenv("SOFTHSM2_CONF", str(conf))
+    subprocess.run(["softhsm2-util", "--init-token", "--free", "--label", "certadillo", "--pin", "1234",
+                    "--so-pin", "5678"], check=True, capture_output=True)
+    return lib
 
 
 def make_settings(tmp_path, **kw) -> Settings:

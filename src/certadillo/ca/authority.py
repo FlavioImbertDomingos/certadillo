@@ -97,6 +97,9 @@ class CAService:
         for ca in self.s.query(CertificateAuthority).order_by(CertificateAuthority.id):
             backend = ca.key_ref.split(":", 1)[0]
             row = {"ca": ca.name, "backend": backend, "key_ref": ca.key_ref, "ok": True, "problems": []}
+            if backend == "offline":
+                out.append(row)
+                continue
             try:
                 self.signer_for(ca)
                 if backend == "vault-transit":
@@ -127,6 +130,9 @@ class CAService:
         return x509.NameConstraints(permitted_subtrees=permitted or None, excluded_subtrees=excluded or None)
 
     def signer_for(self, ca: CertificateAuthority):
+        if ca.key_ref.startswith("offline:"):
+            raise RuntimeError(f"CA {ca.name}'s key is offline; sign with it in the offline ceremony "
+                               "(`certadillo offline-root`), not on this server")
         signer = self.keystore.load(ca.key_ref)
         # The key behind key_ref must be the one in the CA certificate. For an
         # external key (HSM, Vault) this catches a key replaced or re-created
@@ -477,7 +483,12 @@ class CAService:
         return crl
 
     def current_crl(self, ca: CertificateAuthority) -> bytes:
-        """Serve the published CRL; only re-sign when none exists or it is past nextUpdate."""
+        """Serve the published CRL; only re-sign when none exists or it is past nextUpdate.
+        An offline CA's CRL is whatever was last imported; it cannot be re-signed here."""
+        if ca.signer_type == "offline":
+            if not ca.crl_der:
+                raise LookupError(f"no CRL has been imported for offline CA {ca.name}")
+            return ca.crl_der
         if ca.crl_der:
             crl = x509.load_der_x509_crl(ca.crl_der)
             if crl.next_update_utc and crl.next_update_utc > datetime.now(timezone.utc):

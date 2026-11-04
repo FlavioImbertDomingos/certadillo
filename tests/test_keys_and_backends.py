@@ -1,13 +1,9 @@
 """Key custody (PKCS#11 HSM, external signing path) and issuer backends."""
 from __future__ import annotations
 
-import shutil
-import subprocess
 from datetime import timedelta
-from pathlib import Path
 
 import httpx
-import pytest
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -18,10 +14,6 @@ from certadillo.ca.backends import VaultPKIBackend
 from certadillo.crypto.signers import ExternalOnlySigner, sign_x509
 from certadillo.policy.engine import Decision
 from conftest import ADMIN, issue, make_csr, make_settings, onboard
-
-SOFTHSM_LIBS = ["/usr/lib/softhsm/libsofthsm2.so", "/usr/lib/x86_64-linux-gnu/softhsm/libsofthsm2.so",
-                "/opt/homebrew/lib/softhsm/libsofthsm2.so", "/usr/local/lib/softhsm/libsofthsm2.so"]
-
 
 def test_external_signing_path_produces_valid_certs_and_crls():
     """The HSM code path (sign tbs bytes elsewhere, rebuild DER) must produce
@@ -42,22 +34,6 @@ def test_external_signing_path_produces_valid_certs_and_crls():
         crl = sign_x509(x509.CertificateRevocationListBuilder().issuer_name(name).last_update(now)
                         .next_update(now + timedelta(hours=1)), signer)
         assert crl.is_signature_valid(key.public_key())
-
-
-@pytest.fixture
-def softhsm(tmp_path, monkeypatch):
-    lib = next((p for p in SOFTHSM_LIBS if Path(p).exists()), None)
-    if lib is None or shutil.which("softhsm2-util") is None:
-        pytest.skip("SoftHSM2 not installed")
-    pytest.importorskip("pkcs11")
-    tokens = tmp_path / "tokens"
-    tokens.mkdir()
-    conf = tmp_path / "softhsm2.conf"
-    conf.write_text(f"directories.tokendir = {tokens}\nobjectstore.backend = file\nlog.level = ERROR\n")
-    monkeypatch.setenv("SOFTHSM2_CONF", str(conf))
-    subprocess.run(["softhsm2-util", "--init-token", "--free", "--label", "certadillo", "--pin", "1234",
-                    "--so-pin", "5678"], check=True, capture_output=True)
-    return lib
 
 
 def test_ca_keys_in_pkcs11_hsm(tmp_path, softhsm):

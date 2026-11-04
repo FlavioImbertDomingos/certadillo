@@ -15,7 +15,7 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, ed25519, padding, rsa
 
-from certadillo.crypto.der import replace_signature
+from certadillo.crypto.der import replace_signature, split_sequence, tlv
 from certadillo.observability.metrics import SIGNING_SECONDS
 
 SUPPORTED_ALGS = {"ec-p256", "ec-p384", "rsa-3072", "rsa-4096", "ed25519"}
@@ -209,7 +209,7 @@ def _dummy_key(kind: str):
 
 
 def sign_x509(builder, signer: Signer, hash_alg: hashes.HashAlgorithm | None = None):
-    """Sign a CertificateBuilder or CertificateRevocationListBuilder."""
+    """Sign a CertificateBuilder, CertificateSigningRequestBuilder or CertificateRevocationListBuilder."""
     hash_alg = hash_alg or hashes.SHA384()
     start = time.perf_counter()
     try:
@@ -217,11 +217,23 @@ def sign_x509(builder, signer: Signer, hash_alg: hashes.HashAlgorithm | None = N
             return builder.sign(signer.private_key, hash_alg)
         kind = "ec" if isinstance(signer.public_key(), ec.EllipticCurvePublicKey) else "rsa"
         tmp = builder.sign(_dummy_key(kind), hash_alg)
-        is_cert = isinstance(tmp, x509.Certificate)
-        tbs = tmp.tbs_certificate_bytes if is_cert else tmp.tbs_certlist_bytes
+        if isinstance(tmp, x509.Certificate):
+            tbs, load = tmp.tbs_certificate_bytes, x509.load_der_x509_certificate
+        elif isinstance(tmp, x509.CertificateSigningRequest):
+            # A CSR builder takes its public key from the signing key, so the
+            # throwaway key's SubjectPublicKeyInfo is in the request; put the
+            # real one in before signing (RFC 2986: version, subject, spki, attrs).
+            spki = signer.public_key().public_bytes(serialization.Encoding.DER,
+                                                    serialization.PublicFormat.SubjectPublicKeyInfo)
+            info = split_sequence(tmp.tbs_certrequest_bytes)
+            tbs = tlv(0x30, info[0] + info[1] + spki + b"".join(info[3:]))
+            outer = split_sequence(tmp.public_bytes(serialization.Encoding.DER))
+            sig = signer.sign(tbs, hash_alg)
+            return x509.load_der_x509_csr(tlv(0x30, tbs + outer[1] + tlv(0x03, b"\x00" + sig)))
+        else:
+            tbs, load = tmp.tbs_certlist_bytes, x509.load_der_x509_crl
         sig = signer.sign(tbs, hash_alg)
-        der = replace_signature(tmp.public_bytes(serialization.Encoding.DER), tbs, sig)
-        return x509.load_der_x509_certificate(der) if is_cert else x509.load_der_x509_crl(der)
+        return load(replace_signature(tmp.public_bytes(serialization.Encoding.DER), tbs, sig))
     finally:
         SIGNING_SECONDS.labels(signer=signer.kind).observe(time.perf_counter() - start)
 

@@ -107,7 +107,20 @@ def evaluate(session, settings, policies: dict) -> list[Alert]:
             sev = "critical" if left < timedelta(days=180) else "warning"
             out.append(Alert(_fp("ca", ca.name), "CAExpiring", sev, f"CA {ca.name} expires in {left.days} days",
                              {"ca": ca.name}, runbook=RUNBOOK + "caexpiring"))
-        if not ca.is_root:
+        if ca.signer_type == "offline":
+            # the root CRL is signed in the offline ceremony and imported; warn a
+            # month ahead so there is time to book the ceremony
+            crl = x509.load_der_x509_crl(ca.crl_der) if ca.crl_der else None
+            left = (crl.next_update_utc - now) if crl is not None and crl.next_update_utc else None
+            if left is None or left < timedelta(days=30):
+                sev = "critical" if left is None or left < timedelta(days=7) else "warning"
+                msg = (f"offline CA {ca.name} has no imported CRL" if crl is None else
+                       f"offline CA {ca.name}'s CRL " + ("expired" if left.total_seconds() <= 0 else
+                                                         f"expires in {left.days} days")
+                       + "; sign a new one in the offline ceremony and import it")
+                out.append(Alert(_fp("crl", ca.name), "CRLStale", sev, msg, {"ca": ca.name},
+                                 runbook=RUNBOOK + "crlstale"))
+        elif not ca.is_root:
             last = as_utc(ca.crl_last_generated)
             if last is None or now - last > timedelta(hours=settings.crl_interval_hours * 2):
                 out.append(Alert(_fp("crl", ca.name), "CRLStale", "critical",

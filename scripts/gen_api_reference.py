@@ -79,6 +79,7 @@ DESCRIBE = {
     ("POST", "/api/v1/discovery/scan"): ("admin, operator", "scan TLS endpoints into the inventory"),
     ("POST", "/api/v1/inventory/import"): ("admin, operator", "import PEM certificates"),
     ("GET", "/api/v1/cas"): (STAFF, "list CAs"),
+    ("POST", "/api/v1/cas/{name}/crl"): ("admin", "publish a CRL signed in the offline ceremony for an offline root"),
     ("GET", "/api/v1/cas/keys"): ("admin, operator, auditor", "where each CA key lives and whether it is reachable and intact (live check for Vault keys)"),
     ("POST", "/api/v1/cas"): ("admin", "request a subordinate CA (dual control)"),
     ("GET", "/api/v1/alerts"): (STAFF, "open alerts (`include_resolved`)"),

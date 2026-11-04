@@ -295,6 +295,9 @@ def ca_create_issuing(name, parent, years, operator, witness):
     rt = init_runtime()
     with rt.platform() as p:
         parent_ca = p.ca.get(parent)
+        if parent_ca.signer_type == "offline":
+            raise click.ClickException(f"{parent} is an offline root; use `certadillo ca offline-csr` and "
+                                       "`ca import-issuing` instead")
         new = p.ca.create_subordinate(parent_ca, name, years=years)
         p.ca.generate_crl(new)
         record(p.s, f"ceremony:{operator}", "ca.create", name,
@@ -303,6 +306,161 @@ def ca_create_issuing(name, parent, years, operator, witness):
         p.commit()
         out = {"created": name, "parent": parent, "key_ref": new.key_ref, "signer": new.signer_type}
     click.echo(json.dumps(out))
+
+
+def _ceremony(fn):
+    from certadillo.ca.offline import CeremonyError
+
+    try:
+        return fn()
+    except CeremonyError as exc:
+        raise click.ClickException(str(exc)) from None
+
+
+@ca.command("offline-csr")
+@click.option("--name", required=True, help="the new issuing CA, e.g. issuing-ca-1")
+@click.option("--alg", default="ec-p384", show_default=True,
+              type=click.Choice(["ec-p256", "ec-p384", "rsa-3072", "rsa-4096"]))
+@click.option("--operator", required=True)
+@click.option("--witness", required=True)
+@click.option("--out", type=click.Path(dir_okay=False, path_type=Path), help="write the CSR here (default: stdout)")
+def ca_offline_csr(name, alg, operator, witness, out):
+    """Offline root ceremony, step 1: create the issuing CA key where CA keys
+    live (HSM, Vault or the software store) and write a CSR for the offline
+    root to sign. Carry the CSR to the offline machine on removable media."""
+    from certadillo.ca.offline import prepare_issuing
+    from certadillo.runtime import init_runtime
+
+    with init_runtime().platform() as p:
+        csr = _ceremony(lambda: prepare_issuing(p, name, alg, operator, witness))
+        p.commit()
+    if out:
+        out.write_text(csr)
+        click.echo(f"CSR for {name} written to {out}", err=True)
+    else:
+        click.echo(csr, nl=False)
+
+
+@ca.command("import-issuing")
+@click.option("--name", required=True)
+@click.option("--cert", "cert_file", required=True, type=click.Path(exists=True, dir_okay=False, path_type=Path),
+              help="the issuing CA certificate the offline root signed")
+@click.option("--root", "root_file", required=True, type=click.Path(exists=True, dir_okay=False, path_type=Path),
+              help="the offline root's certificate")
+@click.option("--root-name", default="root-ca", show_default=True)
+@click.option("--operator", required=True)
+@click.option("--witness", required=True)
+def ca_import_issuing(name, cert_file, root_file, root_name, operator, witness):
+    """Offline root ceremony, step 2: check the signed certificate (our key,
+    signed by this root, a CA with pathlen 0, the required name constraints)
+    and start issuing with it. Compare the printed root fingerprint with the
+    one recorded at the offline machine."""
+    from certadillo.ca.offline import import_issuing
+    from certadillo.runtime import init_runtime
+
+    with init_runtime().platform() as p:
+        res = _ceremony(lambda: import_issuing(p, name, cert_file.read_text(), root_file.read_text(),
+                                               operator, witness, root_name))
+        p.commit()
+    click.echo(json.dumps(res, indent=2))
+
+
+@ca.command("import-crl")
+@click.option("--ca", "ca_name", default="root-ca", show_default=True)
+@click.argument("crl_file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+def ca_import_crl(ca_name, crl_file):
+    """Publish a CRL signed in the offline ceremony for an offline CA."""
+    from certadillo.ca.offline import import_crl
+    from certadillo.runtime import init_runtime
+
+    with init_runtime().platform() as p:
+        res = _ceremony(lambda: import_crl(p, ca_name, crl_file.read_bytes(), "cli"))
+        p.commit()
+    click.echo(json.dumps(res, indent=2))
+
+
+@main.group("offline-root")
+def offline_root():
+    """The offline side of the root ceremony. Run these on an air-gapped
+    machine; they need no database, no network and no server configuration.
+    The passphrase is read from --passphrase-file or prompted for, never taken
+    on the command line."""
+
+
+def _root_pw(passphrase_file, confirm=False):
+    if passphrase_file:
+        return Path(passphrase_file).read_text().strip()
+    return click.prompt("Root key passphrase", hide_input=True, confirmation_prompt=confirm)
+
+
+_PW = click.option("--passphrase-file", type=click.Path(exists=True, dir_okay=False),
+                   help="file holding the root key passphrase (default: prompt)")
+_DIR = click.option("--dir", "directory", required=True, type=click.Path(file_okay=False, path_type=Path),
+                    help="the root's directory on removable media")
+
+
+@offline_root.command("init")
+@_DIR
+@click.option("--org", required=True, help="organization name for the root's subject")
+@click.option("--years", default=20, show_default=True, type=int)
+@click.option("--alg", default="ec-p384", show_default=True, type=click.Choice(["ec-p384", "rsa-4096"]))
+@_PW
+def offline_root_init(directory, org, years, alg, passphrase_file):
+    """Create the root key (encrypted) and its self-signed certificate."""
+    from certadillo.ca.offline import offline_init
+
+    res = _ceremony(lambda: offline_init(directory, org, _root_pw(passphrase_file, confirm=True), years, alg))
+    click.echo(json.dumps(res, indent=2))
+
+
+@offline_root.command("sign")
+@_DIR
+@click.option("--csr", "csr_file", required=True, type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--out", required=True, type=click.Path(dir_okay=False, path_type=Path))
+@click.option("--years", default=5, show_default=True, type=int)
+@click.option("--crl-url", help="where the root CRL will be served, e.g. https://pki.bank.internal/pki/crl/root-ca.crl")
+@_PW
+def offline_root_sign(directory, csr_file, out, years, crl_url, passphrase_file):
+    """Sign an issuing CA's CSR. Only the subject, the key and the name
+    constraints are taken from the CSR; the rest is set here."""
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes
+
+    from certadillo.ca.offline import offline_sign
+
+    pem = _ceremony(lambda: offline_sign(directory, csr_file.read_text(), _root_pw(passphrase_file), years, crl_url))
+    out.write_text(pem)
+    c = x509.load_pem_x509_certificate(pem.encode())
+    click.echo(json.dumps({"certificate": str(out), "subject": c.subject.rfc4514_string(),
+                           "serial": format(c.serial_number, "x"), "sha256": c.fingerprint(hashes.SHA256()).hex(),
+                           "not_after": c.not_valid_after_utc.isoformat()}, indent=2))
+
+
+@offline_root.command("revoke")
+@_DIR
+@click.option("--serial", required=True, help="serial (hex) of a certificate this root signed")
+@click.option("--reason", default="superseded", show_default=True,
+              type=click.Choice(["unspecified", "key_compromise", "ca_compromise", "superseded",
+                                 "cessation_of_operation"]))
+def offline_root_revoke(directory, serial, reason):
+    """Mark a certificate this root signed as revoked; it is on the next CRL."""
+    from certadillo.ca.offline import offline_revoke
+
+    _ceremony(lambda: offline_revoke(directory, serial, reason))
+    click.echo(f"{serial} revoked ({reason}); sign a new CRL with `certadillo offline-root crl`")
+
+
+@offline_root.command("crl")
+@_DIR
+@click.option("--out", required=True, type=click.Path(dir_okay=False, path_type=Path))
+@click.option("--days", default=180, show_default=True, type=int, help="nextUpdate, in days")
+@_PW
+def offline_root_crl(directory, out, days, passphrase_file):
+    """Sign the root CRL. Import it on the server with `certadillo ca import-crl`."""
+    from certadillo.ca.offline import offline_crl
+
+    out.write_bytes(_ceremony(lambda: offline_crl(directory, _root_pw(passphrase_file), days)))
+    click.echo(f"CRL written to {out}")
 
 
 @main.group()
