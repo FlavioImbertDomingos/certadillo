@@ -25,7 +25,7 @@ from fastapi.testclient import TestClient
 
 from certadillo.api.app import create_app
 from certadillo.ca.backends import clear_backends, get_backend
-from conftest import ADMIN, make_csr, make_settings
+from conftest import ADMIN, make_csr, make_settings, onboard
 
 GOBIN = Path(os.environ.get("GOBIN", Path.home() / "go" / "bin"))
 PEBBLE = shutil.which("pebble") or str(GOBIN / "pebble")
@@ -358,3 +358,33 @@ def test_a_folder_can_only_route_to_a_configured_issuer(client):
                     headers=ADMIN)
     assert r.status_code == 400 and "not a configured upstream issuer" in r.text
     assert get_backend("made-up") is None
+
+
+def test_issuer_inventory_shows_routing_and_never_credentials(tmp_path, monkeypatch):
+    monkeypatch.setenv("CERTADILLO_TEST_DC_KEY", "dc-api-key-should-not-leak")
+    issuers = {
+        "digicert": {"type": "digicert", "product": "ssl_basic", "organization_id": 1234,
+                     "api_key_ref": "env:CERTADILLO_TEST_DC_KEY"},
+        "public-acme": {"type": "acme", "directory": "https://acme.example/directory", "contact": "mailto:pki@x",
+                        "dns": {"provider": "rfc2136", "server": "10.1.0.53", "zone": "bank.example.",
+                                "tsig_name": "certadillo-acme.", "tsig_secret_ref": "vault:secret/data/dns#tsig"}},
+    }
+    s = make_settings(tmp_path, policy_file=_policy_file(tmp_path, issuers), dual_control_actions=[])
+    with TestClient(create_app(s, background=False)) as c:
+        _route_to(c, "public-acme")
+        r = c.get("/api/v1/issuers", headers=ADMIN)
+        assert r.status_code == 200, r.text
+        by = {i["name"]: i for i in r.json()}
+        assert set(by) == {"local", "adcs", "digicert", "public-acme"}
+        assert by["local"]["config"]["default_issuing_ca"] == "issuing-ca-1" and "tls-server" in by["local"]["profiles"]
+        assert by["adcs"]["profiles"] == ["adcs-user"]
+        assert by["public-acme"]["folders"] == ["\\via-public-acme"]
+        assert by["public-acme"]["config"]["dns"] == {"provider": "rfc2136", "server": "10.1.0.53",
+                                                      "zone": "bank.example.", "tsig_name": "certadillo-acme."}
+        assert by["public-acme"]["credentials"] == {"dns.tsig_secret_ref": "vault reference"}
+        assert by["digicert"]["credentials"] == {"api_key_ref": "env reference"}
+        body = r.text
+        assert "dc-api-key" not in body and "CERTADILLO_TEST_DC_KEY" not in body and "secret/data/dns" not in body
+        # roles: apps and agents cannot read it
+        _, h = onboard(c, "issuer-viewer", domains=("*.iv.bank.internal",))
+        assert c.get("/api/v1/issuers", headers=h).status_code == 403

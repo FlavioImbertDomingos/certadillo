@@ -53,6 +53,7 @@ Authenticate with `X-API-Key: <key>` or `Authorization: Bearer <key>`. Errors ar
 | `GET` | `/api/v1/cas` | admin, operator, approver, auditor | list CAs |
 | `POST` | `/api/v1/cas` | admin | request a subordinate CA (dual control) |
 | `POST` | `/api/v1/cas/{name}/crl` | admin | publish a CRL signed in the offline ceremony for an offline root |
+| `GET` | `/api/v1/issuers` | admin, operator, approver, auditor | every CA that can sign: local CAs, AD CS, Vault PKI, upstream issuers; routing and counts, no credentials |
 | `GET` | `/api/v1/cas/keys` | admin, operator, auditor | where each CA key lives and whether it is reachable and intact (live check for Vault keys) |
 | `GET` | `/api/v1/alerts` | admin, operator, approver, auditor | open alerts (`include_resolved`) |
 | `POST` | `/api/v1/alerts/evaluate` | admin, operator | publish due CRLs and evaluate alerts now |

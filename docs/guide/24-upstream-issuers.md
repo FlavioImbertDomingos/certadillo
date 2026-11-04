@@ -75,6 +75,15 @@ otherwise.
 | `aws-pca` | `IssueCertificate` with the validity the policy decided, then `GetCertificate` | `RevokeCertificate` | Standard AWS credential chain |
 | `ejbca` | `pkcs10enroll` with the configured CA and profiles | `PUT /v1/certificate/{issuer}/{serial}/revoke` | Client-certificate authentication |
 
+## Seeing what is configured
+
+The console's Issuers tab, and `GET /api/v1/issuers` (admin, operator,
+approver, auditor), list every CA that can sign: the built-in CAs, AD CS
+through the gateway, Vault PKI and each upstream issuer, with the profiles and
+policy folders that route to it and how many certificates it has issued.
+Configuration is shown without secrets; a credential appears only as the kind
+of reference that holds it (`env reference`, `vault reference`).
+
 ## Trust, but check
 
 Certadillo does not take the upstream CA's word for it. Before a certificate

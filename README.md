@@ -56,10 +56,11 @@ Every row below has automated tests. "Interop" means a third-party client was ru
 | Supply chain | Image pinned by digest, dependencies only from a hash-pinned lock, pip-audit, Trivy and an SBOM in CI, release images signed with Sigstore keyless signing and an SBOM attestation, Hypothesis fuzzing of every unauthenticated parser; encrypted off-host backups with age | `tests/test_fuzz_parsers.py`, `tests/test_backup_scripts.py` |
 | Database tamper resistance | HMAC integrity seals on principals, approvals and certificate status (a row changed in SQL cannot log in, cannot be approved, and reads as revoked); secret columns encrypted with a local key or Vault Transit; name constraints on issuing CAs. See the [threat model](docs/THREAT_MODEL.md) | `tests/test_integrity.py` |
 | Crypto agility / PQC | CycloneDX 1.6 CBOM, PQC readiness report, CA-outlives-2035 check, algorithm-agnostic signer layer | `test_reports` |
+| Web console | Overview, onboarding wizard, inventory, approvals, discovery findings and sources, push provisioning (add targets and installations, push now, run steps), the policy tree (create and edit folders, move apps, effective policy per app), issuers, code signing, static SSH keys, audit and shipping, reports. Every change goes through the same approval flow as the API; buttons a role cannot use are hidden; HTML only through an escaping template under a Trusted Types CSP | `tests/test_web_security.py`; screens checked in a browser for admin, operator and auditor |
 | Automation | CLI (`cert request`, `cert renew-if-due`), Ansible role, PowerShell module, Python demo seeder | Ansible and PowerShell run against a live server |
 | Upstream issuers | Certadillo's policy in front of other CAs: any ACME CA (Let's Encrypt and others, dns-01 through RFC 2136 or an HTTP hook, EAB), DigiCert CertCentral, AWS Private CA, EJBCA, and HashiCorp Vault / OpenBao PKI; routed per profile or per policy folder; the returned certificate must match the requested key and approved names | Pebble with real dns-01, moto for AWS PCA, API fakes for DigiCert and EJBCA: `tests/test_issuers.py` |
 
-Not built yet, with the design written down: Venafi / DigiCert / Keyfactor inventory connectors, a keycensus import, Windows auto-enrollment through CEP/CES, browser single sign-on for the console (the token validation already ships), a SPIRE UpstreamAuthority, a Helm chart, and ML-DSA issuance (waiting on pyca/cryptography). See [docs/ROADMAP.md](docs/ROADMAP.md).
+Not built yet, with the design written down: Venafi / DigiCert / Keyfactor inventory connectors, push to IIS, NetScaler and Azure Key Vault, native signing clients (signtool, jarsigner, cosign), SSH key rotation, Windows auto-enrollment through CEP/CES, browser single sign-on for the console (the token validation already ships), a SPIRE UpstreamAuthority, a Helm chart, and ML-DSA issuance (waiting on pyca/cryptography). See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Quick start
 
@@ -67,7 +68,7 @@ Local, SQLite, software keys:
 
 ```bash
 pip install -e ".[dev,hsm]"
-make test                                      # 268 tests; the HSM test runs if SoftHSM2 is installed
+make test                                      # 269 tests; the HSM test runs if SoftHSM2 is installed
 make run                                       # http://localhost:8080, prints a random admin key
 make demo                                      # seed teams, apps, certificates and some bad legacy certs
 ```

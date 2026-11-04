@@ -187,9 +187,12 @@ Still missing compared with Venafi:
   (installations, run steps, push now, targets), the policy tree with locked
   rules and the effective policy per app, code-signing keys and requests,
   static SSH keys with owners, the discovery findings queue with acknowledge
-  and scheduled sources, audit shipping status, and CAs with key health. Same
-  escaping template and CSP; buttons a role cannot use are hidden. Creating
-  targets, folders and signing keys is still done through the API.
+  and scheduled sources, audit shipping status, CAs with key health, and an
+  issuers view (local CAs, AD CS, Vault PKI and upstream CAs, with the
+  profiles and folders that route to each). Forms create and edit folders,
+  move apps, add targets and installations, and request signing keys, all
+  through the approval flow. Same escaping template and CSP; controls a role
+  cannot use are hidden.
 - [ ] **Pushing to IIS, NetScaler and Azure Key Vault.** IIS bindings and the
   Windows certificate store over WinRM, or through the domain-joined AD CS
   gateway worker so no new inbound access is needed; Citrix NetScaler through

@@ -70,3 +70,19 @@ code{font-size:12px;word-break:break-all}
 .pill.offline{background:#e0f2fe;color:#075985}
 .rule.locked::after{content:" (locked)";font-weight:400;color:var(--muted)}
 body.ro .act{display:none}
+body.noadmin .adm{display:none}
+details.card>summary{cursor:pointer;list-style:none}
+details.card>summary::-webkit-details-marker{display:none}
+details.card>summary h2{display:inline}
+details.card>summary::after{content:" +";color:var(--teal);font-weight:600}
+details.card[open]>summary::after{content:" \2212"}
+button.small{padding:2px 8px;font-size:12px}
+label.inline{display:inline;font-weight:400}
+.issuers{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px}
+.issuer{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--panel)}
+.issuer h3{margin:0 0 8px;font-size:16px}
+.kpis.small .kpi b{font-size:18px}
+.pill.default{background:#d1fae5;color:#065f46}
+.okmsg{color:var(--teal);white-space:pre-wrap}
+input[type=checkbox]{width:auto;padding:0;margin:0 4px 0 0;vertical-align:middle}
+#fe-rules td{vertical-align:middle}

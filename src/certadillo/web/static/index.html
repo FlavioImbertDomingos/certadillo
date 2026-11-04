@@ -105,21 +105,78 @@
     </div>
   </section>
 
+  <section id="view-issuers" class="hide">
+    <div class="card"><h2>Issuers</h2><p class="muted">Every CA that can sign for Certadillo, which profiles and policy folders send requests to it, and what it has issued. Policy, approvals and audit are the same whichever one signs. Credentials are shown only as the kind of reference that holds them.</p><div id="issuers" class="muted">Nothing loaded yet.</div></div>
+  </section>
+
   <section id="view-provisioning" class="hide">
+    <details class="card act"><summary><h2>Add an installation</h2></summary>
+      <div class="row">
+        <div><label>App</label><select id="in-app"></select></div>
+        <div><label>Target</label><select id="in-target"></select></div>
+        <div><label>Common name</label><input id="in-cn" placeholder="www.pay.bank.internal"></div>
+      </div>
+      <div class="row">
+        <div><label>Other names (space separated)</label><input id="in-sans" placeholder="pay.bank.internal"></div>
+        <div><label>Key</label><select id="in-key"><option>ec-p256</option><option>ec-p384</option><option>rsa-3072</option><option>rsa-2048</option></select></div>
+        <div><label>Key generated</label><select id="in-loc"><option value="central">in Certadillo (memory only)</option><option value="device">on the target (SSH only)</option></select></div>
+      </div>
+      <label>Placement on the target (JSON)</label>
+      <textarea id="in-params" placeholder='{"cert_path": "/etc/nginx/tls/www.crt", "key_path": "/etc/nginx/tls/www.key"}'></textarea>
+      <div class="row">
+        <div><label>Endpoint to check after install (host:port)</label><input id="in-check" placeholder="web1.pay.bank.internal:443"></div>
+        <div><label>Renew automatically</label><select id="in-auto"><option value="true">yes</option><option value="false">no</option></select></div>
+      </div>
+      <p><button class="primary" id="in-save">Add installation</button> <span class="err" id="in-err"></span></p>
+    </details>
     <div class="card"><h2>Installations</h2><p class="muted">Each row is one certificate kept installed in one place. Push now issues under the app's policy, installs, checks the endpoint serves it, then retires the old one.</p><div id="installs" class="muted">Nothing loaded yet.</div></div>
     <div class="card"><h2>Last run</h2><div id="run-detail" class="muted">Pick an installation.</div></div>
     <div class="card"><h2>Targets</h2><div id="targets" class="muted">Nothing loaded yet.</div></div>
+    <details class="card adm"><summary><h2>Add a target</h2></summary>
+      <p class="muted">Credentials are references only (env:, file:, vault:). A config with a password, token or secret in it is refused.</p>
+      <div class="row">
+        <div><label>Name</label><input id="tg-name" placeholder="web1-nginx"></div>
+        <div><label>Kind</label><select id="tg-kind"></select></div>
+        <div><label>Owning team</label><select id="tg-team"></select></div>
+      </div>
+      <label>Configuration (JSON)</label>
+      <textarea id="tg-config" rows="6"></textarea>
+      <label>Credential reference</label><input id="tg-cred" placeholder="vault:secret/data/certadillo/web1#ssh_key">
+      <p><button class="primary" id="tg-save">Add target</button> <span class="err" id="tg-err"></span></p>
+    </details>
   </section>
 
   <section id="view-policy" class="hide">
+    <details class="card adm" id="fe-card"><summary><h2 id="fe-title">New folder</h2></summary>
+      <p class="muted">Rules only narrow what profiles allow. A locked rule cannot be changed in any folder below. Saving sends an approval request to an approver.</p>
+      <div class="row">
+        <div><label>Name</label><input id="fe-name" placeholder="Payments"></div>
+        <div><label>Parent folder</label><select id="fe-parent"></select></div>
+      </div>
+      <table id="fe-rules"></table>
+      <p><button id="fe-add">Add a rule</button></p>
+      <p><button class="primary" id="fe-save">Send for approval</button> <button id="fe-reset">Clear</button> <span class="err" id="fe-err"></span></p>
+    </details>
     <div class="card"><h2>Policy tree</h2><p class="muted">Rules flow down; a locked rule cannot be changed below its folder. Changes and moves are approval requests.</p><div id="tree" class="muted">Nothing loaded yet.</div></div>
     <div class="card"><h2>What one app gets</h2>
       <div class="row"><div><label>App</label><select id="pol-app"></select></div></div>
       <div id="pol-out"></div>
+      <div class="row adm" id="mv-row"><div><label>Move this app to</label><select id="mv-folder"></select></div>
+        <div><label>&nbsp;</label><button id="mv-go">Send move for approval</button></div></div>
+      <p class="err" id="mv-err"></p>
     </div>
   </section>
 
   <section id="view-signing" class="hide">
+    <details class="card act"><summary><h2>Request a signing key</h2></summary>
+      <div class="row">
+        <div><label>Key name</label><input id="sg-name" placeholder="payments-release"></div>
+        <div><label>Owning app</label><select id="sg-app"></select></div>
+        <div><label>Purpose</label><select id="sg-purpose"><option value="release">release (approver for every signature)</option><option value="test">test (CI, signs at once)</option></select></div>
+        <div><label>Algorithm</label><select id="sg-alg"><option>ec-p384</option><option>rsa-3072</option><option>rsa-4096</option></select></div>
+      </div>
+      <p><button class="primary" id="sg-save">Send for approval</button> <span class="err" id="sg-err"></span></p>
+    </details>
     <div class="card"><h2>Code-signing keys</h2><p class="muted">Keys live in the HSM or Vault and never leave it. Release keys need an approver for every signature. Time stamping (RFC 3161) is at <code id="tsa-url"></code>.</p><div id="sign-keys" class="muted">Nothing loaded yet.</div></div>
     <div class="card"><h2>Signing requests</h2><div id="sign-reqs" class="muted">Nothing loaded yet.</div></div>
   </section>

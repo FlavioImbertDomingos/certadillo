@@ -50,3 +50,38 @@ def register_from_policies(policies: dict, settings=None) -> list[str]:
     if names:
         log.info("issuers registered", extra={"issuers": names})
     return names
+
+
+# ------------------------------------------------------------------ inventory of issuers (for the console)
+_SECRETISH = ("ref", "secret", "key", "token", "password", "hmac", "pin")
+SAFE_FIELDS = {
+    "acme": ("directory", "contact", "propagation_seconds"),
+    "digicert": ("product", "organization_id", "api_url", "validation"),
+    "aws-pca": ("ca_arn", "region", "signing_algorithm", "template_arn"),
+    "ejbca": ("url", "ca_name", "certificate_profile", "end_entity_profile"),
+}
+
+
+def _ref_kind(v) -> str:
+    return f"{str(v).split(':', 1)[0]} reference" if isinstance(v, str) and ":" in v else "set"
+
+
+def describe(name: str, backend) -> dict:
+    """What an issuer is and how it is reached, without any secret: credentials
+    are shown only as the kind of reference that holds them."""
+    cfg = getattr(backend, "cfg", None)
+    if cfg is None and name == "vault":
+        return {"name": name, "type": "vault", "config": {"addr": backend.addr, "mount": backend.mount,
+                                                          "role": backend.role}, "credentials": {"token": "set"}}
+    cfg = cfg or {}
+    kind = cfg.get("type", "?")
+    safe = {k: cfg[k] for k in SAFE_FIELDS.get(kind, ()) if k in cfg}
+    creds = {k: _ref_kind(v) for k, v in cfg.items() if any(s in k for s in _SECRETISH) and v}
+    if kind == "acme":
+        dns = cfg.get("dns") or {}
+        safe["dns"] = {k: v for k, v in dns.items() if not any(s in k for s in _SECRETISH)}
+        creds.update({f"dns.{k}": _ref_kind(v) for k, v in dns.items() if any(s in k for s in _SECRETISH) and v})
+        if cfg.get("eab"):
+            safe["eab"] = {"kid": (cfg["eab"] or {}).get("kid")}
+            creds["eab.hmac"] = _ref_kind((cfg["eab"] or {}).get("hmac_ref"))
+    return {"name": name, "type": kind, "config": safe, "credentials": creds}

@@ -43,14 +43,14 @@ async function api(path, opts = {}) {
 }
 
 const TABS = [["overview", "Overview"], ["onboard", "Onboard"], ["inventory", "Inventory"], ["approvals", "Approvals"], ["discovery", "Discovery"],
-  ["provisioning", "Provisioning"], ["policy", "Policy"], ["signing", "Signing"], ["sshkeys", "SSH keys"], ["audit", "Audit"], ["reports", "Reports"]];
+  ["provisioning", "Provisioning"], ["policy", "Policy"], ["issuers", "Issuers"], ["signing", "Signing"], ["sshkeys", "SSH keys"], ["audit", "Audit"], ["reports", "Reports"]];
 render($("#tabs"), html`${TABS.map(([k, v]) => html`<button data-tab="${k}">${v}</button>`)}`);
 function show(tab) {
   TABS.forEach(([k]) => { $("#view-" + k).classList.toggle("hide", k !== tab); });
   document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
   try { sessionStorage.setItem("cdl_tab", tab); } catch (e) { /* ignore */ }
   const loaders = {overview: loadOverview, onboard: loadOnboard, inventory: loadInventory, approvals: loadApprovals, discovery: loadDiscovery,
-    provisioning: loadProvisioning, policy: loadPolicy, signing: loadSigning, sshkeys: loadSshKeys, audit: loadAudit, reports: loadReports};
+    provisioning: loadProvisioning, policy: loadPolicy, issuers: loadIssuers, signing: loadSigning, sshkeys: loadSshKeys, audit: loadAudit, reports: loadReports};
   if (KEY && loaders[tab]) loaders[tab]().catch(e => toast(e.message));
 }
 document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => show(b.dataset.tab));
@@ -61,6 +61,7 @@ $("#connect").onclick = async () => {
   try {
     const me = await api("/api/v1/me"); $("#who").textContent = `${me.name} (${me.role})`;
     document.body.classList.toggle("ro", !["admin", "operator"].includes(me.role));  // hide changes this role cannot make
+    document.body.classList.toggle("noadmin", me.role !== "admin");
   }
   catch (e) { $("#who").textContent = "invalid key"; return; }
   show(currentTab());
@@ -73,6 +74,16 @@ async function part403(el, fn) {
   try { await fn(); } catch (e) { render($(el), html`<span class="muted">${e.message}</span>`); }
 }
 function toast(msg) { $("#who").textContent = msg.slice(0, 120); }
+// shared lookups for the forms
+const options = (rows, label, value = r => r.id, first = null) =>
+  html`${first ? html`<option value="">${first}</option>` : ""}${rows.map(r => html`<option value="${value(r)}">${label(r)}</option>`)}`;
+function parseJson(text, what) {
+  if (!text.trim()) return {};
+  try { const v = JSON.parse(text); if (v && typeof v === "object" && !Array.isArray(v)) return v; } catch (e) { /* fall through */ }
+  throw new Error(`${what} must be a JSON object`);
+}
+function say(sel, msg, ok = false) { const el = $(sel); el.textContent = msg; el.className = ok ? "okmsg" : "err"; }
+function outcome(r, done) { return r && r.approval_id ? `Sent: approval #${r.approval_id} is waiting for an approver.` : done; }
 const when = t => t ? t.slice(0, 16).replace("T", " ") : "";
 function left(x) { return x.hours_left < 0 ? `${Math.ceil(-x.hours_left / 24)}d ago` : x.hours_left < 48 ? `${x.hours_left}h` : `${x.days_left}d`; }
 
@@ -245,6 +256,39 @@ async function loadSources() {
 
 // ---------------- provisioning
 let TARGETS = {};
+const TARGET_TEMPLATES = {
+  ssh: {host: "web1.pay.bank.internal", username: "certadillo", host_key: "ssh-ed25519 AAAA... (from ssh-keyscan, not a first connection)", allowed_dirs: ["/etc/nginx/tls"], reload_command: "sudo systemctl reload nginx"},
+  kubernetes: {api_server: "https://aks-prod.bank.internal:443", namespaces: ["payments"], ca_cert: "-----BEGIN CERTIFICATE-----..."},
+  f5: {host: "https://bigip-dc1.bank.internal", username: "certadillo", partition: "Payments"},
+  "aws-acm": {region: "us-east-1"},
+};
+async function loadProvisioningForms() {
+  const [apps, teams, kinds] = await Promise.all([api("/api/v1/apps").catch(() => []), api("/api/v1/teams").catch(() => []), api("/api/v1/provisioning/kinds")]);
+  render($("#in-app"), options(apps, a => a.name));
+  render($("#in-target"), options(Object.values(TARGETS), t => `${t.name} (${t.kind})`));
+  render($("#tg-team"), options(teams, t => t.name));
+  render($("#tg-kind"), options(kinds, k => k, k => k));
+  if (!$("#tg-config").value) $("#tg-config").value = JSON.stringify(TARGET_TEMPLATES[kinds[0]] || {}, null, 2);
+}
+$("#tg-kind").onchange = () => { $("#tg-config").value = JSON.stringify(TARGET_TEMPLATES[$("#tg-kind").value] || {}, null, 2); };
+$("#tg-save").onclick = async () => {
+  say("#tg-err", "");
+  try {
+    await api("/api/v1/targets", {method: "POST", body: JSON.stringify({name: $("#tg-name").value.trim(), kind: $("#tg-kind").value,
+      team_id: +$("#tg-team").value, config: parseJson($("#tg-config").value, "Configuration"), credential_ref: $("#tg-cred").value.trim() || null})});
+    say("#tg-err", "Target added.", true); loadProvisioning();
+  } catch (e) { say("#tg-err", e.message); }
+};
+$("#in-save").onclick = async () => {
+  say("#in-err", "");
+  try {
+    await api("/api/v1/installations", {method: "POST", body: JSON.stringify({app_id: +$("#in-app").value, target_id: +$("#in-target").value,
+      common_name: $("#in-cn").value.trim(), sans: $("#in-sans").value.split(/\s+/).filter(Boolean), key_type: $("#in-key").value,
+      key_location: $("#in-loc").value, params: parseJson($("#in-params").value, "Placement"), validate_endpoint: $("#in-check").value.trim() || null,
+      auto_renew: $("#in-auto").value === "true"})});
+    say("#in-err", "Installation added. Push it now from the list.", true); loadProvisioning();
+  } catch (e) { say("#in-err", e.message); }
+};
 async function loadProvisioning() {
   await part403("#targets", async () => {
     const t = await api("/api/v1/targets"); TARGETS = Object.fromEntries(t.map(x => [x.id, x]));
@@ -262,6 +306,7 @@ async function loadProvisioning() {
         <td><button data-runs="${i.id}">Runs</button> <button class="primary act" data-push="${i.id}">Push now</button></td></tr>`)}</table>`
       : html`No installations yet.`);
     document.querySelectorAll("[data-runs]").forEach(b => b.onclick = () => showRuns(b.dataset.runs));
+    if (!document.body.classList.contains("ro")) loadProvisioningForms().catch(e => { $("#in-err").textContent = e.message; });
     document.querySelectorAll("[data-push]").forEach(b => b.onclick = async () => {
       b.disabled = true; b.textContent = "Pushing…";
       try { await api(`/api/v1/installations/${encodeURIComponent(b.dataset.push)}/provision`, {method: "POST"}); } catch (e) { /* the run detail shows why */ }
@@ -278,19 +323,87 @@ async function showRuns(id) {
 }
 
 // ---------------- policy tree
+let FOLDERS = [], SETTINGS = {}, EDITING = null;
+const SETTING_KIND = {allowed_profiles: "list", allowed_zones: "list", ec_curves: "list", rsa_min_bits: "int",
+  max_validity_days: "int", dual_control: "bool", issuing_ca: "text", issuer: "text"};
+function ruleRow(key = "", value = "", locked = false) {
+  return html`<tr><td><select class="fe-key">${Object.keys(SETTINGS).map(k => html`<option value="${k}" ${k === key ? html`selected` : ""}>${k}</option>`)}</select></td>
+    <td><input class="fe-val" value="${Array.isArray(value) ? value.join(", ") : value}" placeholder="value; lists comma separated"></td>
+    <td><label class="inline"><input type="checkbox" class="fe-lock" ${locked ? html`checked` : ""}> locked</label></td>
+    <td><button class="fe-del">Remove</button></td></tr>`;
+}
+function drawRules(rules) {
+  render($("#fe-rules"), html`<tr><th>Rule</th><th>Value</th><th></th><th></th></tr>${rules.map(([k, v]) => ruleRow(k, v.value, v.locked))}`);
+  wireRules();
+}
+function wireRules() {
+  document.querySelectorAll(".fe-del").forEach(b => b.onclick = () => { b.closest("tr").remove(); });
+  document.querySelectorAll(".fe-key").forEach(sel => sel.title = SETTINGS[sel.value] || "");
+}
+function readRules() {
+  const out = {};
+  document.querySelectorAll("#fe-rules tr").forEach(tr => {
+    const key = tr.querySelector(".fe-key"); if (!key) return;
+    const raw = tr.querySelector(".fe-val").value.trim(), kind = SETTING_KIND[key.value] || "text";
+    if (!raw) throw new Error(`${key.value} needs a value`);
+    const value = kind === "list" ? raw.split(/[\s,]+/).filter(Boolean) : kind === "int" ? Number(raw) : kind === "bool" ? ["true", "yes", "1"].includes(raw.toLowerCase()) : raw;
+    if (kind === "int" && !Number.isInteger(value)) throw new Error(`${key.value} must be a whole number`);
+    out[key.value] = {value, locked: tr.querySelector(".fe-lock").checked};
+  });
+  return out;
+}
+function editFolder(f) {
+  EDITING = f;
+  $("#fe-title").textContent = f ? `Edit rules of ${f.path}` : "New folder";
+  $("#fe-name").value = f ? f.name : ""; $("#fe-name").disabled = !!f; $("#fe-parent").disabled = !!f;
+  drawRules(f ? Object.entries(f.settings || {}) : []);
+  $("#fe-err").textContent = "";
+  if (f) { $("#fe-card").open = true; $("#fe-card").scrollIntoView({behavior: "smooth"}); }
+}
+$("#fe-add").onclick = () => {
+  // keep what is typed so far, unvalidated, and append an empty rule
+  const cur = [...document.querySelectorAll("#fe-rules tr")].filter(tr => tr.querySelector(".fe-key")).map(tr =>
+    [tr.querySelector(".fe-key").value, {value: tr.querySelector(".fe-val").value, locked: tr.querySelector(".fe-lock").checked}]);
+  const used = new Set(cur.map(([k]) => k));
+  drawRules([...cur, [Object.keys(SETTINGS).find(k => !used.has(k)) || Object.keys(SETTINGS)[0], {value: "", locked: false}]]);
+};
+$("#fe-reset").onclick = () => editFolder(null);
+$("#fe-save").onclick = async () => {
+  say("#fe-err", "");
+  try {
+    const settings = readRules();
+    const r = EDITING
+      ? await api(`/api/v1/folders/${encodeURIComponent(EDITING.id)}/settings`, {method: "PUT", body: JSON.stringify({settings})})
+      : await api("/api/v1/folders", {method: "POST", body: JSON.stringify({name: $("#fe-name").value.trim(), parent_id: $("#fe-parent").value ? +$("#fe-parent").value : null, settings})});
+    say("#fe-err", outcome(r, "Applied."), true); loadPolicy();
+  } catch (e) { say("#fe-err", e.message); }
+};
+$("#mv-go").onclick = async () => {
+  say("#mv-err", "");
+  try {
+    const r = await api(`/api/v1/apps/${encodeURIComponent($("#pol-app").value)}/move`, {method: "POST", body: JSON.stringify({folder_id: $("#mv-folder").value ? +$("#mv-folder").value : null})});
+    say("#mv-err", outcome(r, "Moved."), true); loadPolicy();
+  } catch (e) { say("#mv-err", e.message); }
+};
 async function loadPolicy() {
+  SETTINGS = await api("/api/v1/folders/settings").catch(() => ({}));
   await part403("#tree", async () => {
-    const fs = await api("/api/v1/folders");
+    const fs = await api("/api/v1/folders"); FOLDERS = fs;
+    render($("#fe-parent"), options(fs, f => f.path, f => f.id, "(top level)"));
+    render($("#mv-folder"), options(fs, f => f.path, f => f.id, "(no folder: profile rules only)"));
+    if (!EDITING) drawRules([]);
     const kids = id => fs.filter(f => f.parent_id === id);
     const fmt = v => Array.isArray(v) ? v.join(", ") : String(v);
-    const node = f => html`<li><b>${f.name}</b> <span class="muted">${f.apps} app${f.apps === 1 ? "" : "s"}</span>
+    const node = f => html`<li><b>${f.name}</b> <span class="muted">${f.apps} app${f.apps === 1 ? "" : "s"}</span> <button class="adm small" data-edit="${f.id}">Edit rules</button>
       <div class="rules">${Object.entries(f.settings || {}).map(([k, v]) => html`<span class="rule ${v.locked ? "locked" : ""}" title="${v.locked ? "cannot be changed below this folder" : "set here"}">${k}: ${fmt(v.value)}</span>`)}</div>
       ${kids(f.id).length ? html`<ul class="tree">${kids(f.id).map(node)}</ul>` : ""}</li>`;
     render($("#tree"), fs.length ? html`<ul class="tree">${kids(null).map(node)}</ul>` : html`No folders yet. Apps use their profile's rules only.`);
+    document.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => editFolder(FOLDERS.find(f => f.id === +b.dataset.edit)));
   });
   await part403("#pol-out", async () => {
-    const apps = await api("/api/v1/apps");
+    const apps = await api("/api/v1/apps"), keep = $("#pol-app").value;
     render($("#pol-app"), html`<option value="">pick an app</option>${apps.map(a => html`<option value="${a.id}">${a.name}</option>`)}`);
+    if (keep) { $("#pol-app").value = keep; $("#pol-app").onchange(); }
   });
 }
 $("#pol-app").onchange = async () => {
@@ -304,8 +417,17 @@ $("#pol-app").onchange = async () => {
 };
 
 // ---------------- code signing
+$("#sg-save").onclick = async () => {
+  say("#sg-err", "");
+  try {
+    const r = await api("/api/v1/signing/keys", {method: "POST", body: JSON.stringify({name: $("#sg-name").value.trim(), app_id: +$("#sg-app").value,
+      purpose: $("#sg-purpose").value, alg: $("#sg-alg").value})});
+    say("#sg-err", outcome(r, "Created."), true); loadSigning();
+  } catch (e) { say("#sg-err", e.message); }
+};
 async function loadSigning() {
   $("#tsa-url").textContent = location.origin + "/tsa";
+  if (!document.body.classList.contains("ro")) api("/api/v1/apps").then(apps => render($("#sg-app"), options(apps, a => a.name))).catch(() => {});
   await part403("#sign-keys", async () => {
     const keys = await api("/api/v1/signing/keys");
     render($("#sign-keys"), keys.length
@@ -321,6 +443,21 @@ async function loadSigning() {
         <td><code>${r.digest_alg}:${r.digest.slice(0, 16)}…</code></td><td>${pill(r.status)}${r.status === "pending" && r.approval_id ? html`<br><span class="muted">approval #${r.approval_id}</span>` : ""}</td></tr>`)}</table>`
       : html`No signing requests yet.`);
   });
+}
+
+// ---------------- issuers
+async function loadIssuers() {
+  const rows = await api("/api/v1/issuers");
+  const kv = obj => Object.entries(obj || {}).filter(([k]) => k !== "cas").map(([k, v]) =>
+    html`<tr><td class="muted">${k}</td><td>${typeof v === "object" && v !== null ? JSON.stringify(v) : String(v)}</td></tr>`);
+  render($("#issuers"), html`<div class="issuers">${rows.map(i => html`<div class="issuer">
+    <h3>${i.name} ${pill(i.type)}</h3>
+    <div class="kpis small"><div class="kpi"><b>${i.active}</b><span>active certificates</span></div><div class="kpi"><b>${i.issued}</b><span>issued in total</span></div><div class="kpi"><b>${i.last_issued ? i.last_issued.slice(0, 10) : "never"}</b><span>last issued</span></div></div>
+    <p><span class="muted">Profiles:</span> ${i.profiles.length ? i.profiles.map(x => html`<span class="rule">${x}</span> `) : html`<span class="muted">none</span>`}
+    <br><span class="muted">Policy folders:</span> ${i.folders.length ? i.folders.map(x => html`<span class="rule">${x}</span> `) : html`<span class="muted">none</span>`}</p>
+    ${i.type === "local" ? html`<table><tr><th>CA</th><th>Role</th><th>Key</th><th>Expires</th></tr>${i.config.cas.map(c => html`<tr><td>${c.name}${c.name === i.config.default_issuing_ca ? html` ${pill("default")}` : ""}</td><td>${c.root ? "root" : "issuing"}</td><td>${c.signer === "offline" ? pill("offline") : c.signer}</td><td>${c.not_after.slice(0, 10)}</td></tr>`)}</table>`
+      : html`<table>${kv(i.config)}${Object.entries(i.credentials).map(([k, v]) => html`<tr><td class="muted">${k}</td><td>${v}</td></tr>`)}</table>`}
+  </div>`)}</div>`);
 }
 
 // ---------------- SSH keys

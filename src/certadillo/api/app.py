@@ -914,6 +914,58 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
         p.commit()
         return res
 
+    @app.get("/api/v1/issuers", tags=["ca"])
+    def list_issuers(p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        """Every CA that can sign for Certadillo: the built-in CAs, AD CS through the gateway,
+        Vault PKI and the upstream issuers from the policy file. For each, which profiles and
+        policy folders route to it and what it has issued. No credentials are returned."""
+        who.require("admin", "operator", "approver", "auditor")
+        from sqlalchemy import func
+
+        from certadillo.ca.backends import _registry
+        from certadillo.ca.issuers import describe
+
+        profiles = p.policies.get("profiles", {})
+        folders = p.s.query(PolicyFolder).all()
+
+        def routing(name):
+            prof = sorted(k for k, v in profiles.items() if v.get("issuer", "local") == name)
+            fold = sorted(policy_folders.path(p.s, f) for f in folders
+                          if ((f.settings or {}).get("issuer") or {}).get("value") == name)
+            return prof, fold
+
+        stats = {b: (n, last) for b, n, last in p.s.query(Certificate.backend, func.count(Certificate.id),
+                                                              func.max(Certificate.created_at))
+                 .filter(Certificate.source == "issued").group_by(Certificate.backend).all()}
+        active = dict(p.s.query(Certificate.backend, func.count(Certificate.id))
+                      .filter(Certificate.source == "issued", Certificate.status == "active")
+                      .group_by(Certificate.backend).all())
+
+        def with_usage(entry):
+            prof, fold = routing(entry["name"])
+            n, last = stats.get(entry["name"], (0, None))
+            entry.update(profiles=prof, folders=fold, issued=n, active=active.get(entry["name"], 0),
+                         last_issued=as_utc(last).isoformat() if last else None)
+            return entry
+
+        cas = []
+        for ca in p.s.query(CertificateAuthority).order_by(CertificateAuthority.id).all():
+            c = x509.load_pem_x509_certificate(ca.cert_pem.encode())
+            cas.append({"name": ca.name, "root": ca.is_root, "signer": ca.signer_type,
+                        "not_after": c.not_valid_after_utc.isoformat()})
+        try:
+            default = p.ca.default_issuing().name
+        except LookupError:
+            default = None
+        out = [with_usage({"name": "local", "type": "local", "config": {"default_issuing_ca": default, "cas": cas},
+                           "credentials": {}})]
+        if any(v.get("issuer") == "adcs" for v in profiles.values()):
+            out.append(with_usage({"name": "adcs", "type": "adcs", "config": {"through": "gateway worker job queue"},
+                                   "credentials": {}}))
+        for name, backend in sorted(_registry.items()):
+            out.append(with_usage(describe(name, backend)))
+        return out
+
     @app.get("/api/v1/cas/keys", tags=["ca"])
     def ca_keys(p: Platform = Depends(platform), who: Actor = Depends(actor)):
         """Where each CA key lives and whether it is reachable and intact (a live check for Vault-held keys)."""
