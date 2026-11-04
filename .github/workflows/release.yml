@@ -27,10 +27,10 @@ jobs:
     env:
       IMAGE: ghcr.io/flavioimbertdomingos/certadillo
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
       - name: No known vulnerabilities in the locked dependencies
@@ -60,7 +60,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           provenance: mode=max
       - name: SBOM (CycloneDX)
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           image: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
           format: cyclonedx-json
@@ -71,7 +71,7 @@ jobs:
         run: |
           cosign sign --yes "$IMAGE@$DIGEST"
           cosign attest --yes --type cyclonedx --predicate sbom.cdx.json "$IMAGE@$DIGEST"
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sbom-${{ github.ref_name }}
           path: sbom.cdx.json
