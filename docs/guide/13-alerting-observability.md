@@ -33,6 +33,8 @@ curl -s -H "X-API-Key: $OPERATOR_KEY" $S/api/v1/alerts
 | `PrivateKeyExposed` | critical | the host agent found a private key file readable by every user |
 | `UnknownPublicCertificate` | warning | CT shows a public certificate for the bank's zones that Certadillo did not issue |
 | `DiscoverySourceFailing` | warning | the last run of a cloud or CT discovery source failed |
+| `SshKeyWeak` / `SshKeyShared` / `SshRootKeyUnrestricted` / `SshKeyOrphaned` | warning | a static SSH key found by the host agent is weak, shared, opens root from anywhere, or belongs to a missing account |
+| `SshKeyRotationDue` | info | an authorized_keys file has not changed for a year |
 
 Each alert is sent when it starts, repeated every 4 hours (critical), 24 hours (warning) or 7 days (info) while it lasts, and sent once more as resolved. Every alert links to its [runbook](../RUNBOOK.md) section.
 

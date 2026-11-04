@@ -130,6 +130,8 @@ All settings are environment variables.
 | `CERTADILLO_SEAL_KEY_PREVIOUS` | | the old key while rotating; then run `certadillo integrity reseal` |
 | `CERTADILLO_AUDIT_ANCHOR_FILE` / `_URL` | | where the daily audit chain head goes (a JSONL file you ship to WORM storage, and/or a webhook) |
 | `CERTADILLO_AUDIT_ANCHOR_HOURS` | `24` | how often to anchor |
+| `CERTADILLO_SSH_RSA_MIN_BITS` | `2048` | RSA SSH keys below this raise `SshKeyWeak` |
+| `CERTADILLO_SSH_KEY_MAX_AGE_DAYS` | `365` | authorized keys unchanged this long raise `SshKeyRotationDue` |
 | `CERTADILLO_AUDIT_SHIP` | | sinks every audit event is shipped to: `file:`, `syslog+tls://`, `syslog+tcp://`, `splunk+https://`, `https://`, `s3://` ([audit shipping](25-audit-shipping.md)) |
 | `CERTADILLO_AUDIT_SHIP_INTERVAL` | `15` | seconds between shipping passes |
 | `CERTADILLO_AUDIT_SHIP_TOKEN_REF` | | `env:`, `file:` or `vault:` reference to the HEC or bearer token |

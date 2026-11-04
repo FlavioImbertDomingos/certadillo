@@ -64,7 +64,7 @@
 | Image vulnerability scan and SBOM | Trivy (critical and high) and a CycloneDX SBOM in CI |
 | Signed release images | `.github/workflows/release.yml`: on a version tag the image is pushed to GHCR, signed with Sigstore keyless signing (bound to the workflow's GitHub identity, logged in Rekor), and the SBOM attached as a signed attestation |
 | Actions pinned to commit SHAs | every workflow; Dependabot keeps the pins current |
-| Fuzzing of the parsers that take bytes from unauthenticated clients | `tests/test_fuzz_parsers.py` (Hypothesis): SCEP, CMP, EST, OCSP, ACME JWS, CSR and PEM input, and the AD CS security descriptor parser. Every corrupted message must get a protocol error, never a server error. The first run found three crashes (an unreadable CSR key, an unknown OCSP hash algorithm, a truncated security descriptor), all fixed |
+| Fuzzing of the parsers that take bytes from unauthenticated clients | `tests/test_fuzz_parsers.py` (Hypothesis): SCEP, CMP, EST, OCSP, ACME JWS, CSR and PEM input, and the AD CS security descriptor parser. Every corrupted message must get a protocol error, never a server error. The first runs found four crashes (an unreadable CSR key, an unknown OCSP hash algorithm, a truncated security descriptor, an imported certificate with an unknown key algorithm), all fixed |
 
 Regenerate the lock after changing dependencies in `pyproject.toml`:
 

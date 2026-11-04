@@ -53,6 +53,8 @@ DESCRIBE = {
     ("POST", "/api/v1/discovery/agent-report"): ("agent, admin, operator", "a host agent's certificates and key file permissions"),
     ("GET", "/api/v1/discovery/sources"): ("admin, operator, auditor", "configured discovery sources and their last run"),
     ("POST", "/api/v1/discovery/sources/{name}/run"): ("admin, operator", "run one discovery source now (502 if it failed)"),
+    ("GET", "/api/v1/ssh-keys"): ("admin, operator, auditor", "static SSH keys from host agents (`host`, `account`, `owner`, `owner=none`, `status`)"),
+    ("PUT", "/api/v1/ssh-keys/{key_id}/owner"): ("admin, operator", "record the owner of a key everywhere it appears"),
     ("GET", "/api/v1/discovery/findings"): ("admin, operator, auditor", "open findings (`status`, `kind`): readable keys, unknown public certificates"),
     ("POST", "/api/v1/discovery/findings/{finding_id}/acknowledge"): ("admin, operator", "acknowledge a finding with a reason"),
     ("GET", "/api/v1/folders"): ("admin, operator, approver, auditor", "the policy tree with own and effective settings"),

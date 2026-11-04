@@ -148,6 +148,8 @@ class Settings:
     # any other scope needs approval whatever environment the app claims, since
     # the environment label alone does not stop a "dev" app naming prod hosts.
     dev_domains: list[str] = field(default_factory=lambda: _list("DEV_DOMAINS"))
+    ssh_rsa_min_bits: int = field(default_factory=lambda: int(_env("SSH_RSA_MIN_BITS", "2048") or 2048))
+    ssh_key_max_age_days: int = field(default_factory=lambda: int(_env("SSH_KEY_MAX_AGE_DAYS", "365") or 365))
     dual_control_actions: list[str] = field(
         default_factory=lambda: _list("DUAL_CONTROL") or ["onboard_prod_app", "policy_change"]
     )

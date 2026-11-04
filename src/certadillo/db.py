@@ -14,6 +14,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     create_engine,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
@@ -606,6 +607,31 @@ class DiscoveryFinding(Base):
     first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     acknowledged_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
+
+
+class SshKey(Base):
+    """A static SSH public key found by a host agent: an authorized key (who
+    can log in as whom) or a host key. One row per place it was found."""
+
+    __tablename__ = "ssh_keys"
+    __table_args__ = (UniqueConstraint("host", "path", "fingerprint", name="uq_ssh_key_place"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    fingerprint: Mapped[str] = mapped_column(String(64), index=True)  # SHA256:..., as ssh-keygen -l prints it
+    key_type: Mapped[str] = mapped_column(String(48))
+    bits: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    comment: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    kind: Mapped[str] = mapped_column(String(16))  # authorized | host
+    host: Mapped[str] = mapped_column(String(255), index=True)
+    account: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    account_exists: Mapped[bool] = mapped_column(Boolean, default=True)
+    path: Mapped[str] = mapped_column(String(512))
+    options: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    file_mtime: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    status: Mapped[str] = mapped_column(String(16), default="present")  # present | removed
+    owner: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    owner_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
 
 class AuditShipCursor(Base):

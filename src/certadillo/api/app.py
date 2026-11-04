@@ -62,6 +62,13 @@ class AgentReportIn(BaseModel):
     host: str = Field(min_length=1, max_length=200)
     certificates: list[dict] = Field(default_factory=list, max_length=5000)
     key_files: list[dict] = Field(default_factory=list, max_length=5000)
+    # None from an agent that does not scan SSH keys: leave that host's SSH inventory alone
+    ssh_keys: list[dict] | None = Field(default=None, max_length=20000)
+
+
+class SshOwnerIn(BaseModel):
+    owner: str = Field(min_length=2, max_length=120)
+    note: str | None = Field(default=None, max_length=500)
 
 
 class AckIn(BaseModel):
@@ -1067,8 +1074,53 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
     def agent_report(body: AgentReportIn, p: Platform = Depends(platform), who: Actor = Depends(actor)):
         who.require("agent", "admin", "operator")
         out = disc.ingest_agent_report(p, who, body.host, body.certificates, body.key_files)
+        if body.ssh_keys is not None:
+            from certadillo.audit.log import record
+            from certadillo.discovery import sshkeys
+
+            res = sshkeys.ingest(p, who.name, body.host, body.ssh_keys)
+            record(p.s, who.name, "discovery.agent.ssh_keys", body.host, res)
+            out.update(res)
         p.commit()
         return out
+
+    @app.get("/api/v1/ssh-keys", tags=["inventory"])
+    def ssh_keys(host: str | None = None, account: str | None = None, owner: str | None = None,
+                 status: str = "present", p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        """Static SSH keys found by host agents. `owner=none` lists the keys nobody has claimed."""
+        who.require("admin", "operator", "auditor")
+        from certadillo.db import SshKey
+        from certadillo.discovery.sshkeys import as_json
+
+        q = p.s.query(SshKey).filter_by(status=status)
+        if host:
+            q = q.filter_by(host=host)
+        if account:
+            q = q.filter_by(account=account)
+        if owner == "none":
+            q = q.filter(SshKey.owner.is_(None))
+        elif owner:
+            q = q.filter_by(owner=owner)
+        return [as_json(k) for k in q.order_by(SshKey.host, SshKey.path).limit(5000).all()]
+
+    @app.put("/api/v1/ssh-keys/{key_id}/owner", tags=["inventory"])
+    def ssh_key_owner(key_id: int, body: SshOwnerIn, p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        """Record who is responsible for a key, everywhere it appears (same fingerprint)."""
+        who.require("admin", "operator")
+        from certadillo.audit.log import record
+        from certadillo.db import SshKey
+        from certadillo.discovery.sshkeys import as_json
+
+        k = p.s.get(SshKey, key_id)
+        if k is None:
+            raise NotFound("SSH key not found")
+        rows = p.s.query(SshKey).filter_by(fingerprint=k.fingerprint).all()
+        for r in rows:
+            r.owner, r.owner_note = body.owner, body.note
+        record(p.s, who.name, "ssh_key.owner", k.fingerprint, {"owner": body.owner, "note": body.note,
+                                                             "places": len(rows)})
+        p.commit()
+        return as_json(k)
 
     @app.get("/api/v1/audit/shipping", tags=["governance"])
     def audit_shipping(p: Platform = Depends(platform), who: Actor = Depends(actor)):

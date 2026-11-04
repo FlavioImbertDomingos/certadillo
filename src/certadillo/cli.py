@@ -510,20 +510,24 @@ def agent():
 @click.option("--password-file", type=click.Path(path_type=Path, exists=True, dir_okay=False),
               help="keystore passwords to try, one per line")
 @click.option("--dry-run", is_flag=True, help="print what would be reported and send nothing")
-def agent_scan(server, api_key, api_key_file, paths, password_file, dry_run):
+@click.option("--ssh/--no-ssh", "with_ssh", default=True, show_default=True,
+              help="also report authorized_keys and host public keys")
+def agent_scan(server, api_key, api_key_file, paths, password_file, dry_run, with_ssh):
     """Scan, then report the public certificates and the permissions of private
     key files. Private keys are never read into the report."""
     import socket
 
-    from certadillo.discovery.agent import DEFAULT_PATHS, scan
+    from certadillo.discovery.agent import DEFAULT_PATHS, scan, scan_ssh
 
     passwords = [ln for ln in password_file.read_text().splitlines() if ln] if password_file else []
     found = scan(list(paths) or [p for p in DEFAULT_PATHS if Path(p).exists()], passwords)
     report = {"host": socket.getfqdn(), "certificates": found["certificates"], "key_files": found["key_files"]}
+    if with_ssh:
+        report["ssh_keys"] = scan_ssh()
     if dry_run:
         click.echo(json.dumps({"host": report["host"], "certificates": [
             {"path": c["path"], "format": c["format"]} for c in report["certificates"]],
-            "key_files": report["key_files"]}, indent=2))
+            "key_files": report["key_files"], "ssh_keys": report.get("ssh_keys")}, indent=2))
         return
     if not server:
         raise click.UsageError("set CERTADILLO_SERVER, or use --dry-run")

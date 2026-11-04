@@ -159,6 +159,26 @@ Critical with "chain break" in the message: the database no longer continues the
 4. Find how it happened as for `AuditAnchorMismatch` below, and run `certadillo db harden`.
 5. Shipping resumes only after the database history matches what was shipped again (restore from backup) or the sink's cursor is reset deliberately by an admin in SQL, which itself shows up in the next shipped record.
 
+## SshKeyWeak
+
+A DSA key, or an RSA key below `CERTADILLO_SSH_RSA_MIN_BITS`, can log in to the host named in the alert. Find its owner (`GET /api/v1/ssh-keys?host=...`, the comment often names the person or system), have them switch to an Ed25519 key or, better, an SSH certificate, then remove the line. The next agent report closes the finding.
+
+## SshKeyShared
+
+The same key opens more than one account or host, so nobody can tell from the logs who used it and removing it breaks several things at once. Find the owner, give each use its own key or a certificate with the right principals, and remove the shared lines one at a time.
+
+## SshRootKeyUnrestricted
+
+A key logs in as root from any address. Add a `from="..."` restriction for the jump hosts or automation that need it, or move the access to a named account with sudo. If nobody claims the key, remove it after checking the sshd logs for recent use.
+
+## SshKeyOrphaned
+
+A key in `/etc/ssh/authorized_keys/` belongs to an account that no longer exists on the host, typically left behind when someone left. Remove the file. If the account was recreated with the same name, the key would grant access again, which is why this is a warning.
+
+## SshKeyRotationDue
+
+An authorized_keys file has not changed in over `CERTADILLO_SSH_KEY_MAX_AGE_DAYS`. Confirm the key is still needed and owned (`PUT /api/v1/ssh-keys/{id}/owner`), rotate it, or acknowledge the finding with the reason it stays.
+
 ## IntegritySealBroken
 
 A principal, approval or certificate row was changed outside Certadillo (in SQL, not through the application), or a certificate the audit trail records as revoked is back to "active". Treat it as a security incident: someone had write access to the database.

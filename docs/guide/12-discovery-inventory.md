@@ -84,6 +84,9 @@ next report after the permissions are fixed closes it.
 An agent key can post reports and read nothing else: not the inventory, not
 approvals, not configuration.
 
+The agent also reports static SSH keys (authorized_keys and host keys). See
+[static SSH keys](08-ssh.md#static-ssh-keys).
+
 ## Cloud certificate stores
 
 Configured in the policy file, run on their own schedule by the server, and

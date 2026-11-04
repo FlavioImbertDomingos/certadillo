@@ -149,7 +149,7 @@ removed.
   dependencies installed only from a hash-pinned lock, `pip-audit` in CI,
   release images signed with Sigstore keyless signing with the SBOM as a
   signed attestation, and Hypothesis fuzzing of the SCEP, CMP, EST, OCSP, ACME
-  and CSR parsers (which found and fixed three crashes). See
+  and CSR parsers (which found and fixed four crashes). See
   [supply chain](SECURITY.md#supply-chain).
 
 ## Phase 7: enterprise CLM features
@@ -199,11 +199,13 @@ Still missing compared with Venafi:
   artifacts recorded in the audit trail, and clients for signtool, jarsigner,
   cosign and GPG. Today code-signing certificates can be issued under dual
   control, but the requester holds the key.
-- [ ] **SSH key management.** Certadillo already issues short-lived SSH user
-  and host certificates. Missing: discovery of static `authorized_keys` and
-  host keys across servers (through the host agent), ownership and age of each
-  key, alerts for orphaned, shared or weak keys, and rotation of keys that
-  cannot move to certificates yet.
+- [x] **SSH key discovery and ownership** (November 2026). The host agent
+  reports authorized_keys and host keys with fingerprints, sizes, accounts and
+  restrictions; keys get owners; findings and alerts for weak, shared,
+  root-from-anywhere, orphaned and unrotated keys. See
+  [static SSH keys](guide/08-ssh.md#static-ssh-keys).
+- [ ] **SSH key rotation** for keys that cannot move to certificates yet:
+  push a new key and remove the old one through the provisioning engine.
 
 Smaller follow-ups to the four shipped features:
 

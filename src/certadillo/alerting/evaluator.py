@@ -194,6 +194,15 @@ def evaluate(session, settings, policies: dict) -> list[Alert]:
                              f"through Certadillo (serial {f.detail.get('serial')})",
                              {"serial": f.detail.get("serial"), "issuer": f.detail.get("issuer") or ""},
                              runbook=RUNBOOK + "unknownpubliccertificate"))
+        elif f.kind in SSH_RULES:
+            rule, sev, what = SSH_RULES[f.kind]
+            d = f.detail or {}
+            who = f"{d.get('account') or 'host key'}@{d.get('host')}" if d.get("host") else f.location
+            out.append(Alert(_fp("finding", f.key), rule, sev,
+                             f"SSH key {d.get('fingerprint')} ({d.get('key_type')} {d.get('bits') or ''}) {what}: "
+                             f"{who if f.kind != 'ssh_shared_key' else f.location}",
+                             {"fingerprint": d.get("fingerprint") or "", "location": f.location or ""},
+                             runbook=RUNBOOK + rule.lower()))
     latest: dict[str, DiscoveryRun] = {}
     for r in session.query(DiscoveryRun).order_by(DiscoveryRun.id).all():
         latest[r.source] = r
@@ -223,6 +232,13 @@ def evaluate(session, settings, policies: dict) -> list[Alert]:
     return out
 
 
+SSH_RULES = {
+    "ssh_weak_key": ("SshKeyWeak", "warning", "is too weak"),
+    "ssh_shared_key": ("SshKeyShared", "warning", "is authorized in more than one place"),
+    "ssh_root_unrestricted": ("SshRootKeyUnrestricted", "warning", "logs in as root from anywhere"),
+    "ssh_orphaned_key": ("SshKeyOrphaned", "warning", "belongs to an account that does not exist"),
+    "ssh_rotation_due": ("SshKeyRotationDue", "info", "has not changed in over a year"),
+}
 PRIVILEGED_ROLES = {"admin", "approver", "gateway"}
 
 

@@ -70,6 +70,47 @@ Add `HostCertificate /etc/ssh/ssh_host_ed25519_key-cert.pub` to `sshd_config`. O
 
 Host certificates: 30 days by default, 90 maximum.
 
+## Static SSH keys
+
+Certificates are where SSH access should end up, but most estates still run
+on `authorized_keys` files: keys that never expire, copied between accounts,
+and owned by nobody in particular. The host agent finds them so they can be
+cleaned up and moved to certificates.
+
+`certadillo agent scan` (see [discovery](12-discovery-inventory.md#the-host-agent))
+reports, for every account with a home directory, the keys in
+`~/.ssh/authorized_keys` and `authorized_keys2`, the files under
+`/etc/ssh/authorized_keys/` (for `AuthorizedKeysFile /etc/ssh/authorized_keys/%u`),
+and the host public keys. For each key: the SHA-256 fingerprint exactly as
+`ssh-keygen -l` prints it, the type and size, the comment, the account, the
+restrictions on the line, and when the file last changed. The `from=`,
+`permitopen=` and `principals=` values are kept; a `command=` is reported only
+as present, because forced commands often carry credentials. Public keys only.
+Use `--no-ssh` to leave SSH out.
+
+```bash
+curl -s -H "X-API-Key: $AUDITOR_KEY" "$S/api/v1/ssh-keys?host=web1"
+curl -s -H "X-API-Key: $AUDITOR_KEY" "$S/api/v1/ssh-keys?owner=none"      # keys nobody has claimed
+curl -s -H "X-API-Key: $OPERATOR_KEY" -X PUT "$S/api/v1/ssh-keys/12/owner" \
+  -H "Content-Type: application/json" -d '{"owner": "team-payments", "note": "CHG0042"}'
+```
+
+Claiming a key records the owner on every place the same key appears. A key
+that disappears from a host is kept as `removed` so the history stays.
+
+| Finding | Alert | Raised when |
+| --- | --- | --- |
+| `ssh_weak_key` | `SshKeyWeak` | DSA, or RSA under `CERTADILLO_SSH_RSA_MIN_BITS` (2048) |
+| `ssh_shared_key` | `SshKeyShared` | the same key is authorized for more than one account or host |
+| `ssh_root_unrestricted` | `SshRootKeyUnrestricted` | a key logs in as root with no `from=` restriction |
+| `ssh_orphaned_key` | `SshKeyOrphaned` | a key in `/etc/ssh/authorized_keys/` for an account that does not exist |
+| `ssh_rotation_due` | `SshKeyRotationDue` (info) | the authorized_keys file has not changed for `CERTADILLO_SSH_KEY_MAX_AGE_DAYS` (365) |
+
+Findings close by themselves once a report no longer shows the problem, and
+can be acknowledged with a reason like any other discovery finding. Rotating
+static keys from Certadillo is not built yet; the way out for most of them is a
+short-lived certificate from this page.
+
 ## Limits today
 
 - The SSH CA key is a software key; the HSM covers the X.509 CAs only. See [SECURITY.md](../SECURITY.md).
