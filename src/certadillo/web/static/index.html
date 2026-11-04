@@ -90,6 +90,13 @@
 
   <section id="view-discovery" class="hide">
     <div class="card">
+      <h2>Findings</h2>
+      <p class="muted">Readable private keys, public certificates nobody requested, certificates only keycensus knows, and static SSH keys that need action. Acknowledging needs a reason and is audited.</p>
+      <div class="row"><div><label>Kind</label><select id="fd-kind"><option value="">any</option><option>key_readable</option><option>unknown_public_cert</option><option>untracked_certificate</option><option>ssh_weak_key</option><option>ssh_shared_key</option><option>ssh_root_unrestricted</option><option>ssh_orphaned_key</option><option>ssh_rotation_due</option></select></div></div>
+      <div id="findings" class="muted">Nothing loaded yet.</div>
+    </div>
+    <div class="card"><h2>Scheduled sources</h2><div id="sources" class="muted">Nothing loaded yet.</div></div>
+    <div class="card">
       <h2>Discover TLS endpoints</h2>
       <label>Targets: host:port, IP:port or CIDR:port, one per line</label>
       <textarea id="d-targets" placeholder="10.20.0.0/28:443&#10;payments.bank.internal:8443"></textarea>
@@ -98,11 +105,43 @@
     </div>
   </section>
 
+  <section id="view-provisioning" class="hide">
+    <div class="card"><h2>Installations</h2><p class="muted">Each row is one certificate kept installed in one place. Push now issues under the app's policy, installs, checks the endpoint serves it, then retires the old one.</p><div id="installs" class="muted">Nothing loaded yet.</div></div>
+    <div class="card"><h2>Last run</h2><div id="run-detail" class="muted">Pick an installation.</div></div>
+    <div class="card"><h2>Targets</h2><div id="targets" class="muted">Nothing loaded yet.</div></div>
+  </section>
+
+  <section id="view-policy" class="hide">
+    <div class="card"><h2>Policy tree</h2><p class="muted">Rules flow down; a locked rule cannot be changed below its folder. Changes and moves are approval requests.</p><div id="tree" class="muted">Nothing loaded yet.</div></div>
+    <div class="card"><h2>What one app gets</h2>
+      <div class="row"><div><label>App</label><select id="pol-app"></select></div></div>
+      <div id="pol-out"></div>
+    </div>
+  </section>
+
+  <section id="view-signing" class="hide">
+    <div class="card"><h2>Code-signing keys</h2><p class="muted">Keys live in the HSM or Vault and never leave it. Release keys need an approver for every signature. Time stamping (RFC 3161) is at <code id="tsa-url"></code>.</p><div id="sign-keys" class="muted">Nothing loaded yet.</div></div>
+    <div class="card"><h2>Signing requests</h2><div id="sign-reqs" class="muted">Nothing loaded yet.</div></div>
+  </section>
+
+  <section id="view-sshkeys" class="hide">
+    <div class="card">
+      <h2>Static SSH keys</h2>
+      <div class="row">
+        <div><label>Show</label><select id="sk-filter"><option value="">all present</option><option value="none">without an owner</option><option value="removed">removed</option></select></div>
+        <div><label>Search</label><input id="sk-q" placeholder="host, account, comment, fingerprint"></div>
+      </div>
+      <div id="sshkeys" class="muted">Nothing loaded yet.</div>
+    </div>
+  </section>
+
   <section id="view-audit" class="hide">
+    <div class="card"><h2>Shipping off the host</h2><div id="audit-ship" class="muted"></div></div>
     <div class="card"><h2>Audit trail</h2><p id="audit-verify" class="muted"></p><div id="audit"></div></div>
   </section>
 
   <section id="view-reports" class="hide">
+    <div class="card"><h2>Certificate authorities</h2><div id="cas" class="muted"></div></div>
     <div class="card"><h2>Crypto agility and PQC readiness</h2><div id="crypto"></div></div>
     <div class="card"><h2>Exports</h2>
       <p><button data-dl="/api/v1/reports/cbom" data-name="cbom.cdx.json">CycloneDX CBOM</button>

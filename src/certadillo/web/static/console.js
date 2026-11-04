@@ -42,26 +42,38 @@ async function api(path, opts = {}) {
   return body;
 }
 
-const TABS = [["overview", "Overview"], ["onboard", "Onboard"], ["inventory", "Inventory"], ["approvals", "Approvals"], ["discovery", "Discovery"], ["audit", "Audit"], ["reports", "Reports"]];
+const TABS = [["overview", "Overview"], ["onboard", "Onboard"], ["inventory", "Inventory"], ["approvals", "Approvals"], ["discovery", "Discovery"],
+  ["provisioning", "Provisioning"], ["policy", "Policy"], ["signing", "Signing"], ["sshkeys", "SSH keys"], ["audit", "Audit"], ["reports", "Reports"]];
 render($("#tabs"), html`${TABS.map(([k, v]) => html`<button data-tab="${k}">${v}</button>`)}`);
 function show(tab) {
   TABS.forEach(([k]) => { $("#view-" + k).classList.toggle("hide", k !== tab); });
   document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
   try { sessionStorage.setItem("cdl_tab", tab); } catch (e) { /* ignore */ }
-  if (KEY) ({overview: loadOverview, onboard: loadOnboard, inventory: loadInventory, approvals: loadApprovals, audit: loadAudit, reports: loadReports}[tab] || (() => {}))();
+  const loaders = {overview: loadOverview, onboard: loadOnboard, inventory: loadInventory, approvals: loadApprovals, discovery: loadDiscovery,
+    provisioning: loadProvisioning, policy: loadPolicy, signing: loadSigning, sshkeys: loadSshKeys, audit: loadAudit, reports: loadReports};
+  if (KEY && loaders[tab]) loaders[tab]().catch(e => toast(e.message));
 }
 document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => show(b.dataset.tab));
 
 $("#connect").onclick = async () => {
   KEY = $("#apikey").value.trim();
   try { sessionStorage.setItem("cdl_key", KEY); } catch (e) { /* ignore */ }
-  try { const me = await api("/api/v1/me"); $("#who").textContent = `${me.name} (${me.role})`; }
+  try {
+    const me = await api("/api/v1/me"); $("#who").textContent = `${me.name} (${me.role})`;
+    document.body.classList.toggle("ro", !["admin", "operator"].includes(me.role));  // hide changes this role cannot make
+  }
   catch (e) { $("#who").textContent = "invalid key"; return; }
   show(currentTab());
 };
 function currentTab() { try { return sessionStorage.getItem("cdl_tab") || "overview"; } catch (e) { return "overview"; } }
 
 const pill = s => html`<span class="pill ${s}">${s}</span>`;
+// a section the current role may not read shows why instead of failing the whole tab
+async function part403(el, fn) {
+  try { await fn(); } catch (e) { render($(el), html`<span class="muted">${e.message}</span>`); }
+}
+function toast(msg) { $("#who").textContent = msg.slice(0, 120); }
+const when = t => t ? t.slice(0, 16).replace("T", " ") : "";
 function left(x) { return x.hours_left < 0 ? `${Math.ceil(-x.hours_left / 24)}d ago` : x.hours_left < 48 ? `${x.hours_left}h` : `${x.days_left}d`; }
 
 async function loadOverview() {
@@ -192,8 +204,158 @@ $("#d-run").onclick = async () => {
   } catch (e) { render($("#d-out"), html`<p class="err">${e.message}</p>`); }
 };
 
+async function loadDiscovery() {
+  await Promise.all([part403("#findings", loadFindings), part403("#sources", loadSources)]);
+}
+async function loadFindings() {
+  const kind = $("#fd-kind").value;
+  const rows = await api("/api/v1/discovery/findings" + (kind ? `?kind=${encodeURIComponent(kind)}` : ""));
+  const label = f => {
+    const d = f.detail || {};
+    if (f.kind.startsWith("ssh_")) return html`${d.key_type || ""} ${d.bits || ""} ${d.comment ? html`<span class="muted">${d.comment}</span>` : ""}<br><code>${d.fingerprint || ""}</code>`;
+    if (f.kind === "unknown_public_cert") return html`${(d.dns_names || []).join(", ")}<br><span class="muted">${d.issuer || ""}</span>`;
+    if (f.kind === "untracked_certificate") return html`${d.name}<br><span class="muted">apps: ${(d.applications || []).join(", ") || "none linked"}</span>`;
+    return html`mode ${d.mode || ""} owner ${d.owner || ""}`;
+  };
+  render($("#findings"), rows.length
+    ? html`<table><tr><th>Kind</th><th>Where</th><th>What</th><th>Since</th><th></th></tr>${rows.map(f =>
+      html`<tr><td>${pill(f.kind)}</td><td>${f.location}</td><td>${label(f)}</td><td>${when(f.first_seen)}</td><td><button class="act" data-ack="${f.id}">Acknowledge</button></td></tr>`)}</table>`
+    : html`No open findings.`);
+  document.querySelectorAll("[data-ack]").forEach(b => b.onclick = async () => {
+    const comment = prompt("Why is this expected? (recorded in the audit trail)"); if (!comment) return;
+    try { await api(`/api/v1/discovery/findings/${encodeURIComponent(b.dataset.ack)}/acknowledge`, {method: "POST", body: JSON.stringify({comment})}); loadFindings(); } catch (e) { alert(e.message); }
+  });
+}
+$("#fd-kind").onchange = () => loadFindings().catch(e => toast(e.message));
+async function loadSources() {
+  const rows = await api("/api/v1/discovery/sources");
+  render($("#sources"), rows.length
+    ? html`<table><tr><th>Source</th><th>Type</th><th>Last run</th><th>Result</th><th></th></tr>${rows.map(r => {
+      const last = r.last_run || {};
+      return html`<tr><td>${r.name}</td><td>${r.type}</td><td>${when(last.started_at)}</td><td>${last.status ? pill(last.status) : ""} ${last.found != null ? html`<span class="muted">${last.found} found, ${last.new} new</span>` : ""}${last.error ? html`<br><span class="err">${last.error}</span>` : ""}</td>
+      <td><button class="act" data-src="${r.name}">Run now</button></td></tr>`;
+    })}</table>`
+    : html`No scheduled sources configured (AWS ACM, Azure Key Vault, GCP Certificate Manager, Certificate Transparency).`);
+  document.querySelectorAll("[data-src]").forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    try { await api(`/api/v1/discovery/sources/${encodeURIComponent(b.dataset.src)}/run`, {method: "POST"}); } catch (e) { alert(e.message); }
+    loadSources();
+  });
+}
+
+// ---------------- provisioning
+let TARGETS = {};
+async function loadProvisioning() {
+  await part403("#targets", async () => {
+    const t = await api("/api/v1/targets"); TARGETS = Object.fromEntries(t.map(x => [x.id, x]));
+    render($("#targets"), t.length
+      ? html`<table><tr><th>Name</th><th>Kind</th><th>Where</th><th>Credential</th><th>Status</th></tr>${t.map(x =>
+        html`<tr><td>${x.name}</td><td>${x.kind}</td><td>${x.config.host || x.config.api_server || x.config.region || ""}${x.config.allowed_dirs ? html`<br><span class="muted">${x.config.allowed_dirs.join(", ")}</span>` : ""}</td><td>${x.credential || "none"}</td><td>${pill(x.status)}</td></tr>`)}</table>`
+      : html`No push targets yet. An admin adds them with POST /api/v1/targets.`);
+  });
+  await part403("#installs", async () => {
+    const rows = await api("/api/v1/installations");
+    render($("#installs"), rows.length
+      ? html`<table><tr><th>Name</th><th>Target</th><th>Key</th><th>Status</th><th>Next renewal check</th><th></th></tr>${rows.map(i =>
+        html`<tr><td>${i.common_name}${i.validate_endpoint ? html`<br><span class="muted">checks ${i.validate_endpoint}</span>` : ""}</td><td>${(TARGETS[i.target_id] || {}).name || i.target_id}</td><td>${i.key_type}<br><span class="muted">${i.key_location}</span></td>
+        <td>${pill(i.status)}${i.failures ? html`<br><span class="err">${i.failures} failure(s): ${i.last_error || ""}</span>` : ""}</td><td>${when(i.next_attempt_at)}</td>
+        <td><button data-runs="${i.id}">Runs</button> <button class="primary act" data-push="${i.id}">Push now</button></td></tr>`)}</table>`
+      : html`No installations yet.`);
+    document.querySelectorAll("[data-runs]").forEach(b => b.onclick = () => showRuns(b.dataset.runs));
+    document.querySelectorAll("[data-push]").forEach(b => b.onclick = async () => {
+      b.disabled = true; b.textContent = "Pushing…";
+      try { await api(`/api/v1/installations/${encodeURIComponent(b.dataset.push)}/provision`, {method: "POST"}); } catch (e) { /* the run detail shows why */ }
+      await showRuns(b.dataset.push); loadProvisioning();
+    });
+  });
+}
+async function showRuns(id) {
+  const i = await api(`/api/v1/installations/${encodeURIComponent(id)}`);
+  const r = (i.runs || [])[0];
+  render($("#run-detail"), r
+    ? html`<p><b>${i.common_name}</b> run #${r.id} ${pill(r.status)} by ${r.actor} at ${when(r.started_at)}</p><ol class="steps-list">${(r.steps || []).map(st => html`<li>${st}</li>`)}</ol>${r.error ? html`<p class="err">${r.error}</p>` : ""}`
+    : html`No runs yet for ${i.common_name}.`);
+}
+
+// ---------------- policy tree
+async function loadPolicy() {
+  await part403("#tree", async () => {
+    const fs = await api("/api/v1/folders");
+    const kids = id => fs.filter(f => f.parent_id === id);
+    const fmt = v => Array.isArray(v) ? v.join(", ") : String(v);
+    const node = f => html`<li><b>${f.name}</b> <span class="muted">${f.apps} app${f.apps === 1 ? "" : "s"}</span>
+      <div class="rules">${Object.entries(f.settings || {}).map(([k, v]) => html`<span class="rule ${v.locked ? "locked" : ""}" title="${v.locked ? "cannot be changed below this folder" : "set here"}">${k}: ${fmt(v.value)}</span>`)}</div>
+      ${kids(f.id).length ? html`<ul class="tree">${kids(f.id).map(node)}</ul>` : ""}</li>`;
+    render($("#tree"), fs.length ? html`<ul class="tree">${kids(null).map(node)}</ul>` : html`No folders yet. Apps use their profile's rules only.`);
+  });
+  await part403("#pol-out", async () => {
+    const apps = await api("/api/v1/apps");
+    render($("#pol-app"), html`<option value="">pick an app</option>${apps.map(a => html`<option value="${a.id}">${a.name}</option>`)}`);
+  });
+}
+$("#pol-app").onchange = async () => {
+  const id = $("#pol-app").value; if (!id) return;
+  try {
+    const r = await api(`/api/v1/apps/${encodeURIComponent(id)}/policy`);
+    const fr = Object.entries(r.folder_rules || {});
+    render($("#pol-out"), html`<p>${r.app} uses profile <b>${r.profile}</b>${r.folder && r.folder !== "\\" ? html` in <b>${r.folder}</b>` : " and sits in no policy folder"}.</p>
+      ${fr.length ? html`<table><tr><th>Rule</th><th>Value</th><th>Set at</th><th>Locked</th></tr>${fr.map(([k, v]) => html`<tr><td>${k}</td><td>${Array.isArray(v.value) ? v.value.join(", ") : String(v.value)}</td><td>${v.folder}</td><td>${v.locked ? "yes" : ""}</td></tr>`)}</table>` : html`<p class="muted">No folder rules; the profile alone applies.</p>`}`);
+  } catch (e) { render($("#pol-out"), html`<p class="err">${e.message}</p>`); }
+};
+
+// ---------------- code signing
+async function loadSigning() {
+  $("#tsa-url").textContent = location.origin + "/tsa";
+  await part403("#sign-keys", async () => {
+    const keys = await api("/api/v1/signing/keys");
+    render($("#sign-keys"), keys.length
+      ? html`<table><tr><th>Key</th><th>App</th><th>Purpose</th><th>Held in</th><th>Certificate until</th><th>Status</th></tr>${keys.map(k =>
+        html`<tr><td>${k.name}</td><td>${k.app}</td><td>${k.purpose === "release" ? html`release <span class="muted">(approver per signature)</span>` : "test"}</td><td>${k.signer}</td><td>${(k.not_after || "").slice(0, 10)}</td><td>${pill(k.status)}</td></tr>`)}</table>`
+      : html`No signing keys yet. Ask for one with POST /api/v1/signing/keys; an approver decides.`);
+  });
+  await part403("#sign-reqs", async () => {
+    const rows = await api("/api/v1/signing/requests");
+    render($("#sign-reqs"), rows.length
+      ? html`<table><tr><th>#</th><th>Artifact</th><th>Key</th><th>Requested by</th><th>Digest</th><th>Status</th></tr>${rows.map(r =>
+        html`<tr><td>${r.id}</td><td>${r.artifact.name}${r.artifact.version ? html` <span class="muted">${r.artifact.version}</span>` : ""}</td><td>${r.key}</td><td>${r.requested_by}<br><span class="muted">${when(r.created_at)}</span></td>
+        <td><code>${r.digest_alg}:${r.digest.slice(0, 16)}…</code></td><td>${pill(r.status)}${r.status === "pending" && r.approval_id ? html`<br><span class="muted">approval #${r.approval_id}</span>` : ""}</td></tr>`)}</table>`
+      : html`No signing requests yet.`);
+  });
+}
+
+// ---------------- SSH keys
+let SSH = [];
+async function loadSshKeys() {
+  const f = $("#sk-filter").value;
+  SSH = await api("/api/v1/ssh-keys" + (f === "none" ? "?owner=none" : f === "removed" ? "?status=removed" : ""));
+  renderSsh();
+}
+function renderSsh() {
+  const q = $("#sk-q").value.toLowerCase();
+  const rows = SSH.filter(k => !q || [k.host, k.account, k.comment, k.fingerprint, k.owner].join(" ").toLowerCase().includes(q));
+  render($("#sshkeys"), html`<p class="muted">${rows.length} of ${SSH.length}</p><table><tr><th>Host</th><th>Account</th><th>Key</th><th>Restrictions</th><th>Last change</th><th>Owner</th><th></th></tr>${rows.map(k =>
+    html`<tr><td>${k.host}<br><span class="muted">${k.kind}</span></td><td>${k.account || "(host key)"}${k.account_exists ? "" : html` ${pill("orphaned")}`}</td>
+    <td>${k.key_type} ${k.bits || ""}<br><code>${k.fingerprint}</code>${k.comment ? html`<br><span class="muted">${k.comment}</span>` : ""}</td>
+    <td>${Object.keys(k.options || {}).length ? Object.entries(k.options).map(([n, v]) => html`<span class="rule">${v === true ? n : n + "=" + v}</span> `) : html`<span class="muted">none</span>`}</td>
+    <td>${(k.file_mtime || "").slice(0, 10)}</td><td>${k.owner || html`<span class="muted">unclaimed</span>`}</td>
+    <td>${k.status === "present" ? html`<button class="act" data-own="${k.id}">Set owner</button>` : pill(k.status)}</td></tr>`)}</table>`);
+  document.querySelectorAll("[data-own]").forEach(b => b.onclick = async () => {
+    const owner = prompt("Team or person responsible for this key (applies everywhere it appears)"); if (!owner) return;
+    const note = prompt("Note or change ticket (optional)") || null;
+    try { await api(`/api/v1/ssh-keys/${encodeURIComponent(b.dataset.own)}/owner`, {method: "PUT", body: JSON.stringify({owner, note})}); loadSshKeys(); } catch (e) { alert(e.message); }
+  });
+}
+$("#sk-filter").onchange = () => loadSshKeys().catch(e => toast(e.message)); $("#sk-q").oninput = renderSsh;
+
 // ---------------- audit
 async function loadAudit() {
+  part403("#audit-ship", async () => {
+    const [ship, key] = await Promise.all([api("/api/v1/audit/shipping"), api("/api/v1/audit/signing-key").catch(() => null)]);
+    render($("#audit-ship"), html`${ship.length
+      ? html`<table><tr><th>Sink</th><th class="num">Behind</th><th>Oldest unsent</th><th>Failures</th><th>Last error</th></tr>${ship.map(r => html`<tr><td>${r.sink}</td><td class="num">${r.behind}</td><td>${when(r.oldest_unsent)}</td><td>${r.failures ? pill("critical") : pill("ok")} ${r.failures || ""}</td><td class="muted">${r.last_error || ""}</td></tr>`)}</table>`
+      : html`<p>No sinks configured. Set CERTADILLO_AUDIT_SHIP to send every event, signed, to a SIEM or an S3 Object Lock bucket.</p>`}
+      ${key ? html`<p class="muted">Receivers verify records with the Ed25519 key <code>${key.key_id}</code>.</p>` : ""}`);
+  });
   const [v, rows] = await Promise.all([api("/api/v1/audit/verify"), api("/api/v1/audit?limit=200")]);
   render($("#audit-verify"), v.valid ? html`Hash chain verified over ${v.events} events. Head ${v.head.slice(0, 16)}…` : html`<span class="err">Hash chain broken at event ${v.broken_at}.</span>`);
   render($("#audit"), html`<table><tr><th>Time (UTC)</th><th>Actor</th><th>Action</th><th>Target</th><th>Details</th></tr>${rows.map(e => html`<tr><td>${e.ts.slice(0, 19).replace("T", " ")}</td><td>${e.actor}</td><td>${e.action}</td><td>${e.target.length > 24 ? e.target.slice(0, 24) + "…" : e.target}</td><td class="muted">${JSON.stringify(e.details).slice(0, 140)}</td></tr>`)}</table>`);
@@ -201,6 +363,15 @@ async function loadAudit() {
 
 // ---------------- reports
 async function loadReports() {
+  part403("#cas", async () => {
+    const [cas, keys] = await Promise.all([api("/api/v1/cas"), api("/api/v1/cas/keys").catch(() => [])]);
+    const health = Object.fromEntries(keys.map(k => [k.ca, k]));
+    render($("#cas"), html`<table><tr><th>CA</th><th>Role</th><th>Key</th><th>Health</th><th>Expires</th><th class="num">CRL #</th></tr>${cas.map(c => {
+      const h = health[c.name];
+      return html`<tr><td>${c.name}<br><span class="muted">${c.subject}</span></td><td>${c.root ? "root" : "issuing"}</td><td>${c.signer === "offline" ? html`${pill("offline")} <span class="muted">signed at the ceremony</span>` : c.signer}</td>
+      <td>${h ? (h.ok ? pill("ok") : html`${pill("critical")} <span class="err">${h.problems.join("; ")}</span>`) : ""}</td><td>${c.not_after.slice(0, 10)}</td><td class="num">${c.crl_number}</td></tr>`;
+    })}</table>`);
+  });
   const r = await api("/api/v1/reports/crypto");
   render($("#crypto"), html`<div class="kpis"><div class="kpi"><b>${r.active_certificates}</b><span>Active certificates</span></div><div class="kpi warn"><b>${r.quantum_vulnerable}</b><span>RSA/ECC (quantum-vulnerable)</span></div><div class="kpi"><b>${r.pqc_signed}</b><span>PQC-signed</span></div><div class="kpi"><b>${r.valid_past_2030_deprecation}</b><span>Valid past 2030</span></div></div>
   <table><tr><th>CA</th><th>Algorithm</th><th>Key custody</th><th>Expires</th><th>Outlives 2035 cutoff</th></tr>${r.certificate_authorities.map(c => html`<tr><td>${c.ca}</td><td>${c.algorithm}</td><td>${c.signer}</td><td>${c.not_after.slice(0, 10)}</td><td>${c.outlives_2035_cutoff ? pill("warning") : pill("ok")}</td></tr>`)}</table>

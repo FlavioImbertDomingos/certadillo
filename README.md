@@ -11,6 +11,10 @@ It was built as a reference implementation of what a bank's certificate manageme
 
 ![Console overview](docs/screenshots/ui-overview.png)
 
+| Policy tree | Code signing | Static SSH keys |
+| --- | --- | --- |
+| ![Policy tree with locked rules](docs/screenshots/ui-policy.png) | ![Code-signing keys and requests](docs/screenshots/ui-signing.png) | ![SSH key inventory](docs/screenshots/ui-sshkeys.png) |
+
 ## Try it
 
 - Live demo: [certadillo.com](https://certadillo.com), loaded with demo teams, apps, certificates, a few weak legacy certificates and the alerts they raise.

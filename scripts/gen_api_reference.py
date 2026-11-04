@@ -64,7 +64,7 @@ DESCRIBE = {
     ("GET", "/api/v1/inventory/external"): ("admin, operator, auditor", "assets imported from keycensus (`kind`, `application`, `certificate_id`, `status`)"),
     ("GET", "/api/v1/ssh-keys"): ("admin, operator, auditor", "static SSH keys from host agents (`host`, `account`, `owner`, `owner=none`, `status`)"),
     ("PUT", "/api/v1/ssh-keys/{key_id}/owner"): ("admin, operator", "record the owner of a key everywhere it appears"),
-    ("GET", "/api/v1/discovery/findings"): ("admin, operator, auditor", "open findings (`status`, `kind`): readable keys, unknown public certificates"),
+    ("GET", "/api/v1/discovery/findings"): ("admin, operator, auditor", "open findings (`status`, `kind`): readable keys, unknown public certificates, untracked certificates from keycensus, SSH key findings"),
     ("POST", "/api/v1/discovery/findings/{finding_id}/acknowledge"): ("admin, operator", "acknowledge a finding with a reason"),
     ("GET", "/api/v1/folders"): ("admin, operator, approver, auditor", "the policy tree with own and effective settings"),
     ("GET", "/api/v1/folders/settings"): ("any", "the folder settings and what each does"),

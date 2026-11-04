@@ -113,7 +113,7 @@ Authenticate with `X-API-Key: <key>` or `Authorization: Bearer <key>`. Errors ar
 | `GET` | `/api/v1/audit/signing-key` | admin, auditor | the Ed25519 public key that verifies shipped audit records |
 | `GET` | `/api/v1/discovery/sources` | admin, operator, auditor | configured discovery sources and their last run |
 | `POST` | `/api/v1/discovery/sources/{name}/run` | admin, operator | run one discovery source now (502 if it failed) |
-| `GET` | `/api/v1/discovery/findings` | admin, operator, auditor | open findings (`status`, `kind`): readable keys, unknown public certificates |
+| `GET` | `/api/v1/discovery/findings` | admin, operator, auditor | open findings (`status`, `kind`): readable keys, unknown public certificates, untracked certificates from keycensus, SSH key findings |
 | `POST` | `/api/v1/discovery/findings/{finding_id}/acknowledge` | admin, operator | acknowledge a finding with a reason |
 | `GET` | `/api/v1/folders` | admin, operator, approver, auditor | the policy tree with own and effective settings |
 | `POST` | `/api/v1/folders` | admin | create a policy folder (an approval request by default) |

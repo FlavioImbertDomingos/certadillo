@@ -150,6 +150,18 @@ echo "CERTADILLO_VIEWER_KEY=$VIEWER" >> .env
 touch .seeded
 echo "loaded"
 REMOTE
+  # demo data for the newer screens (policy tree, signing, SSH keys, keycensus, push targets), once
+  ssh "$TARGET" "APP_DIR='$APP_DIR' bash -s" <<'REMOTE'
+set -euo pipefail
+cd "$APP_DIR"
+if [ -f .seeded-v2 ]; then exit 0; fi
+val() { grep "^$1=" .env | cut -d= -f2-; }
+F="-f app/deploy/server/docker-compose.yml"
+grep -q '^CERTADILLO_DOMAIN=' .env && F="$F -f app/deploy/server/docker-compose.traefik.yml"
+docker compose $F --env-file .env -p certadillo exec -T certadillo python - --server http://127.0.0.1:8080 \
+  --admin-key "$(val CERTADILLO_BOOTSTRAP_ADMIN_KEY)" --approver-key "$(val CERTADILLO_BOOTSTRAP_APPROVER_KEY)" \
+  < app/scripts/demo_seed_extras.py && touch .seeded-v2 && echo "loaded the newer demo data"
+REMOTE
 fi
 
 echo "==> Keys (also stored in $APP_DIR/.env on the server)"

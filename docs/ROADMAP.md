@@ -183,12 +183,13 @@ Done (November 2026), in the API, the CLI and the knowledge base:
 
 Still missing compared with Venafi:
 
-- [ ] **Console screens for all of the above.** Targets, installations and run
-  history with each step; the policy tree with own and effective settings and
-  the lock on each one; upstream issuers and their health; discovery sources,
-  agent hosts and the findings queue with acknowledge; audit shipping status.
-  Same escaping template and CSP as the current console, and every change
-  still goes through the approval flow.
+- [x] **Console screens for all of the above** (November 2026). Provisioning
+  (installations, run steps, push now, targets), the policy tree with locked
+  rules and the effective policy per app, code-signing keys and requests,
+  static SSH keys with owners, the discovery findings queue with acknowledge
+  and scheduled sources, audit shipping status, and CAs with key health. Same
+  escaping template and CSP; buttons a role cannot use are hidden. Creating
+  targets, folders and signing keys is still done through the API.
 - [ ] **Pushing to IIS, NetScaler and Azure Key Vault.** IIS bindings and the
   Windows certificate store over WinRM, or through the domain-joined AD CS
   gateway worker so no new inbound access is needed; Citrix NetScaler through
