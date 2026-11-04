@@ -914,4 +914,424 @@
       }
     ]
   });
+  // ------------------------------------------------------------------ Push provisioning
+  S.register({
+    id: "provision",
+    title: "Push provisioning",
+    dilly: "ra",
+    chainAt: "db",
+    chainOffset: [1.2, 0.2],
+    camera: { theta: 0.3, phi: 1.1, radius: 21.5 },
+    actors: [
+      { id: "admin", kind: "person", label: "PKI admin", sub: "registers targets", x: -2.4, z: 7.0 },
+      { id: "vault", kind: "hsm", label: "Vault KV", sub: "SSH key · F5 password", x: -7.2, z: 4.2, anchorY: 0.6, labelY: 1.5 },
+      { id: "engine", kind: "gateway", label: "Provisioning engine", sub: "scheduler · drivers", x: -1.6, z: 0.4, anchorY: 1.5 },
+      { id: "ra", kind: "shield", label: "RA + policy", sub: "the app's own rules", x: 3.0, z: -3.8, anchorY: 1.2 },
+      { id: "ca", kind: "ca", label: "Issuing CA", sub: "issuing-ca-1", x: 7.0, z: 0.2, anchorY: 1.6, labelY: 3.0 },
+      { id: "web", kind: "server", label: "web1 (nginx)", sub: "SSH · host key pinned", x: -6.8, z: -2.6, anchorY: 1.1 },
+      { id: "f5", kind: "router", label: "F5 BIG-IP", sub: "client-SSL profile", x: -2.6, z: -6.4, anchorY: 0.8 },
+      { id: "db", kind: "db", label: "Inventory + audit", sub: "runs · installations", x: 2.6, z: 5.8, anchorY: 1.1 }
+    ],
+    steps: [
+      {
+        phase: "Setup", title: "A target holds a reference, never a secret",
+        body: "The admin registers web1 as an SSH target. The host key comes from the server ahead of time and is pinned, files may only go under /etc/nginx/tls, and the reload command is fixed by the admin. The SSH key itself stays in Vault; the target only names where it lives.",
+        payload: "POST /api/v1/targets\n{\"name\": \"web1\", \"kind\": \"ssh\", \"team_id\": 1,\n \"config\": {\"host\": \"web1.pay.bank.internal\", \"username\": \"certadillo\",\n            \"host_key\": \"ssh-ed25519 AAAAC3Nz...\",\n            \"allowed_dirs\": [\"/etc/nginx/tls\"],\n            \"reload_command\": \"sudo systemctl reload nginx\"},\n \"credential_ref\": \"vault:secret/data/certadillo/web1#ssh_key\"}\n\n201  (sealed: a later SQL edit to host or paths stops every run)",
+        moves: [
+          { from: "admin", to: "engine", label: "POST /targets" },
+          { from: "engine", to: "db", label: "target, sealed", kind: "response", effect: "store" }
+        ]
+      },
+      {
+        phase: "Setup", title: "An installation: what to keep where",
+        body: "The installation ties an app to the target: the name, where the files go, and the endpoint to check afterwards. With key_location device, the host makes the key itself and only a CSR ever leaves it.",
+        payload: "POST /api/v1/installations\n{\"app_id\": 1, \"target_id\": 1, \"common_name\": \"www.pay.bank.internal\",\n \"key_location\": \"device\",\n \"params\": {\"cert_path\": \"/etc/nginx/tls/www.crt\",\n            \"key_path\": \"/etc/nginx/tls/www.key\"},\n \"validate_endpoint\": \"web1.pay.bank.internal:443\"}",
+        moves: [
+          { from: "admin", to: "engine", label: "POST /installations" },
+          { from: "engine", to: "db", label: "installation", kind: "response", effect: "store" }
+        ]
+      },
+      {
+        phase: "Run", title: "Connect, and make the key on the host",
+        body: "When a run starts the engine resolves the credential from Vault, connects to web1 and refuses if the host key does not match the pinned one. openssl on the host generates the new key next to the live one and returns a CSR.",
+        payload: "credential_ref -> Vault KV read (token never stored)\nssh certadillo@web1.pay.bank.internal   host key: matches pin\nopenssl req -new -newkey ec -pkeyopt ec_paramgen_curve:P-256 \\\n  -keyout /etc/nginx/tls/www.key.new -subj /CN=www.pay.bank.internal\n\nstep: the target generated a ec-p256 key and returned a CSR",
+        moves: [
+          { from: "engine", to: "vault", label: "read ssh_key", kind: "secret" },
+          { from: "vault", to: "engine", label: "key (memory only)", kind: "secret", effect: "unlock" },
+          { from: "engine", to: "web", label: "SSH, pinned host key", effect: "check" },
+          { from: "web", to: "engine", label: "CSR", kind: "response" }
+        ]
+      },
+      {
+        phase: "Run", title: "Issue under the app's policy",
+        body: "Push provisioning does not bypass anything. The CSR goes through the same RA as any other request: the app's scope, its profile, its policy folder. A name outside the app's scope would be refused here, before anything touches the server.",
+        payload: "policy: www.pay.bank.internal in scope *.pay.bank.internal   ok\nprofile tls-server, 90 days, folder \\Bank\\Payments: max 30 days -> 30 days\nstep: issued serial 4f1c9a...",
+        moves: [
+          { from: "engine", to: "ra", label: "CSR for app 1" },
+          { from: "ra", to: "ca", label: "sign", effect: "sign", dilly: "happy" },
+          { from: "ca", to: "engine", label: "certificate + chain", kind: "response" }
+        ]
+      },
+      {
+        phase: "Run", title: "Install, reload, and check it is really served",
+        body: "The certificate is written, the new key swapped in, and nginx reloaded. Then the engine opens TLS connections to web1:443 with the name as SNI and needs three in a row to present the new certificate, because old workers keep serving for a moment after a graceful reload.",
+        payload: "step: wrote /etc/nginx/tls/www.crt\nstep: activated device key /etc/nginx/tls/www.key\nstep: ran the target's reload command\nTLS web1:443 SNI www.pay.bank.internal  x3  sha256 = new fingerprint\nstep: web1.pay.bank.internal:443 serves the new certificate\nstep: superseded serial 2b07e1...",
+        moves: [
+          { from: "engine", to: "web", label: "write + reload" },
+          { from: "engine", to: "web", label: "TLS x3: new cert?", effect: "check" },
+          { from: "engine", to: "db", label: "audit: provisioning.run", kind: "response", effect: "store" }
+        ]
+      },
+      {
+        phase: "F5", title: "A load balancer, switched last",
+        body: "On the F5 the key is made in Certadillo's memory, pushed with the certificate and chain as new serial-named objects, and the client-SSL profile switched to them only at the end. The old objects stay for rollback. The key is dropped from memory once the push is done.",
+        payload: "step: generated a ec-p256 key in memory\nstep: issued serial 7d22b0...\nstep: installed cdl-7d22b0.key/.crt/-chain.crt in /Payments\nstep: switched client-ssl profile www_clientssl to cdl-7d22b0",
+        moves: [
+          { from: "engine", to: "ra", label: "issue (central key)", effect: "sign" },
+          { from: "engine", to: "f5", label: "key + cert + chain", kind: "secret" },
+          { from: "engine", to: "f5", label: "switch profile", effect: "check" }
+        ]
+      },
+      {
+        phase: "Failure", title: "A push that fails is not left lying around",
+        body: "If the F5 refuses the upload after the certificate was issued, nobody holds that key any more. The engine revokes the undelivered certificate straight away, backs off before retrying, and after three failures the ProvisioningFailed alert turns critical for the owning team.",
+        payload: "F5 iControl: 401 Unauthorized\nstep: revoked undelivered serial 91ac3e...\ninstallation 2: failures 3, next attempt in 4h\nalert ProvisioningFailed (critical) -> team payments",
+        moves: [
+          { from: "f5", to: "engine", label: "401", kind: "reject", effect: "reject", dilly: "worried" },
+          { from: "engine", to: "ca", label: "revoke undelivered", kind: "secret", effect: "burn" },
+          { from: "engine", to: "db", label: "run failed · alert", kind: "response", effect: "store" }
+        ]
+      }
+    ]
+  });
+
+  // ------------------------------------------------------------------ Policy tree
+  S.register({
+    id: "policytree",
+    title: "The policy tree",
+    dilly: "policy",
+    chainAt: "db",
+    chainOffset: [1.2, 0.2],
+    camera: { theta: 0.28, phi: 1.08, radius: 21.0 },
+    actors: [
+      { id: "admin", kind: "person", label: "Policy admin", sub: "asks for changes", x: -6.6, z: 5.0 },
+      { id: "approver", kind: "person", label: "Approver", sub: "a different person", x: -1.4, z: 7.2 },
+      { id: "bank", kind: "chart", label: "\\Bank", sub: "zones bank.internal (locked) · RSA 3072 (locked)", x: -5.4, z: -4.6, anchorY: 1.0 },
+      { id: "payments", kind: "chart", label: "\\Bank\\Payments", sub: "max 30 days · TLS profiles only", x: -1.0, z: -2.4, anchorY: 1.0 },
+      { id: "cards", kind: "chart", label: "\\Bank\\Payments\\Cards", sub: "issuing CA cards-ca (locked)", x: 3.2, z: -0.4, anchorY: 1.0 },
+      { id: "policy", kind: "shield", label: "Policy engine", sub: "profile, then folder chain", x: 3.6, z: -5.6, anchorY: 1.2 },
+      { id: "app", kind: "terminal", label: "card-api", sub: "app in Cards", x: 7.2, z: 2.6, anchorY: 0.9, labelY: 1.9 },
+      { id: "db", kind: "db", label: "Approvals + audit", sub: "folders and apps sealed", x: 1.2, z: 4.8, anchorY: 1.1 }
+    ],
+    steps: [
+      {
+        phase: "Build", title: "A folder is a policy change, so it needs two people",
+        body: "The admin asks for the top folder with the bank's zone and a minimum RSA size, both locked. Creating a folder changes what apps may get, so it is an approval request: the response is 202 and nothing exists yet.",
+        payload: "POST /api/v1/folders\n{\"name\": \"Bank\",\n \"settings\": {\"allowed_zones\": {\"value\": [\"bank.internal\"], \"locked\": true},\n              \"rsa_min_bits\":  {\"value\": 3072, \"locked\": true}}}\n\n202 {\"status\": \"pending_approval\", \"approval_id\": 41, \"change\": \"create_folder\"}",
+        moves: [
+          { from: "admin", to: "policy", label: "POST /folders" },
+          { from: "policy", to: "db", label: "approval #41", kind: "response", effect: "store" }
+        ]
+      },
+      {
+        phase: "Build", title: "A second person approves",
+        body: "An approver who is not the admin decides. The folder is created, sealed, and the audit trail records the settings. Payments and Cards are added below it the same way.",
+        payload: "POST /api/v1/approvals/41/approve   (approver key)\naudit: policy.folder.create  \\Bank  {allowed_zones, rsa_min_bits}\n\n\\Bank\n\\Bank\\Payments          max_validity_days 30, allowed_profiles tls-server, tls-client\n\\Bank\\Payments\\Cards    issuing_ca cards-ca (locked)",
+        moves: [
+          { from: "approver", to: "db", label: "approve #41", effect: "check" },
+          { from: "db", to: "bank", label: "create \\Bank", kind: "response" },
+          { from: "bank", to: "payments", label: "child", kind: "local" },
+          { from: "payments", to: "cards", label: "child", kind: "local" }
+        ]
+      },
+      {
+        phase: "Inherit", title: "What card-api actually gets",
+        body: "card-api sits in Cards. Its effective policy is its profile narrowed by every folder above it: names only under bank.internal, RSA of at least 3072 bits, at most 30 days, signed by cards-ca. Each rule shows the folder it came from and whether it is locked.",
+        payload: "GET /api/v1/apps/7/policy\n{\"app\": \"card-api\", \"profile\": \"tls-server\",\n \"folder\": \"\\\\Bank\\\\Payments\\\\Cards\",\n \"folder_rules\": {\n  \"allowed_zones\":     {\"value\": [\"bank.internal\"], \"locked\": true, \"folder\": \"\\\\Bank\"},\n  \"rsa_min_bits\":      {\"value\": 3072, \"locked\": true, \"folder\": \"\\\\Bank\"},\n  \"max_validity_days\": {\"value\": 30, \"locked\": false, \"folder\": \"\\\\Bank\\\\Payments\"},\n  \"issuing_ca\":        {\"value\": \"cards-ca\", \"locked\": true, \"folder\": \"\\\\Bank\\\\Payments\\\\Cards\"}}}",
+        moves: [
+          { from: "bank", to: "policy", label: "zones · RSA 3072", kind: "local" },
+          { from: "payments", to: "policy", label: "30 days", kind: "local" },
+          { from: "cards", to: "policy", label: "cards-ca", kind: "local" },
+          { from: "policy", to: "app", label: "effective policy", kind: "response", effect: "check" }
+        ]
+      },
+      {
+        phase: "Enforce", title: "A 2048-bit key is refused",
+        body: "card-api sends a CSR with an RSA 2048 key. The profile alone would allow it, but the locked rule on \\Bank does not. The request is refused with the folder named, and the refusal is audited.",
+        payload: "POST /api/v1/certificates  (RSA 2048, api.cards.bank.internal)\n\n422 {\"error\": \"policy_violation\",\n     \"violations\": [{\"rule\": \"folder_key_strength\",\n                     \"message\": \"RSA 2048 below 3072 required by \\\\Bank\"}]}\naudit: certificate.rejected",
+        moves: [
+          { from: "app", to: "policy", label: "CSR RSA 2048" },
+          { from: "policy", to: "app", label: "422 below 3072", kind: "reject", effect: "reject", dilly: "worried" }
+        ]
+      },
+      {
+        phase: "Enforce", title: "Nobody below can loosen a lock",
+        body: "The Payments admin tries to lower the minimum key size for their own folder. A setting locked higher up cannot be set below it, so this is refused before it even becomes an approval request.",
+        payload: "PUT /api/v1/folders/2/settings\n{\"rsa_min_bits\": {\"value\": 2048}}\n\n400 {\"error\": \"bad_request\", \"message\": \"rsa_min_bits is locked at \\\\Bank\"}",
+        moves: [
+          { from: "admin", to: "payments", label: "rsa_min_bits 2048" },
+          { from: "payments", to: "admin", label: "400 locked at \\Bank", kind: "reject", effect: "reject" }
+        ]
+      },
+      {
+        phase: "Tamper", title: "A move done in SQL stops the app",
+        body: "Someone with database access moves card-api to a looser folder with an UPDATE. The app's seal no longer matches, so its next issuance is refused and IntegritySealBroken fires. A real move goes through POST /apps/7/move and a second person.",
+        payload: "UPDATE apps SET folder_id = 9 WHERE id = 7;   -- outside Certadillo\n\nPOST /api/v1/certificates -> 403 this app failed its integrity check (changed outside Certadillo)\nalert IntegritySealBroken (critical): app card-api was changed outside Certadillo",
+        moves: [
+          { from: "db", to: "app", label: "folder_id changed in SQL", kind: "secret" },
+          { from: "app", to: "policy", label: "CSR" },
+          { from: "policy", to: "db", label: "seal broken · alert", kind: "reject", effect: "burn", dilly: "rolled" }
+        ]
+      }
+    ]
+  });
+
+  // ------------------------------------------------------------------ Upstream issuers
+  S.register({
+    id: "upstream",
+    title: "Upstream issuers: a public ACME CA",
+    dilly: "ra",
+    chainAt: "db",
+    chainOffset: [1.2, 0.2],
+    camera: { theta: 0.3, phi: 1.1, radius: 21.5 },
+    actors: [
+      { id: "app", kind: "terminal", label: "online-banking", sub: "app in Internet facing", x: -7.2, z: 2.0, anchorY: 0.9, labelY: 1.9 },
+      { id: "ra", kind: "shield", label: "Certadillo RA", sub: "policy first", x: -2.0, z: -0.6, anchorY: 1.4 },
+      { id: "acme", kind: "gateway", label: "ACME client", sub: "account key encrypted", x: 2.4, z: -3.8, anchorY: 1.2 },
+      { id: "le", kind: "globe", label: "Public ACME CA", sub: "Let's Encrypt, or any RFC 8555 CA", x: 7.4, z: -1.0, anchorY: 1.4, labelY: 2.8 },
+      { id: "dns", kind: "server", label: "Authoritative DNS", sub: "RFC 2136 + TSIG", x: 3.4, z: 3.8, anchorY: 1.1 },
+      { id: "db", kind: "db", label: "Inventory + audit", sub: "certificate + chain", x: -2.6, z: 5.8, anchorY: 1.1 }
+    ],
+    steps: [
+      {
+        phase: "Route", title: "The folder says who signs",
+        body: "Apps in the Internet facing folder use the public-acme issuer, locked, and may only ask for names under bank.example. online-banking asks for www.bank.example with its own CSR, exactly as it would from the internal CA.",
+        payload: "\\Internet facing   issuer public-acme (locked), allowed_zones bank.example (locked)\n\nissuers:\n  public-acme:\n    type: acme\n    directory: https://acme-v02.api.letsencrypt.org/directory\n    dns: {provider: rfc2136, server: 10.1.0.53, zone: bank.example.,\n          tsig_name: certadillo-acme., tsig_secret_ref: vault:...#tsig}",
+        moves: [
+          { from: "app", to: "ra", label: "CSR www.bank.example" }
+        ]
+      },
+      {
+        phase: "Route", title: "Policy runs before anything leaves the bank",
+        body: "Scope, zone, key size, validity and dual control are all checked here. A request that fails policy never reaches the public CA, so nothing about it appears in Certificate Transparency.",
+        payload: "scope *.bank.example          ok\nallowed_zones bank.example    ok\nkey ec P-256                  ok\nissuer: public-acme (from \\Internet facing, locked)",
+        moves: [
+          { from: "ra", to: "acme", label: "approved request", effect: "check" }
+        ]
+      },
+      {
+        phase: "Order", title: "New order, dns-01 challenge",
+        body: "The ACME client opens an order for the approved names with its account key. The CA answers with a dns-01 challenge for each name.",
+        payload: "POST /acme/new-order  {\"identifiers\": [{\"type\": \"dns\", \"value\": \"www.bank.example\"}]}\n-> authorization: challenge dns-01, token \"evaGxfADs6pSRb2LAv9IZf17Dt3juxGJ-PCt92wr-oA\"",
+        moves: [
+          { from: "acme", to: "le", label: "newOrder (JWS)" },
+          { from: "le", to: "acme", label: "dns-01 challenge", kind: "response" }
+        ]
+      },
+      {
+        phase: "Order", title: "Publish the TXT record with a TSIG-signed update",
+        body: "The client writes _acme-challenge.www.bank.example through an RFC 2136 dynamic update signed with the TSIG key from Vault, waits for propagation, then tells the CA to validate.",
+        payload: "nsupdate (TSIG certadillo-acme., hmac-sha256)\n  update add _acme-challenge.www.bank.example. 60 TXT \"Yd6J...base64url(SHA-256(keyAuthorization))\"\nsleep 20   (propagation_seconds)\nPOST challenge URL {}",
+        moves: [
+          { from: "acme", to: "dns", label: "UPDATE TXT (TSIG)", kind: "secret" },
+          { from: "le", to: "dns", label: "query TXT", effect: "check" },
+          { from: "le", to: "acme", label: "valid", kind: "response" }
+        ]
+      },
+      {
+        phase: "Order", title: "Finalize with the app's own CSR",
+        body: "The order is finalized with the CSR the app sent, so the key never left the app. The TXT record is removed and the certificate and chain downloaded.",
+        payload: "POST /acme/finalize  {\"csr\": base64url(app CSR)}\nGET certificate -> leaf + R11 + ISRG Root X1\nupdate delete _acme-challenge.www.bank.example. TXT",
+        moves: [
+          { from: "acme", to: "le", label: "finalize (app CSR)" },
+          { from: "le", to: "acme", label: "certificate + chain", kind: "response", effect: "sign" },
+          { from: "acme", to: "dns", label: "delete TXT", kind: "local" }
+        ]
+      },
+      {
+        phase: "Check", title: "Trust, but check",
+        body: "Before anything is stored, Certadillo compares what came back with what was approved: the public key must be the one in the CSR and there must be no extra DNS name. Then it goes into the inventory with its chain, owned by the app, and back to the app.",
+        payload: "public key == CSR key          ok\nSANs subset of approved names  ok\ninventory: backend public-acme, chain_pem stored\naudit: certificate.issue",
+        moves: [
+          { from: "acme", to: "ra", label: "certificate", kind: "response", effect: "check" },
+          { from: "ra", to: "db", label: "inventory + audit", kind: "response", effect: "store", dilly: "happy" },
+          { from: "ra", to: "app", label: "certificate + chain", kind: "response" }
+        ]
+      },
+      {
+        phase: "Check", title: "A CA that adds a name gets nothing stored",
+        body: "If an upstream CA ever returned a certificate with a name nobody approved, or a different key, it is treated as a failure: nothing is stored or returned to the app, and the error is audited.",
+        payload: "upstream certificate carries www2.bank.example, which the policy did not approve\naudit: certificate.rejected (issuer public-acme)",
+        moves: [
+          { from: "acme", to: "ra", label: "unexpected SAN", kind: "reject", effect: "reject", dilly: "worried" }
+        ]
+      }
+    ]
+  });
+
+  // ------------------------------------------------------------------ Wider discovery
+  S.register({
+    id: "discover",
+    title: "Discovery: host agent, cloud stores, CT",
+    dilly: "ra",
+    chainAt: "db",
+    chainOffset: [1.2, 0.2],
+    camera: { theta: 0.3, phi: 1.1, radius: 22.0 },
+    actors: [
+      { id: "host", kind: "server", label: "app01", sub: "certadillo agent scan", x: -7.0, z: 2.6, anchorY: 1.1 },
+      { id: "ra", kind: "shield", label: "Certadillo", sub: "agent role · sources", x: -1.0, z: -0.2, anchorY: 1.4 },
+      { id: "cloud", kind: "cloud", label: "Cloud stores", sub: "AWS ACM · Key Vault · GCP", x: -5.4, z: -4.6, anchorY: 1.2 },
+      { id: "ct", kind: "radar", label: "CT logs", sub: "via Cert Spotter", x: 4.2, z: -5.2, anchorY: 1.0 },
+      { id: "bell", kind: "bell", label: "Alerts", sub: "owning team · SOC", x: 7.2, z: 1.2, anchorY: 1.0 },
+      { id: "team", kind: "person", label: "App team", sub: "fixes and confirms", x: 3.6, z: 6.4 },
+      { id: "db", kind: "db", label: "Inventory + findings", sub: "audit", x: -2.6, z: 5.8, anchorY: 1.1 }
+    ],
+    steps: [
+      {
+        phase: "Agent", title: "Scan the disks, not just the ports",
+        body: "A network scan sees what a server serves. The agent sees what sits on its disks: PEM and DER files, PKCS#12, Java keystores through keytool, the Windows stores. It reads public certificates, and for private key files only the path, owner and mode.",
+        payload: "certadillo agent scan --api-key-file /etc/certadillo/agent.key \\\n  --password-file /etc/certadillo/keystore-passwords\n\n/etc/nginx/tls/www.crt           pem\n/opt/tomcat/conf/keystore.jks    jks (keytool, password via env)\n/opt/legacy/server.key           key file: mode 0644, owner root",
+        moves: [
+          { from: "host", to: "host", local: true, label: "walk /etc, /opt, /srv", effect: "check" }
+        ]
+      },
+      {
+        phase: "Agent", title: "The report carries no key material",
+        body: "The agent posts certificates and key file metadata with a key that has the agent role: it can post reports and read nothing else. The certificates land in the inventory as source agent, location host:/path.",
+        payload: "POST /api/v1/discovery/agent-report   (role: agent)\n{\"host\": \"app01\",\n \"certificates\": [{\"path\": \"/etc/nginx/tls/www.crt\", \"format\": \"pem\", \"pem\": \"...\"}],\n \"key_files\": [{\"path\": \"/opt/legacy/server.key\", \"mode\": \"0o644\",\n                \"owner\": \"root\", \"world_readable\": true}]}",
+        moves: [
+          { from: "host", to: "ra", label: "agent report" },
+          { from: "ra", to: "db", label: "source agent", kind: "response", effect: "store" }
+        ]
+      },
+      {
+        phase: "Agent", title: "A key every user can read",
+        body: "/opt/legacy/server.key is mode 0644. That opens a PrivateKeyExposed finding and a critical alert to the team that owns the host. The next report after chmod 600 closes it on its own.",
+        payload: "finding key_readable  host:app01:/opt/legacy/server.key\nalert PrivateKeyExposed (critical): private key /opt/legacy/server.key is readable\n      by every user on the host (mode 0o644)\n\n# on app01\nchmod 600 /opt/legacy/server.key   -> next report closes the finding",
+        moves: [
+          { from: "ra", to: "bell", label: "PrivateKeyExposed", kind: "reject", effect: "burn", dilly: "worried" },
+          { from: "bell", to: "team", label: "critical" },
+          { from: "team", to: "host", label: "chmod 600", effect: "check" }
+        ]
+      },
+      {
+        phase: "Cloud", title: "Cloud certificate stores on a schedule",
+        body: "The server lists certificates in AWS ACM, Azure Key Vault and GCP Certificate Manager on its own schedule, with read-only credentials referenced from the policy file. Each one is de-duplicated by fingerprint and recorded with its ARN or resource id.",
+        payload: "discovery.sources.acm: {type: aws-acm, regions: [us-east-1, us-west-2], interval_hours: 24}\n\naudit: discovery.source.run  acm  found 14, new 3\nlocation arn:aws:acm:us-east-1:111122223333:certificate/9f2e...",
+        moves: [
+          { from: "ra", to: "cloud", label: "list + describe (read-only)" },
+          { from: "cloud", to: "ra", label: "certificates", kind: "response" },
+          { from: "ra", to: "db", label: "source cloud", kind: "response", effect: "store" }
+        ]
+      },
+      {
+        phase: "CT", title: "Watch the public logs for the bank's names",
+        body: "Every publicly trusted certificate is logged in Certificate Transparency. Certadillo asks Cert Spotter for the bank's zones and matches each entry by serial against what it issued or already knows.",
+        payload: "discovery.sources.ct: {type: ct, provider: certspotter,\n                       zones: [bank.example], interval_hours: 6}\n\nGET /v1/issuances?domain=bank.example&include_subdomains=true&expand=dns_names&expand=issuer&expand=cert",
+        moves: [
+          { from: "ra", to: "ct", label: "issuances for bank.example" },
+          { from: "ct", to: "ra", label: "entries", kind: "response", effect: "check" }
+        ]
+      },
+      {
+        phase: "CT", title: "A certificate nobody asked for",
+        body: "One entry for promo.bank.example was issued by a public CA but never requested through Certadillo. That is an UnknownPublicCertificate finding: shadow IT at best, someone else holding a certificate for the bank's name at worst.",
+        payload: "finding unknown_public_cert\n  promo.bank.example  issuer Sectigo  serial 00e1c4...\nalert UnknownPublicCertificate (warning)",
+        moves: [
+          { from: "ra", to: "db", label: "finding", kind: "response", effect: "store" },
+          { from: "ra", to: "bell", label: "UnknownPublicCertificate", kind: "reject", effect: "reject" }
+        ]
+      },
+      {
+        phase: "CT", title: "Expected after all: acknowledged with a reason",
+        body: "Marketing confirms an agency runs that site. The finding is acknowledged with a comment, which is audited, and the certificate stays in the inventory so its expiry is still tracked.",
+        payload: "POST /api/v1/discovery/findings/12/acknowledge\n{\"comment\": \"Promo site run by the agency under contract MK-2291\"}",
+        moves: [
+          { from: "team", to: "ra", label: "acknowledge + reason" },
+          { from: "ra", to: "db", label: "audited", kind: "response", effect: "store", dilly: "happy" }
+        ]
+      }
+    ]
+  });
+
+  // ------------------------------------------------------------------ Audit shipping
+  S.register({
+    id: "auditship",
+    title: "Tamper-evident audit shipping",
+    dilly: "shipper",
+    chainAt: "db",
+    chainOffset: [1.2, 0.2],
+    camera: { theta: 0.3, phi: 1.1, radius: 21.5 },
+    actors: [
+      { id: "ops", kind: "person", label: "Operator", sub: "issues, revokes", x: -6.8, z: 4.4 },
+      { id: "db", kind: "db", label: "Audit table", sub: "hash chain · append-only", x: -4.2, z: -1.6, anchorY: 1.1 },
+      { id: "shipper", kind: "gateway", label: "Audit shipper", sub: "Ed25519 · cursor per sink", x: 0.6, z: 0.4, anchorY: 1.5 },
+      { id: "siem", kind: "chart", label: "SIEM", sub: "syslog TLS · Splunk HEC", x: 6.6, z: -3.6, anchorY: 1.0 },
+      { id: "s3", kind: "cloud", label: "S3 Object Lock", sub: "COMPLIANCE · 7 years", x: 6.8, z: 3.2, anchorY: 1.2 },
+      { id: "auditor", kind: "person", label: "Internal audit", sub: "public key only", x: 2.4, z: 7.0 },
+      { id: "attacker", kind: "terminal", label: "DB owner (rogue)", sub: "drops the triggers", x: -7.2, z: -5.4, anchorY: 0.9, labelY: 1.9 }
+    ],
+    steps: [
+      {
+        phase: "Record", title: "Every action is a link in a hash chain",
+        body: "Each audit event stores the hash of the previous one, so changing any event breaks every link after it. The table refuses UPDATE and DELETE.",
+        payload: "hash = SHA-256(prev_hash | ts | actor | action | target | details)\n\n#411 certificate.issue    prev 3a9f...  hash 9c1e...\n#412 certificate.revoke   prev 9c1e...  hash b04d...",
+        moves: [
+          { from: "ops", to: "db", label: "certificate.revoke", effect: "store" }
+        ]
+      },
+      {
+        phase: "Ship", title: "Signed and sent within seconds",
+        body: "Every 15 seconds the shipper takes what each sink has not seen, checks the database still continues the chain it already shipped, and signs every record with an Ed25519 key that never leaves the host.",
+        payload: "{\"id\": 412, \"action\": \"certificate.revoke\", \"prev_hash\": \"9c1e...\", \"hash\": \"b04d...\",\n \"instance\": \"https://pki.bank.internal\",\n \"kid\": \"5e0b9a2c4d1f8e37\", \"sig\": \"MEUCIQ...\", \"mac\": \"d2a1...\"}",
+        moves: [
+          { from: "db", to: "shipper", label: "events after cursor", kind: "response" },
+          { from: "shipper", to: "shipper", local: true, label: "chain continues? sign", effect: "sign" }
+        ]
+      },
+      {
+        phase: "Ship", title: "Two places, two owners",
+        body: "Records go over TLS to the SOC's SIEM for search and correlation, and as one object per batch to an S3 bucket with Object Lock in COMPLIANCE mode. Not even the bucket owner can delete those objects before retention ends.",
+        payload: "<109>1 2026-11-04T02:51:07Z pki certadillo - certificate.revoke - {...}\n\nPUT s3://pki-audit/certadillo/prod/000000000401-000000000412.jsonl\n  x-amz-object-lock-mode: COMPLIANCE\n  x-amz-object-lock-retain-until-date: 2033-11-02",
+        moves: [
+          { from: "shipper", to: "siem", label: "syslog over TLS", kind: "secret" },
+          { from: "shipper", to: "s3", label: "PutObject (locked)", kind: "secret", effect: "store" }
+        ]
+      },
+      {
+        phase: "Verify", title: "Checked by someone who cannot forge",
+        body: "Internal audit holds only the public key. verify-export recomputes every hash, checks every link and every signature. They can prove the copy is intact, but could not produce a record that verifies.",
+        payload: "certadillo audit verify-export prod-2026-11.jsonl --public-key certadillo-audit.pub --no-mac\n\n{\"valid\": true, \"records\": 18342, \"from_genesis\": true,\n \"signatures_checked\": true, \"problems\": []}",
+        moves: [
+          { from: "s3", to: "auditor", label: "download export", kind: "response" },
+          { from: "auditor", to: "auditor", local: true, label: "hashes · links · signatures", effect: "check", dilly: "happy" }
+        ]
+      },
+      {
+        phase: "Attack", title: "History rewritten in the database",
+        body: "Someone with database owner rights drops the trigger and rewrites event 412 to hide the revocation, recomputing the hash. Inside the database the chain may look fine again.",
+        payload: "DROP TRIGGER audit_events_no_update;\nUPDATE audit_events SET details = '{}', hash = '<recomputed>' WHERE id = 412;",
+        moves: [
+          { from: "attacker", to: "db", label: "rewrite #412", kind: "secret", effect: "burn", dilly: "worried" }
+        ]
+      },
+      {
+        phase: "Attack", title: "The shipper stops and raises the alarm",
+        body: "The next event's prev_hash no longer matches the hash the shipper already sent. It refuses to ship anything past the break and AuditShippingFailing goes critical. The SIEM and the locked bucket still hold the original #412.",
+        payload: "chain break after event 412: the history was changed after it was shipped\nalert AuditShippingFailing (critical)\n\nshipped copy:  #412 certificate.revoke  hash b04d...   (original, signed)",
+        moves: [
+          { from: "db", to: "shipper", label: "#413 prev != b04d", kind: "reject", effect: "reject" },
+          { from: "shipper", to: "siem", label: "AuditShippingFailing", kind: "reject", effect: "burn", dilly: "rolled" }
+        ]
+      },
+      {
+        phase: "Attack", title: "Forging the export does not work either",
+        body: "Editing a shipped record and recomputing its hash keeps the chain intact, but the signature no longer verifies, and stripping the signatures fails too. The only key that signs is on the Certadillo host, encrypted under the key passphrase.",
+        payload: "verify-export rewritten.jsonl --public-key certadillo-audit.pub\n{\"valid\": false,\n \"problems\": [{\"id\": 412, \"problem\": \"signature does not verify (not from this Certadillo)\"}]}",
+        moves: [
+          { from: "auditor", to: "auditor", local: true, label: "signature fails", effect: "reject" }
+        ]
+      }
+    ]
+  });
 })();

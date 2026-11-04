@@ -128,7 +128,7 @@ docs/            architecture, runbook, security model, HSM guide, roadmap, stan
 ## Documentation
 
 - [User guide](docs/guide/README.md): onboarding and every protocol with copy-paste examples
-- [Knowledge base](https://certadillo.com/kb/) with interactive 3D protocol walkthroughs (ACME, dns-01 and ARI campaigns, EST behind a load balancer, EST and SCEP devices, CMP, OCSP and CRL, platform tour): also served at `/kb` by any running server; rebuild it with `python scripts/build_kb.py`
+- [Knowledge base](https://certadillo.com/kb/) with interactive 3D walkthroughs (ACME, dns-01 and ARI campaigns, EST behind a load balancer, EST and SCEP devices, CMP, Windows and AD CS, OCSP and CRL, push provisioning, the policy tree, a public ACME CA upstream, agent, cloud and CT discovery, tamper-evident audit shipping, platform tour): also served at `/kb` by any running server; rebuild it with `python scripts/build_kb.py`
 
 ![3D SCEP walkthrough in the knowledge base](docs/screenshots/kb-scep-3d.png)
 - [Architecture](docs/ARCHITECTURE.md): modules, trust model, request flow, deployment topology

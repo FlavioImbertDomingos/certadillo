@@ -175,6 +175,36 @@ for the `windows-logon` profile and put only that CA in NTAuth, so a compromise
 of the TLS issuing CA stays a TLS problem. Name constraints on each issuing CA
 (`CERTADILLO_CA_PERMITTED_DNS`) limit what a stolen key can mint for DNS names.
 
+## Would Go or Rust be safer?
+
+Not by much, for this system. The class of bug a Go or Rust rewrite removes is
+memory corruption (buffer overflows, use after free), and Python code does not
+have it. The code that parses the most hostile input is pyca/cryptography:
+its X.509, CSR and ASN.1 parsing is already written in Rust, and the rest
+(PKCS#7, PKCS#12, the primitives) is OpenSSL, the same library a Go or Rust
+service would most likely end up linking or reimplementing. A rewrite would trade a tested,
+reviewed codebase for a new one, and the bugs that matter in a PKI
+(an authorization check in the wrong place, a policy that can be widened, a
+dual-control rule with a gap) are logic bugs that move with the rewrite.
+
+What does reduce risk, in order:
+
+1. Keep the CA keys where code cannot take them: an HSM or Vault Transit,
+   root offline. A compromise then ends when access is cut.
+2. Split signing into its own small process with its own credential, so the
+   web-facing process can ask for signatures under policy but never holds key
+   material. If any piece is worth writing in Go or Rust, it is this one: a few
+   hundred lines, no parsing of client input, easy to review in full.
+3. Supply chain: hash-pinned dependencies for the image build, `pip-audit` and
+   an SBOM in CI, signed images, Dependabot (already on for Python, Docker and
+   Actions).
+4. Fuzz the parsers Certadillo owns: the CMP, SCEP and EST message handling
+   and the AD CS security descriptor parser.
+5. Keep the evidence out of reach: audit shipping to the SIEM and an Object
+   Lock bucket, integrity seals, alerts on tampering (done).
+6. Run it hardened: non-root, read-only filesystem, no capabilities (done),
+   the port only behind the TLS proxy, egress limited to what the drivers need.
+
 ## Encryption: what each layer covers
 
 | Layer | Stops | Does not stop |

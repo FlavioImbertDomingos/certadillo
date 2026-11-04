@@ -9,6 +9,10 @@ Which requirement each part of Certadillo covers. "Partial" means the platform s
 | RFC 5280 X.509 profile | `ca/authority.py` (BasicConstraints, KeyUsage, EKU, SKI/AKI, CDP, AIA; critical SAN when the subject is empty; critical name constraints on issuing CAs when configured) | Done |
 | RFC 6960 OCSP | `revocation/ocsp.py` (delegated responder, nonce echo, GET and POST) | Done, verified with `openssl ocsp` |
 | RFC 7030 EST | `enrollment/est.py` (cacerts, csrattrs, simpleenroll, simplereenroll with the 4.2.2 subject check, serverkeygen; client certificates forwarded by the TLS terminator) | Done, verified with the GlobalSign estclient behind nginx; fullcmc not implemented |
+| RFC 5424 syslog, RFC 5425 TLS transport, RFC 6587 octet counting | `audit/shipping.py` syslog sink (facility 13, log audit) | Done, tested against a TLS receiver |
+| RFC 8555 ACME as a client | `ca/issuers/acme_client.py` (EAB, dns-01, revokeCert) | Done, tested against Pebble |
+| RFC 2136 dynamic DNS update with TSIG (RFC 8945) | `ca/issuers/dns_providers.py` for ACME dns-01 | Done |
+| RFC 8032 Ed25519 | signatures on shipped audit records | Done |
 | IEEE 802.1AR device identity (IDevID) | EST bootstrap with manufacturer CAs registered per app | Done (direct issuance by the registered CA) |
 | RFC 8555 ACME | `enrollment/acme.py` (EAB, http-01, dns-01 with split-horizon views, wildcards, key-change, account and authz deactivation, revocation by account or certificate key) | Done, verified with certbot (http-01, dns-01 wildcard, unregister) |
 | RFC 9773 ACME Renewal Information (ARI) | `enrollment/ari.py` (renewalInfo, `replaces`, alreadyReplaced), renewal campaigns | Done, verified with certbot 5.8 (`certbot renew` follows the window) |
@@ -34,7 +38,7 @@ Which requirement each part of Certadillo covers. "Partial" means the platform s
 | PCI DSS v4.0 3.6 / 3.7 key management procedures | HSM custody, dual control on CA creation, key rotation enforced on renewal, audit trail | Partial |
 | PCI DSS v4.0 4.2.1 certificates for PAN in transit are valid, not expired or revoked | Expiry alerts, OCSP/CRL, discovery | Done |
 | PCI DSS v4.0 4.2.1.1 inventory of trusted keys and certificates | `/api/v1/reports/pci-inventory` (JSON/CSV) with owner and classification | Done |
-| PCI DSS v4.0 10.2 / 10.3 audit logs and their protection | Audit events for every privileged action, hash chain, JSON logs for SIEM | Partial (ship to WORM storage) |
+| PCI DSS v4.0 10.2 / 10.3 audit logs and their protection | Audit events for every privileged action, hash chain in an append-only table, every event shipped within seconds to the SIEM and to S3 Object Lock (10.3.3), signed so changes are detectable (10.3.4) | Done; the organization owns review (10.4) and retention policy |
 | PCI DSS v4.0 12.3.3 cryptographic cipher suites and protocols inventory reviewed yearly | CBOM and crypto report | Partial |
 
 ## NIST

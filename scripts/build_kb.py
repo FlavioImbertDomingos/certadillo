@@ -40,11 +40,12 @@ PAGES = [
     ("windows-adcs", "guide/20-windows-adcs.md", "Protocols", "Windows and AD CS", "adcs"),
     ("revocation", "guide/11-revocation.md", "Operate", "Revocation: OCSP and CRL", "revocation"),
     ("campaigns", "guide/19-renewal-campaigns.md", "Operate", "Renewal campaigns (ARI)", "ari"),
-    ("upstream-issuers", "guide/24-upstream-issuers.md", "Operate", "Upstream issuers", None),
-    ("policy-tree", "guide/23-policy-tree.md", "Operate", "The policy tree", None),
-    ("push-provisioning", "guide/22-push-provisioning.md", "Operate", "Push provisioning", None),
-    ("discovery", "guide/12-discovery-inventory.md", "Operate", "Discovery and inventory", None),
+    ("upstream-issuers", "guide/24-upstream-issuers.md", "Operate", "Upstream issuers", "upstream"),
+    ("policy-tree", "guide/23-policy-tree.md", "Operate", "The policy tree", "policytree"),
+    ("push-provisioning", "guide/22-push-provisioning.md", "Operate", "Push provisioning", "provision"),
+    ("discovery", "guide/12-discovery-inventory.md", "Operate", "Discovery and inventory", "discover"),
     ("alerting", "guide/13-alerting-observability.md", "Operate", "Alerting and observability", None),
+    ("audit-shipping", "guide/25-audit-shipping.md", "Operate", "Audit shipping", "auditship"),
     ("automation", "guide/14-automation.md", "Operate", "Automation", None),
     ("zero-trust-auth", "guide/21-zero-trust-auth.md", "Operate", "Zero-trust access (IdP)", None),
     ("administration", "guide/15-administration.md", "Operate", "Administration", None),
@@ -58,6 +59,11 @@ PAGES = [
     ("tour-cmp", None, "3D walkthroughs", "CMP for industrial devices", "cmp"),
     ("tour-adcs", None, "3D walkthroughs", "Windows and AD CS", "adcs"),
     ("tour-revocation", None, "3D walkthroughs", "OCSP and CRL", "revocation"),
+    ("tour-provision", None, "3D walkthroughs", "Push provisioning", "provision"),
+    ("tour-policytree", None, "3D walkthroughs", "The policy tree", "policytree"),
+    ("tour-upstream", None, "3D walkthroughs", "A public ACME CA upstream", "upstream"),
+    ("tour-discover", None, "3D walkthroughs", "Agent, cloud and CT discovery", "discover"),
+    ("tour-auditship", None, "3D walkthroughs", "Tamper-evident audit shipping", "auditship"),
     ("architecture", "ARCHITECTURE.md", "Reference", "Architecture", None),
     ("security", "SECURITY.md", "Reference", "Security model", None),
     ("threat-model", "THREAT_MODEL.md", "Reference", "Threat model", None),
@@ -100,6 +106,26 @@ TOURS = {
                         "A key leaks, the certificate is revoked, and both revocation paths tell relying parties within "
                         "the same request. Then the housekeeping that keeps them fresh.",
                         "revocation"),
+    "tour-provision": ("Push provisioning",
+                       "A certificate installed on nginx over SSH with the key made on the host, checked on the live "
+                       "endpoint, then an F5 profile switched last, and a failed push whose certificate is revoked.",
+                       "push-provisioning"),
+    "tour-policytree": ("The policy tree",
+                        "Folders with locked rules, approved by a second person, narrow what one app can get. A weak "
+                        "key and a loosened lock are refused, and a move made in SQL stops the app.",
+                        "policy-tree"),
+    "tour-upstream": ("A public ACME CA upstream",
+                      "Policy runs first, then an ACME order with dns-01 through a TSIG-signed DNS update, finalized "
+                      "with the app's own CSR, and the returned certificate checked before it is stored.",
+                      "upstream-issuers"),
+    "tour-discover": ("Agent, cloud and CT discovery",
+                      "The host agent finds a private key every user can read, cloud stores are swept on a schedule, "
+                      "and Certificate Transparency shows a public certificate nobody requested.",
+                      "discovery"),
+    "tour-auditship": ("Tamper-evident audit shipping",
+                       "Every audit event signed and shipped to a SIEM and a locked S3 bucket, verified with only the "
+                       "public key, and what happens when someone rewrites history in the database.",
+                       "audit-shipping"),
 }
 
 FILE_TO_SLUG = {src.split("/")[-1]: slug for slug, src, *_ in PAGES if src}

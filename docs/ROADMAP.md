@@ -171,6 +171,35 @@ names or interfaces is copied.
    Keyfactor and DigiCert inventory imports, F5 and NetScaler inventory, and a
    signed agent package with a systemd unit and a Windows service.
 
+### Still missing compared with Venafi
+
+The four capabilities above are in the API, the CLI and the knowledge base.
+What an enterprise CLM suite still has that Certadillo does not:
+
+5. **Console screens for all of the above.** Targets, installations and run
+   history with each step; the policy tree with own and effective settings and
+   the lock on each one; upstream issuers and their health; discovery sources,
+   agent hosts and the findings queue with acknowledge; audit shipping status.
+   Same escaping template and CSP as the current console, and every change
+   still goes through the approval flow.
+6. **Pushing to IIS, NetScaler and Azure Key Vault.** IIS bindings and the
+   Windows certificate store over WinRM, or through the domain-joined AD CS
+   gateway worker so no new inbound access is needed; Citrix NetScaler through
+   NITRO (key, certificate and chain objects, then the vserver binding, old
+   objects kept for rollback); Azure Key Vault certificate import with a
+   managed identity. Each with endpoint validation like the existing drivers.
+7. **A code-signing service.** Signing keys that never leave the HSM or Vault,
+   with Certadillo signing hashes on request: per-project keys and signers,
+   dual control on release signing, timestamping (RFC 3161), signed artifacts
+   recorded in the audit trail, and clients for signtool, jarsigner, cosign and
+   GPG. Today code-signing certificates can be issued under dual control, but
+   the key is held by the requester.
+8. **SSH key management.** Certadillo already issues short-lived SSH user and
+   host certificates. Missing: discovery of static `authorized_keys` and host
+   keys across servers (through the host agent), ownership and age of each key,
+   alerts for orphaned, shared or weak keys, and rotation of keys that cannot
+   move to certificates yet.
+
 ## Phase 4: workload identity
 
 - SPIRE integration: issue SPIRE's intermediate through dual control (`spire-intermediate` profile), then either the SPIRE `disk` UpstreamAuthority or a small Go UpstreamAuthority plugin that calls Certadillo.
