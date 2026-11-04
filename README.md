@@ -28,8 +28,9 @@ Every row below has automated tests. "Interop" means a third-party client was ru
 | CA hierarchy | Offline-style root (P-384, 20y, pathlen 1) and issuing CA (5y, pathlen 0); more sub-CAs through dual control | `tests/test_lifecycle.py` |
 | Key custody | CA keys in any PKCS#11 HSM (tested on SoftHSM2), generated sensitive and non-extractable, or in HashiCorp Vault Transit (non-exportable, root unusable by the app, two-person ceremony for new CAs); software keys for labs | `test_ca_keys_in_pkcs11_hsm`, `tests/test_vault_signer.py` (real Vault) |
 | Registration authority | Teams, apps, per-app name scope (DNS, SPIFFE IDs, mail domains), profiles, environments | `test_policy_violations` |
-| Dual control | Maker-checker for prod onboarding, code signing, new CAs; the requester cannot approve | `test_prod_onboarding_needs_second_person` |
+| Dual control | Maker-checker for onboarding outside the dev zones, policy changes, code signing, new CAs; the requester cannot approve | `test_prod_onboarding_needs_second_person` |
 | Policy engine | Key type and size, curves, SAN scope, wildcards, validity caps, forced key rotation on renewal, change ticket for prod revocations | `test_policy_violations`, `test_renewal_requires_new_key` |
+| Policy tree | Folders with inherited and locked settings (zones, key sizes, curves, validity, issuing CA, approvals); apps sit in folders; every issuance narrowed by its folder chain; changes and moves through a second person; effective policy per app | `tests/test_policy_folders.py` (also an upgrade on PostgreSQL 16) |
 | ACME (RFC 8555) | EAB-bound accounts, http-01 and dns-01 (split-horizon resolver views, CNAME delegation), wildcards, key rollover, account deactivation, revoke by account or certificate key | certbot interop: `scripts/interop-certbot.sh`, `scripts/interop-acme-dns.sh` |
 | ARI (RFC 9773) and renewal campaigns | Server-chosen renewal windows; campaigns pull them forward for a set of certificates, track replacements by team, revoke the replaced ones, and put the cutoff behind dual control | certbot 5.8 renews on the campaign window: `scripts/interop-acme-dns.sh`, `tests/test_acme_phase2.py` |
 | EST (RFC 7030) | cacerts, csrattrs, simpleenroll, simplereenroll, serverkeygen; client certificates forwarded by the load balancer; IDevID bootstrap with manufacturer CAs per app | GlobalSign estclient through nginx: `scripts/interop-est.sh`, `tests/test_est_phase2.py` |
@@ -61,7 +62,7 @@ Local, SQLite, software keys:
 
 ```bash
 pip install -e ".[dev,hsm]"
-make test                                      # 207 tests; the HSM test runs if SoftHSM2 is installed
+make test                                      # 215 tests; the HSM test runs if SoftHSM2 is installed
 make run                                       # http://localhost:8080, prints a random admin key
 make demo                                      # seed teams, apps, certificates and some bad legacy certs
 ```

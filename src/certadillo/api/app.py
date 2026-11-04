@@ -35,6 +35,7 @@ from certadillo.db import (
     Certificate,
     CertificateAuthority,
     Installation,
+    PolicyFolder,
     ProvisioningRun,
     ProvisioningTarget,
     Team,
@@ -55,6 +56,20 @@ log = logging.getLogger("certadillo.api")
 
 
 # ------------------------------------------------------------------ schemas
+class FolderIn(BaseModel):
+    name: str
+    parent_id: int | None = None
+    settings: dict = Field(default_factory=dict)
+
+
+class FolderSettingsIn(BaseModel):
+    settings: dict
+
+
+class MoveIn(BaseModel):
+    folder_id: int | None = None
+
+
 class TargetIn(BaseModel):
     name: str = Field(min_length=2, max_length=120)
     kind: str
@@ -90,6 +105,7 @@ class AppIn(BaseModel):
     profile: str
     allowed_domains: list[str]
     data_classification: str = "internal"
+    folder_id: int | None = None
 
 
 class PrincipalIn(BaseModel):
@@ -245,6 +261,7 @@ def app_json(a: App) -> dict:
         "id": a.id, "name": a.name, "team_id": a.team_id, "environment": a.environment, "profile": a.profile,
         "allowed_domains": a.allowed_domains, "data_classification": a.data_classification, "status": a.status,
         "created_by": a.created_by, "created_at": as_utc(a.created_at).isoformat(), "options": a.options or {},
+        "folder_id": a.folder_id,
     }
 
 
@@ -981,6 +998,57 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
     app.include_router(acme.router)
     app.include_router(scep.router)
     app.include_router(cmp.router)
+
+    # ---------------------------------------------------------- policy tree
+    from certadillo.policy import folders as policy_folders
+
+    def _policy_result(result, approval, what):
+        if approval is not None:
+            return JSONResponse({"status": "pending_approval", "approval_id": approval.id, "change": what}, 202)
+        return JSONResponse({"status": "applied", **result}, 201)
+
+    def folder_json(p: Platform, f: PolicyFolder) -> dict:
+        return {"id": f.id, "name": f.name, "parent_id": f.parent_id, "path": policy_folders.path(p.s, f),
+                "settings": f.settings, "effective": policy_folders.effective(p.s, f.id),
+                "apps": p.s.query(App).filter_by(folder_id=f.id).count()}
+
+    @app.get("/api/v1/folders", tags=["policy"])
+    def list_folders(p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        who.require("admin", "operator", "approver", "auditor")
+        return [folder_json(p, f) for f in p.s.query(PolicyFolder).order_by(PolicyFolder.id).all()]
+
+    @app.get("/api/v1/folders/settings", tags=["policy"])
+    def folder_settings_schema(who: Actor = Depends(actor)):
+        return {k: desc for k, (_, desc) in policy_folders.SETTINGS.items()}
+
+    @app.post("/api/v1/folders", tags=["policy"])
+    def create_folder(body: FolderIn, p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        result, approval = p.create_folder(who, body.name, body.parent_id, body.settings)
+        p.commit()
+        return _policy_result(result, approval, "create_folder")
+
+    @app.put("/api/v1/folders/{folder_id}/settings", tags=["policy"])
+    def update_folder(folder_id: int, body: FolderSettingsIn, p: Platform = Depends(platform),
+                      who: Actor = Depends(actor)):
+        result, approval = p.update_folder(who, folder_id, body.settings)
+        p.commit()
+        return _policy_result(result, approval, "update_folder")
+
+    @app.post("/api/v1/apps/{app_id}/move", tags=["policy"])
+    def move_app(app_id: int, body: MoveIn, p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        result, approval = p.move_app(who, app_id, body.folder_id)
+        p.commit()
+        return _policy_result(result, approval, "move_app")
+
+    @app.get("/api/v1/apps/{app_id}/policy", tags=["policy"])
+    def app_policy(app_id: int, p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        a = p.s.get(App, app_id)
+        if a is None or (who.role == "app" and who.app_id != app_id):
+            raise NotFound("app not found")
+        f = p.s.get(PolicyFolder, a.folder_id) if a.folder_id else None
+        return {"app": a.name, "profile": a.profile, "folder": policy_folders.path(p.s, f),
+                "profile_rules": p.policies["profiles"].get(a.profile, {}),
+                "folder_rules": policy_folders.effective(p.s, a.folder_id)}
 
     # ---------------------------------------------------------- push provisioning
     from certadillo.provisioning import engine as prov

@@ -96,6 +96,12 @@ Authenticate with `X-API-Key: <key>` or `Authorization: Bearer <key>`. Errors ar
 | `GET` | `/scep/{app_name}` | as /scep, or a webhook-validated challenge | per-app SCEP URL |
 | `POST` | `/.well-known/cmp/p/{label}` | as /.well-known/cmp, for one app | CMP for a named app |
 | `POST` | `/.well-known/cmp` | CMP MAC (one-time secret) or signature | CMP (RFC 9483 lightweight profile) |
+| `GET` | `/api/v1/folders` | admin, operator, approver, auditor | the policy tree with own and effective settings |
+| `POST` | `/api/v1/folders` | admin | create a policy folder (an approval request by default) |
+| `GET` | `/api/v1/folders/settings` | any | the folder settings and what each does |
+| `PUT` | `/api/v1/folders/{folder_id}/settings` | admin | replace a folder's settings (an approval request by default) |
+| `POST` | `/api/v1/apps/{app_id}/move` | admin | move an app to another folder (an approval request by default) |
+| `GET` | `/api/v1/apps/{app_id}/policy` | admin, operator, approver, auditor; app (own) | the profile rules and folder rules that apply to an app |
 | `GET` | `/api/v1/provisioning/kinds` | any | target kinds this server can push to |
 | `GET` | `/api/v1/targets` | admin, operator, auditor | list push targets |
 | `POST` | `/api/v1/targets` | admin | add a push target (ssh, kubernetes, f5, aws-acm); credentials by reference only |

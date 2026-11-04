@@ -143,9 +143,12 @@ names or interfaces is copied.
    Next targets: IIS and the Windows certificate store over WinRM (or through
    the AD CS gateway worker), Citrix NetScaler (NITRO), Azure Key Vault,
    Java keystores over SSH, Palo Alto and Fortinet.
-2. **Policy folder tree.** Folders with inherited and locked settings (CA, key
-   types, validity, approvers, allowed names), apps placed in folders, and the
-   effective policy shown for every app.
+2. **Policy folder tree (done, November 2026).** Folders with inherited and
+   locked settings (zones, key sizes and curves, validity, issuing CA,
+   approvals), apps placed in folders, the effective policy shown for every
+   app, and every change through a second person. Apps and folders are sealed.
+   See [The policy tree](guide/23-policy-tree.md). Next: per-folder
+   notification contacts and a console view of the tree.
 3. **Public and enterprise CA drivers.** The issuer backends listed under
    Phase 3: an ACME client backend for Let's Encrypt and other ACME CAs,
    DigiCert CertCentral, AWS Private CA, EJBCA, Google CAS.

@@ -41,7 +41,16 @@ from pathlib import Path
 from sqlalchemy import event, inspect
 from sqlalchemy.orm import Session
 
-from certadillo.db import ApprovalRequest, AuditEvent, Certificate, Installation, Principal, ProvisioningTarget
+from certadillo.db import (
+    App,
+    ApprovalRequest,
+    AuditEvent,
+    Certificate,
+    Installation,
+    PolicyFolder,
+    Principal,
+    ProvisioningTarget,
+)
 
 log = logging.getLogger("certadillo.integrity")
 
@@ -59,9 +68,16 @@ FIELDS = {
     ProvisioningTarget: ("name", "kind", "team_id", "config", "credential_ref", "status"),
     Installation: ("app_id", "target_id", "common_name", "sans", "key_type", "key_location", "params",
                    "validate_endpoint"),
+    # an app's scope and place in the policy tree, and the tree itself: a
+    # database write must not widen what an app may get
+    App: ("team_id", "name", "environment", "profile", "allowed_domains", "status", "folder_id"),
+    PolicyFolder: ("name", "parent_id", "settings"),
 }
 KIND = {Principal: "principal", ApprovalRequest: "approval", Certificate: "certificate",
-        ProvisioningTarget: "provisioning_target", Installation: "installation"}
+        ProvisioningTarget: "provisioning_target", Installation: "installation", App: "app",
+        PolicyFolder: "policy_folder"}
+# Kinds sealed before the marker file recorded kinds.
+LEGACY_KINDS = {"principal", "approval", "certificate"}
 
 _state = {"key": None, "previous": None, "enforce": False}
 
@@ -184,21 +200,32 @@ def _reseal(session, flush_context, instances) -> None:
         obj.seal = compute(obj)
 
 
+def _sealed_kinds(marker: Path) -> set[str]:
+    for line in marker.read_text().splitlines():
+        if line.startswith("kinds:"):
+            return {k.strip() for k in line[6:].split(",") if k.strip()}
+    return set(LEGACY_KINDS)
+
+
 def backfill(session, settings) -> int:
-    """Seal every existing row once, then switch to enforcing. Idempotent: the
-    marker lives in the data directory, not the database, so a database-only
-    attacker cannot delete it to get their changes sealed at the next start."""
+    """Seal every existing row of each kind once, then enforce. The marker in
+    the data directory (not the database, so a database-only attacker cannot
+    delete it) records which kinds are sealed; a kind added by an upgrade is
+    backfilled at the next start, the others are left alone."""
     marker = Path(settings.data_dir) / MARKER
-    if marker.exists():
+    done = _sealed_kinds(marker) if marker.exists() else set()
+    todo = [m for m in FIELDS if KIND[m] not in done]
+    if not todo:
         _state["enforce"] = True
         return 0
+    _state["enforce"] = False  # rows of the new kinds have no seal yet
     n = 0
-    for model in FIELDS:
+    for model in todo:
         for obj in session.query(model).yield_per(500):
             obj.seal = compute(obj)
             n += 1
     session.flush()
-    marker.write_text(datetime.now(timezone.utc).isoformat() + "\n")
+    marker.write_text(datetime.now(timezone.utc).isoformat() + "\nkinds: " + ",".join(sorted(KIND.values())) + "\n")
     _state["enforce"] = True
     log.info("integrity seals backfilled", extra={"rows": n})
     return n

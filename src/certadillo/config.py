@@ -139,7 +139,7 @@ class Settings:
     # the environment label alone does not stop a "dev" app naming prod hosts.
     dev_domains: list[str] = field(default_factory=lambda: _list("DEV_DOMAINS"))
     dual_control_actions: list[str] = field(
-        default_factory=lambda: _list("DUAL_CONTROL") or ["onboard_prod_app"]
+        default_factory=lambda: _list("DUAL_CONTROL") or ["onboard_prod_app", "policy_change"]
     )
 
     def __post_init__(self) -> None:

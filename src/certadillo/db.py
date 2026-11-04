@@ -62,7 +62,26 @@ class App(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     # per-app protocol settings, e.g. {"scep_validation": "webhook"}
     options: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    # where the app sits in the policy tree (None: only its profile applies)
+    folder_id: Mapped[int | None] = mapped_column(ForeignKey("policy_folders.id"), nullable=True, index=True)
+    # sealed: scope, profile, status and folder decide what the app can get
+    seal: Mapped[str | None] = mapped_column(String(64), nullable=True)
     team: Mapped[Team] = relationship(back_populates="apps")
+
+
+class PolicyFolder(Base):
+    """A node in the policy tree. settings maps a setting name to
+    {"value": ..., "locked": bool}; children inherit values and cannot override
+    a locked one. Apps sit in folders and get the merged result."""
+
+    __tablename__ = "policy_folders"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    parent_id: Mapped[int | None] = mapped_column(ForeignKey("policy_folders.id"), nullable=True, index=True)
+    settings: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_by: Mapped[str] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    seal: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class Principal(Base):

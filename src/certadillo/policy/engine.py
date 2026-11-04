@@ -57,6 +57,8 @@ class Decision:
     # directory by the RA layer, never taken from the request).
     upns: list[str] = field(default_factory=list)
     sid: str | None = None
+    # the issuing CA chosen by the app's policy folder; None means the default
+    ca: str | None = None
 
 
 class TemplateRequest:

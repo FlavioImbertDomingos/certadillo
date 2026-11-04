@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 
 from cryptography import x509
 
+from certadillo import integrity
 from certadillo.audit.log import record
 from certadillo.ca.authority import CAService, cert_row_fields, spki_sha256
 from certadillo.ca.backends import get_backend
@@ -22,6 +23,7 @@ from certadillo.db import (
     ApprovalRequest,
     Certificate,
     CertificateAuthority,
+    PolicyFolder,
     Principal,
     Team,
 )
@@ -180,7 +182,8 @@ class Platform:
         return t
 
     def onboard_app(self, actor: Actor, team_id: int, name: str, environment: str, profile: str,
-                    allowed_domains: list[str], data_classification: str = "internal") -> tuple[App, ApprovalRequest | None]:
+                    allowed_domains: list[str], data_classification: str = "internal",
+                    folder_id: int | None = None) -> tuple[App, ApprovalRequest | None]:
         actor.require("admin", "operator")
         if environment not in ENVIRONMENTS:
             raise ValueError(f"environment must be one of {sorted(ENVIRONMENTS)}")
@@ -192,12 +195,21 @@ class Platform:
         allowed_domains = validate_scope(allowed_domains)
         if self.s.get(Team, team_id) is None:
             raise NotFound("team not found")
+        if folder_id is not None:
+            from certadillo.policy import folders
+
+            folder = self.s.get(PolicyFolder, folder_id)
+            if folder is None:
+                raise NotFound("folder not found")
+            if not all(integrity.verify(f) for f in folders.ancestors(self.s, folder)):
+                raise Forbidden("this policy folder failed its integrity check")
+            folders.check_app(folders.effective(self.s, folder_id), profile, allowed_domains)
         # The environment is a label the requester picks, so it cannot be what
         # skips the second person. Only a scope entirely inside the configured
         # dev zones can; anything else is treated as production.
         dev_scope = environment != "prod" and all(within_domains(d, self.settings.dev_domains) for d in allowed_domains)
         needs_approval = not dev_scope and "onboard_prod_app" in self.settings.dual_control_actions
-        app = App(team_id=team_id, name=name, environment=environment, profile=profile,
+        app = App(team_id=team_id, name=name, environment=environment, profile=profile, folder_id=folder_id,
                   allowed_domains=allowed_domains, data_classification=data_classification,
                   status="pending_approval" if needs_approval else "active", created_by=actor.name)
         self.s.add(app)
@@ -210,6 +222,79 @@ class Platform:
             "allowed_domains": allowed_domains, "classification": data_classification, "status": app.status,
         })
         return app, approval
+
+    # ------------------------------------------------------------- policy tree
+    def _policy_change(self, actor: Actor, payload: dict) -> tuple[dict | None, ApprovalRequest | None]:
+        """Folder and app-placement changes change what apps may get, so by
+        default they go through a second person ("policy_change" in DUAL_CONTROL)."""
+        actor.require("admin")
+        self._apply_policy_change(actor.name, payload, dry_run=True)
+        if "policy_change" in self.settings.dual_control_actions:
+            return None, self._request_approval(actor, "policy_change", payload)
+        return self._apply_policy_change(actor.name, payload), None
+
+    def create_folder(self, actor: Actor, name: str, parent_id: int | None = None, settings: dict | None = None):
+        return self._policy_change(actor, {"op": "create_folder", "name": name, "parent_id": parent_id,
+                                           "settings": settings or {}})
+
+    def update_folder(self, actor: Actor, folder_id: int, settings: dict):
+        return self._policy_change(actor, {"op": "update_folder", "folder_id": folder_id, "settings": settings})
+
+    def move_app(self, actor: Actor, app_id: int, folder_id: int | None):
+        return self._policy_change(actor, {"op": "move_app", "app_id": app_id, "folder_id": folder_id})
+
+    def _apply_policy_change(self, who: str, p: dict, dry_run: bool = False) -> dict:
+        from certadillo.policy import folders
+
+        def folder(fid):
+            f = self.s.get(PolicyFolder, fid)
+            if f is None:
+                raise NotFound("folder not found")
+            if not all(integrity.verify(x) for x in folders.ancestors(self.s, f)):
+                raise Forbidden("a policy folder failed its integrity check")
+            return f
+
+        op = p.get("op")
+        if op == "create_folder":
+            name = folders.check_name(p["name"])
+            if p.get("parent_id") is not None:
+                folder(p["parent_id"])
+            if self.s.query(PolicyFolder).filter_by(name=name, parent_id=p.get("parent_id")).first():
+                raise ValueError(f"a folder named {name} already exists there")
+            settings = folders.check_settings(self.s, p.get("parent_id"), p.get("settings") or {})
+            if dry_run:
+                return {}
+            f = PolicyFolder(name=name, parent_id=p.get("parent_id"), settings=settings, created_by=who)
+            self.s.add(f)
+            self.s.flush()
+            record(self.s, who, "policy.folder.create", folders.path(self.s, f), {"settings": settings})
+            return {"folder_id": f.id}
+        if op == "update_folder":
+            f = folder(p["folder_id"])
+            settings = folders.check_settings(self.s, f.parent_id, p.get("settings") or {})
+            if dry_run:
+                return {}
+            before = f.settings
+            f.settings = settings
+            record(self.s, who, "policy.folder.update", folders.path(self.s, f), {"before": before, "after": settings})
+            return {"folder_id": f.id}
+        if op == "move_app":
+            app = self.s.get(App, p["app_id"])
+            if app is None:
+                raise NotFound("app not found")
+            if not integrity.verify(app):
+                raise Forbidden("this app failed its integrity check")
+            if p.get("folder_id") is not None:
+                folder(p["folder_id"])
+            folders.check_app(folders.effective(self.s, p.get("folder_id")), app.profile, app.allowed_domains)
+            if dry_run:
+                return {}
+            src = folders.path(self.s, self.s.get(PolicyFolder, app.folder_id)) if app.folder_id else "\\"
+            app.folder_id = p.get("folder_id")
+            dst = folders.path(self.s, self.s.get(PolicyFolder, app.folder_id)) if app.folder_id else "\\"
+            record(self.s, who, "policy.app.move", app.name, {"from": src, "to": dst})
+            return {"app_id": app.id}
+        raise ValueError("unknown policy change")
 
     def mint_app_credential(self, actor: Actor, app_id: int) -> str:
         actor.require("admin", "operator")
@@ -421,8 +506,8 @@ class Platform:
                 x509.load_pem_x509_csr(p["csr_pem"].encode())
             # pop_verified: the protocol front end checked proof of possession over the
             # client's original bytes before normalising the CSR (SCEP clients)
-            decision = self.engine.evaluate(csr, p["profile"], app.allowed_domains, p.get("days"), p.get("hours"),
-                                            pop_verified=bool(p.get("pop_verified")))
+            decision = self._evaluate(csr, app, p["profile"], p.get("days"), p.get("hours"),
+                                      pop_verified=bool(p.get("pop_verified")))
             if decision.upns:
                 # Re-resolve the SID at issuance: the account may have been disabled
                 # while the request waited for approval.
@@ -446,6 +531,9 @@ class Platform:
             record(self.s, req.decided_by, "ca.create", p["name"], {"parent": p["parent"], "approval": req.id})
         elif req.action == "add_est_trust_anchor":
             self._add_trust_anchor(req.requested_by, p)
+        elif req.action == "policy_change":
+            p.update(self._apply_policy_change(req.decided_by, p))
+            req.payload = p
         elif req.action == "campaign_revoke_remaining":
             n = self._campaign_revoke(Actor(req.requested_by, "operator"), p["campaign_id"], "remaining",
                                       p.get("change_ref"))
@@ -492,6 +580,13 @@ class Platform:
         decision.sid = account.sid
         return account.admin_count
 
+    def _evaluate(self, csr, app: App, profile: str, days=None, hours=None, prev_fp=None, pop_verified=False):
+        """The profile's rules, then the app's policy folder on top."""
+        from certadillo.policy import folders
+
+        decision = self.engine.evaluate(csr, profile, app.allowed_domains, days, hours, prev_fp, pop_verified)
+        return folders.apply(folders.effective(self.s, app.folder_id), decision, csr, days, hours)
+
     def request_certificate(self, actor: Actor, app_id: int, csr_pem: str | None, profile: str | None = None,
                             days: int | None = None, hours: int | None = None, protocol: str = "rest",
                             previous: Certificate | None = None,
@@ -509,6 +604,8 @@ class Platform:
             raise Forbidden("role cannot request certificates")
         if app.status != "active":
             raise Forbidden(f"app is {app.status}")
+        if not integrity.verify(app):
+            raise Forbidden("this app failed its integrity check (changed outside Certadillo)")
         profile = profile or app.profile
         if profile != app.profile:
             ISSUANCE_TOTAL.labels(profile=profile, protocol=protocol, result="rejected").inc()
@@ -527,7 +624,7 @@ class Platform:
                 raise PolicyError([("csr_format", "CSR is not valid PEM PKCS#10")]) from None
         prev_fp = spki_sha256(x509.load_pem_x509_certificate(previous.pem.encode())) if previous else None
         try:
-            decision = self.engine.evaluate(csr, profile, app.allowed_domains, days, hours, prev_fp, pop_verified)
+            decision = self._evaluate(csr, app, profile, days, hours, prev_fp, pop_verified)
         except PolicyError as e:
             ISSUANCE_TOTAL.labels(profile=profile, protocol=protocol, result="rejected").inc()
             for rule, _ in e.violations:
@@ -562,7 +659,7 @@ class Platform:
     def _sign(self, csr, decision, app: App, protocol: str, actor: Actor) -> Certificate:
         issuer = self.policies["profiles"][decision.profile].get("issuer", "local")
         if issuer == "local":
-            row = self.ca.issue(csr, decision, app_id=app.id)
+            row = self.ca.issue(csr, decision, ca=self.ca.get(decision.ca) if decision.ca else None, app_id=app.id)
         else:
             backend = get_backend(issuer)
             if backend is None:

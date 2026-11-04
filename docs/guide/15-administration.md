@@ -18,7 +18,9 @@ In production, put OIDC (Entra ID, Okta) in front of the console and API and map
 
 | Action | Needs a second person | Set by |
 | --- | --- | --- |
-| Onboarding an app, unless it is non-prod and its whole scope is inside `CERTADILLO_DEV_DOMAINS` | yes | `CERTADILLO_DUAL_CONTROL` (default `onboard_prod_app`) and `CERTADILLO_DEV_DOMAINS` |
+| Onboarding an app, unless it is non-prod and its whole scope is inside `CERTADILLO_DEV_DOMAINS` | yes | `CERTADILLO_DUAL_CONTROL` (`onboard_prod_app`) and `CERTADILLO_DEV_DOMAINS` |
+| Creating or changing a policy folder, moving an app between folders | yes | `CERTADILLO_DUAL_CONTROL` (`policy_change`) |
+| Issuing in a folder with `dual_control: true` | yes | the [policy tree](23-policy-tree.md) |
 | Issuing or renewing a certificate in a profile with `dual_control: true` (code signing) | yes | the profile |
 | Creating a subordinate CA | always | fixed |
 
@@ -99,7 +101,7 @@ All settings are environment variables.
 | `CERTADILLO_PKCS11_LIB` / `_TOKEN` / `_PIN` | | HSM access |
 | `CERTADILLO_BOOTSTRAP_ADMIN_KEY` / `_APPROVER_KEY` | | first principals |
 | `CERTADILLO_AUTO_INIT_CA` | `true` | create the hierarchy on first start |
-| `CERTADILLO_DUAL_CONTROL` | `onboard_prod_app` | settings-driven maker-checker actions |
+| `CERTADILLO_DUAL_CONTROL` | `onboard_prod_app,policy_change` | settings-driven maker-checker actions |
 | `CERTADILLO_DEV_DOMAINS` | | comma-separated zones for non-production names; see [Dual control](#dual-control) |
 | `CERTADILLO_ACME_CHALLENGE` | `http-01` | `http-01` offers http-01 and dns-01; `ra-scope` skips the network check |
 | `CERTADILLO_ACME_DNS_VIEWS` | | split-horizon resolvers per zone, `zone=ip[:port],...;zone=...` |
