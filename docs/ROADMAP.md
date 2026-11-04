@@ -139,8 +139,10 @@ removed.
   certificate only if it carries that key, chains to the root and keeps the
   required name constraints. The root CRL is signed offline and imported, with
   replay refused. See [offline root ceremony](guide/26-offline-root.md).
-- [ ] **Encrypted, off-host backups** in `deploy.sh` (age or gpg to a key that
-  is not on the server).
+- [x] **Encrypted, off-host backups** (November 2026). `deploy/server/backup.sh`
+  encrypts the database and data volume to age public keys (private keys off
+  the server), ships each file with `BACKUP_COPY_CMD`, runs daily from cron;
+  `restore.sh` takes the decrypted stream and checks a hash manifest first.
 - [ ] **Separate signing service.** Move CA signing into a small process with
   its own credential (or keep it entirely in the HSM or Vault), so the
   web-facing process can ask for signatures under policy but never holds key

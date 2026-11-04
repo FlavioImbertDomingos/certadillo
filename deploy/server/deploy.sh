@@ -11,6 +11,8 @@
 #   BIND       127.0.0.1 moves 8080 off the public interface once nginx fronts it
 #              (also tells the app to trust nginx's X-Forwarded headers)
 #   NO_BUILD   1 reuses the certadillo:server image already on the server
+#   BACKUP_AGE_RECIPIENTS age public key(s) for encrypted backups (deploy/server/backup.sh); when set,
+#                         the pre-upgrade dump is encrypted and a daily encrypted backup is scheduled
 #   TRAEFIK_DOMAIN        serve through a Traefik that already runs on the server, e.g.
 #                         TRAEFIK_DOMAIN=certadillo.com TRAEFIK_NETWORK=internal \
 #                         TRAEFIK_CERTRESOLVER=traefikresolver deploy/server/deploy.sh root@host
@@ -65,6 +67,7 @@ git archive --format=tar HEAD | ssh "$TARGET" "set -e
 
 echo "==> Building and starting (first build takes a few minutes)"
 ssh "$TARGET" "APP_DIR='$APP_DIR' REV='$REV' BASE_URL='$BASE_URL' BIND='${BIND:-}' NO_BUILD='${NO_BUILD:-0}' \
+  BACKUP_AGE_RECIPIENTS='${BACKUP_AGE_RECIPIENTS:-}' \
   TRAEFIK_DOMAIN='$TRAEFIK_DOMAIN' TRAEFIK_NETWORK='${TRAEFIK_NETWORK:-}' TRAEFIK_CERTRESOLVER='${TRAEFIK_CERTRESOLVER:-}' bash -s" <<'REMOTE'
 set -euo pipefail
 cd "$APP_DIR"
@@ -95,12 +98,25 @@ if [ -n "$TRAEFIK_DOMAIN" ]; then
 fi
 F="-f app/deploy/server/docker-compose.yml"
 grep -q '^CERTADILLO_DOMAIN=' .env && F="$F -f app/deploy/server/docker-compose.traefik.yml"
-# back up the database before an upgrade; the five newest dumps are kept
+[ -n "$BACKUP_AGE_RECIPIENTS" ] && set_env BACKUP_AGE_RECIPIENTS "$BACKUP_AGE_RECIPIENTS"
+# back up before an upgrade: encrypted to the age recipients when they are set
+# (deploy/server/backup.sh), otherwise a local database dump (five kept)
 if docker ps --format '{{.Names}}' | grep -q '^certadillo-postgres-1$'; then
-  mkdir -p backups
-  docker exec certadillo-postgres-1 pg_dump -U certadillo certadillo | gzip > "backups/pre-$REV.sql.gz"
-  echo "database backed up to $APP_DIR/backups/pre-$REV.sql.gz"
-  ls -1t backups/pre-*.sql.gz | tail -n +6 | xargs -r rm -f
+  if grep -q '^BACKUP_AGE_RECIPIENTS=age1' .env; then
+    APP_DIR="$APP_DIR" bash app/deploy/server/backup.sh
+  else
+    mkdir -p backups
+    docker exec certadillo-postgres-1 pg_dump -U certadillo certadillo | gzip > "backups/pre-$REV.sql.gz"
+    echo "database backed up to $APP_DIR/backups/pre-$REV.sql.gz (unencrypted: set BACKUP_AGE_RECIPIENTS)"
+    ls -1t backups/pre-*.sql.gz | tail -n +6 | xargs -r rm -f
+  fi
+fi
+if grep -q '^BACKUP_AGE_RECIPIENTS=age1' .env; then
+  command -v age >/dev/null || (apt-get update -qq && apt-get install -y -qq age) >/dev/null
+  # daily at 02:17 UTC; the script reads its settings from .env
+  printf '17 2 * * * root APP_DIR=%s %s/app/deploy/server/backup.sh >> /var/log/certadillo-backup.log 2>&1\n' \
+    "$APP_DIR" "$APP_DIR" > /etc/cron.d/certadillo-backup
+  chmod 644 /etc/cron.d/certadillo-backup
 fi
 BUILD=--build; [ "$NO_BUILD" = "1" ] && BUILD=
 docker compose $F --env-file .env -p certadillo up -d $BUILD

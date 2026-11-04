@@ -22,7 +22,39 @@ Then open `http://154.53.47.199:8080`, paste a key and press Connect. The knowle
 
 ## Updates
 
-Commit, then run the same command. Data, CA keys and secrets are kept; the five newest releases stay on disk for rollback, and the database is dumped to `/opt/certadillo/backups/pre-<commit>.sql.gz` before each upgrade (five kept). New tables and columns are added at startup.
+Commit, then run the same command. Data, CA keys and secrets are kept; the five newest releases stay on disk for rollback, and the database is backed up before each upgrade: encrypted when `BACKUP_AGE_RECIPIENTS` is set (see below), otherwise to `/opt/certadillo/backups/pre-<commit>.sql.gz` (five kept). New tables and columns are added at startup.
+
+## Encrypted backups
+
+Make an age key pair on your workstation (not on the server) and deploy with
+its public half:
+
+```bash
+age-keygen -o certadillo-backup-key.txt          # keep this file offline; it prints the public key
+BACKUP_AGE_RECIPIENTS=age1... deploy/server/deploy.sh root@154.53.47.199
+```
+
+From then on the pre-upgrade backup is encrypted, and a daily one runs at 02:17
+UTC (`/etc/cron.d/certadillo-backup`). Each file in `/opt/certadillo/backups/`
+holds the database dump and the data volume (CA keys, which are already
+encrypted with the key passphrase, the OCSP and audit signing keys, ceremony
+state) with a hash manifest. Plaintext only exists in a private temporary
+directory while the file is made. Give two recipients (comma-separated) so a
+second key in a safe can restore if the first is lost. Set `BACKUP_COPY_CMD`
+in `.env` to ship each file off the host, for example
+`aws s3 cp {} s3://bank-pki-backups/certadillo/` to a bucket with Object Lock.
+
+Restore by decrypting on the workstation and streaming to the server, so the
+private key never goes there:
+
+```bash
+age -d -i certadillo-backup-key.txt certadillo-20261104T021700Z.tar.age \
+  | ssh root@154.53.47.199 /opt/certadillo/app/deploy/server/restore.sh
+```
+
+`restore.sh` checks the manifest hashes before touching anything. The server
+needs the same `CERTADILLO_KEY_PASSPHRASE` in `.env`, or the restored CA keys
+cannot be opened: keep a copy of `.env` with the backup key.
 
 ## Useful commands on the server
 
