@@ -12,6 +12,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # botocore requires python-dateutil<3; a newer major breaks the image's pip check
+      - dependency-name: python-dateutil
+        versions: [">=3"]
   - package-ecosystem: docker
     directory: /
     schedule:
@@ -20,6 +24,11 @@ updates:
     directory: /deploy
     schedule:
       interval: weekly
+    ignore:
+      # a PostgreSQL major version needs pg_upgrade of the existing volume (and 18 moved the
+      # data directory); upgrade it on purpose, not from a bot pull request
+      - dependency-name: postgres
+        update-types: ["version-update:semver-major"]
   # the hash-pinned lock the image installs from (pip-compile --generate-hashes)
   - package-ecosystem: pip
     directory: /requirements
@@ -28,3 +37,6 @@ updates:
     groups:
       image-dependencies:
         patterns: ["*"]
+    ignore:
+      - dependency-name: python-dateutil
+        versions: [">=3"]
