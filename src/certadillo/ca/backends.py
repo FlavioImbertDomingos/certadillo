@@ -3,9 +3,10 @@ stay the same whichever CA signs. Add a backend by implementing
 CABackend and registering it under a name referenced from a profile's
 `issuer:` key.
 
-Shipped: `local` (built-in CA, software or PKCS#11 keys) and `vault`
-(HashiCorp Vault / OpenBao PKI secrets engine). Planned adapters are listed
-in docs/ROADMAP.md with the vendor API each one calls."""
+Shipped: `local` (built-in CA, software, PKCS#11 or Vault Transit keys),
+`vault` (HashiCorp Vault / OpenBao PKI secrets engine), and the upstream
+issuers in certadillo.ca.issuers (ACME CAs, DigiCert CertCentral, AWS Private
+CA, EJBCA), configured under `issuers:` in the policy file."""
 from __future__ import annotations
 
 from typing import Protocol
@@ -23,7 +24,8 @@ class CABackend(Protocol):
     def sign(self, csr: x509.CertificateSigningRequest, decision: Decision) -> tuple[x509.Certificate, list[x509.Certificate]]:
         """Return (leaf, chain)."""
 
-    def revoke(self, serial_hex: str, reason: str) -> None: ...
+    def revoke(self, serial_hex: str, reason: str, ref: str | None = None, cert_pem: str | None = None) -> None:
+        """ref: the id the CA returned at issuance (sign's optional third value)."""
 
 
 class VaultPKIBackend:
@@ -59,7 +61,7 @@ class VaultPKIBackend:
         chain = [x509.load_pem_x509_certificate(c.encode()) for c in data.get("ca_chain", [])]
         return leaf, chain
 
-    def revoke(self, serial_hex: str, reason: str) -> None:
+    def revoke(self, serial_hex: str, reason: str, ref: str | None = None, cert_pem: str | None = None) -> None:
         s = serial_hex.rjust(len(serial_hex) + len(serial_hex) % 2, "0")
         colon = ":".join(s[i : i + 2] for i in range(0, len(s), 2))
         r = self.http.post(f"{self.addr}/v1/{self.mount}/revoke", json={"serial_number": colon}, headers=self.headers)

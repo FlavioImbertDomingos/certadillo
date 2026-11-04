@@ -59,6 +59,8 @@ class Decision:
     sid: str | None = None
     # the issuing CA chosen by the app's policy folder; None means the default
     ca: str | None = None
+    # an upstream issuer chosen by the policy folder; None means the profile's
+    issuer: str | None = None
 
 
 class TemplateRequest:

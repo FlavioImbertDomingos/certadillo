@@ -40,6 +40,7 @@ PAGES = [
     ("windows-adcs", "guide/20-windows-adcs.md", "Protocols", "Windows and AD CS", "adcs"),
     ("revocation", "guide/11-revocation.md", "Operate", "Revocation: OCSP and CRL", "revocation"),
     ("campaigns", "guide/19-renewal-campaigns.md", "Operate", "Renewal campaigns (ARI)", "ari"),
+    ("upstream-issuers", "guide/24-upstream-issuers.md", "Operate", "Upstream issuers", None),
     ("policy-tree", "guide/23-policy-tree.md", "Operate", "The policy tree", None),
     ("push-provisioning", "guide/22-push-provisioning.md", "Operate", "Push provisioning", None),
     ("discovery", "guide/12-discovery-inventory.md", "Operate", "Discovery and inventory", None),

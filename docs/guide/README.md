@@ -32,6 +32,7 @@ Pick the protocol your client already speaks. They all go through the same onboa
 
 - [Revocation: OCSP and CRL](11-revocation.md)
 - [Renewal campaigns: planned early renewal before a mass revocation](19-renewal-campaigns.md)
+- [Upstream issuers: Let's Encrypt and other ACME CAs, DigiCert, AWS Private CA, EJBCA](24-upstream-issuers.md)
 - [The policy tree: folders with inherited and locked settings](23-policy-tree.md)
 - [Push provisioning: install certificates on F5, hosts, Kubernetes and ACM](22-push-provisioning.md)
 - [Discovery and inventory](12-discovery-inventory.md)

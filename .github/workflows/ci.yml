@@ -32,6 +32,13 @@ jobs:
           curl -fsSLO "https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_SHA256SUMS"
           grep "linux_amd64.zip" "vault_${VAULT_VERSION}_SHA256SUMS" | sha256sum -c -
           unzip -q "vault_${VAULT_VERSION}_linux_amd64.zip" vault && sudo mv vault /usr/local/bin/ && vault version
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: stable
+      - name: Pebble, the ACME test CA, for the upstream issuer tests
+        run: |
+          go install github.com/letsencrypt/pebble/v2/cmd/pebble@v2.9.0
+          go install github.com/letsencrypt/pebble/v2/cmd/pebble-challtestsrv@v2.9.0
       - run: pip install -e ".[dev,hsm]" ruff
       - run: ruff check .
       - run: pytest

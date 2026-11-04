@@ -9,6 +9,8 @@ CERTADILLO_VAULT_CACERT points at the CA bundle for Vault's own TLS certificate.
 """
 from __future__ import annotations
 
+import ssl
+
 from pathlib import Path
 
 import httpx
@@ -34,7 +36,8 @@ class VaultClient:
         self._token = token
         self._token_file = token_file
         self.namespace = namespace
-        self._http = http or httpx.Client(timeout=timeout, verify=cacert if cacert else True)
+        verify = ssl.create_default_context(cafile=cacert) if cacert else True
+        self._http = http or httpx.Client(timeout=timeout, verify=verify)
 
     @classmethod
     def from_settings(cls, settings, http: httpx.Client | None = None) -> "VaultClient":

@@ -68,6 +68,7 @@ SETTINGS = {
     "max_validity_days": (_pos_int, "longest validity; longer requests are refused, defaults are shortened"),
     "issuing_ca": (_ca_name, "the CA that signs for apps here"),
     "dual_control": (_bool, "every issuance needs a second approver"),
+    "issuer": (_ca_name, "the upstream issuer (from the policy file's issuers) or local"),
 }
 
 
@@ -120,6 +121,11 @@ def check_settings(s, parent_id: int | None, settings: dict) -> dict:
             value = SETTINGS[key][0](spec["value"])
         except ValueError as exc:
             raise ValueError(f"{key}: {exc}") from None
+        if key == "issuer" and value != "local":
+            from certadillo.ca.backends import get_backend
+
+            if get_backend(value) is None or value == "adcs":
+                raise ValueError(f"issuer: {value} is not a configured upstream issuer")
         if key == "issuing_ca":
             from certadillo.db import CertificateAuthority
 
@@ -181,6 +187,8 @@ def apply(eff: dict, decision, csr, requested_days: int | None, requested_hours:
         raise PolicyError(v)
     if "issuing_ca" in eff:
         decision.ca = eff["issuing_ca"]["value"]
+    if "issuer" in eff:
+        decision.issuer = eff["issuer"]["value"]
     if eff.get("dual_control", {}).get("value"):
         decision.dual_control = True
     return decision

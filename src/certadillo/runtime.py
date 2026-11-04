@@ -46,6 +46,9 @@ def init_runtime(settings: Settings | None = None) -> Runtime:
 
     integrity.configure(settings)
     rt = Runtime(settings=settings, policies=load_policies(settings.policy_file), keystore=build_keystore(settings))
+    from certadillo.ca.issuers import register_from_policies
+
+    register_from_policies(rt.policies, settings)
     register_inventory_collector(db.get_session)
     bootstrap(rt)
     _rt = rt

@@ -35,6 +35,7 @@ or the key size.
 | `max_validity_days` | integer | an explicit request for longer is refused; a profile default that is longer is shortened |
 | `issuing_ca` | CA name | the issuing CA that signs for apps here (it must exist and not be a root) |
 | `dual_control` | `true` / `false` | every issuance needs a second approver |
+| `issuer` | `local` or a name under `issuers:` | the [upstream issuer](24-upstream-issuers.md) that signs for apps here |
 
 The folder rules only ever narrow the profile: a folder cannot allow an RSA
 size, a validity or a name the profile itself refuses.

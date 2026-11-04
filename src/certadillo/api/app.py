@@ -239,8 +239,11 @@ def cert_json(c: Certificate, include_pem: bool = False) -> dict:
 def issued_json(p: Platform, c: Certificate) -> dict:
     """Leaf plus intermediates (root excluded; clients get it out of band)."""
     out = cert_json(c, include_pem=True)
-    chain = p.ca.chain(p.s.get(CertificateAuthority, c.ca_id)) if c.ca_id else []
-    out["chain_pem"] = "".join(x.public_bytes(serialization.Encoding.PEM).decode() for x in chain[:-1])
+    if c.ca_id:
+        chain = p.ca.chain(p.s.get(CertificateAuthority, c.ca_id))
+        out["chain_pem"] = "".join(x.public_bytes(serialization.Encoding.PEM).decode() for x in chain[:-1])
+    else:
+        out["chain_pem"] = c.chain_pem or ""  # from the upstream CA
     return out
 
 

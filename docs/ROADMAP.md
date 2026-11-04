@@ -53,11 +53,9 @@ Item 4, deferred:
 
 | Target | API it would call |
 | --- | --- |
-| Public ACME CAs (Let's Encrypt and others) | an ACME client inside the backend, dns-01 through the DNS provider's API; ARI decides renewal |
-| DigiCert CertCentral | `POST /services/v2/order/certificate/{product}`; `PUT /services/v2/certificate/{id}/revoke` |
-| AWS Private CA | `IssueCertificate`, `GetCertificate`, `RevokeCertificate` |
 | Google CAS | `projects.locations.caPools.certificates.create` |
-| EJBCA | REST `/v1/certificate/pkcs10enroll` |
+
+ACME CAs, DigiCert CertCentral, AWS Private CA and EJBCA shipped in Phase 7.
 
 Inventory connectors (`InventoryConnector`):
 
@@ -149,9 +147,12 @@ names or interfaces is copied.
    app, and every change through a second person. Apps and folders are sealed.
    See [The policy tree](guide/23-policy-tree.md). Next: per-folder
    notification contacts and a console view of the tree.
-3. **Public and enterprise CA drivers.** The issuer backends listed under
-   Phase 3: an ACME client backend for Let's Encrypt and other ACME CAs,
-   DigiCert CertCentral, AWS Private CA, EJBCA, Google CAS.
+3. **Public and enterprise CA drivers (done, November 2026).** ACME CAs
+   (dns-01 through RFC 2136 or an HTTP hook, EAB), DigiCert CertCentral, AWS
+   Private CA and EJBCA, configured under `issuers:` and routed per profile or
+   per policy folder. See [Upstream issuers](guide/24-upstream-issuers.md).
+   Next: Google CAS, Sectigo, Entrust, and DNS provider APIs (Route 53, Azure
+   DNS, Cloudflare) for ACME.
 4. **Wider discovery.** A host agent that finds PEM, JKS and PKCS#12 files and
    the Windows certificate store, cloud discovery (ACM, Azure Key Vault, GCP
    Certificate Manager), and Certificate Transparency monitoring for public

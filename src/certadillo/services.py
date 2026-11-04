@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from cryptography import x509
+from cryptography.hazmat.primitives import serialization
 
 from certadillo import integrity
 from certadillo.audit.log import record
@@ -657,15 +658,19 @@ class Platform:
         return row
 
     def _sign(self, csr, decision, app: App, protocol: str, actor: Actor) -> Certificate:
-        issuer = self.policies["profiles"][decision.profile].get("issuer", "local")
+        issuer = decision.issuer or self.policies["profiles"][decision.profile].get("issuer", "local")
         if issuer == "local":
             row = self.ca.issue(csr, decision, ca=self.ca.get(decision.ca) if decision.ca else None, app_id=app.id)
         else:
             backend = get_backend(issuer)
             if backend is None:
                 raise RuntimeError(f"issuer backend '{issuer}' is not configured")
-            leaf, _chain = backend.sign(csr, decision)
+            result = backend.sign(csr, decision)
+            leaf, chain = result[0], result[1]
+            _check_upstream(leaf, csr, decision, issuer)
             row = Certificate(app_id=app.id, profile=decision.profile, source="issued", backend=issuer,
+                              backend_ref=result[2] if len(result) > 2 else None,
+                              chain_pem="".join(c.public_bytes(serialization.Encoding.PEM).decode() for c in chain),
                               **cert_row_fields(leaf))
             self.s.add(row)
             self.s.flush()
@@ -707,7 +712,10 @@ class Platform:
             backend = get_backend(row.backend)
             if backend is None:
                 raise RuntimeError(f"backend {row.backend} not configured")
-            backend.revoke(row.serial_hex, reason)
+            try:
+                backend.revoke(row.serial_hex, reason, ref=row.backend_ref, cert_pem=row.pem)
+            except TypeError:  # an older backend with the two-argument signature
+                backend.revoke(row.serial_hex, reason)
             row.status, row.revoked_at, row.revocation_reason = "revoked", datetime.now(timezone.utc), reason
         else:
             self.ca.revoke(row, reason)
@@ -902,3 +910,21 @@ class Platform:
             old.replaced_by = current.id
             record(self.s, actor_name, "certificate.replaced_at_endpoint", old.serial_hex,
                    {"location": location, "new_serial": current.serial_hex})
+
+
+def _check_upstream(leaf: x509.Certificate, csr, decision, issuer: str) -> None:
+    """Do not take an upstream CA's word for it: the certificate must carry the
+    requested key and no name the policy did not approve."""
+    from cryptography.hazmat.primitives import serialization as ser
+
+    spki = ser.Encoding.DER, ser.PublicFormat.SubjectPublicKeyInfo
+    if leaf.public_key().public_bytes(*spki) != csr.public_key().public_bytes(*spki):
+        raise RuntimeError(f"issuer {issuer} returned a certificate for a different key")
+    try:
+        names = set(leaf.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+                    .get_values_for_type(x509.DNSName))
+    except x509.ExtensionNotFound:
+        names = set()
+    extra = names - set(decision.dns_names)
+    if extra:
+        raise RuntimeError(f"issuer {issuer} added names the policy did not approve: {sorted(extra)}")

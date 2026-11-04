@@ -150,6 +150,9 @@ class Certificate(Base):
     last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     seal: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # for certificates from an upstream CA: its id there (order, ARN, URL) and its chain
+    backend_ref: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    chain_pem: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class ApprovalRequest(Base):

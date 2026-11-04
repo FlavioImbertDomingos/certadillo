@@ -207,8 +207,9 @@ def provision(p, installation_id: int, actor_name: str, trigger: str = "manual")
         steps.append(f"issued serial {issued.serial_hex}")
         ca = p.s.get(CertificateAuthority, issued.ca_id) if issued.ca_id else None
         chain = p.ca.chain(ca)[:-1] if ca else []
-        bundle = InstallBundle(common_name=inst.common_name, cert_pem=issued.pem,
-                               chain_pem="".join(c.public_bytes(serialization.Encoding.PEM).decode() for c in chain),
+        chain_pem = "".join(c.public_bytes(serialization.Encoding.PEM).decode() for c in chain) if ca \
+            else (issued.chain_pem or "")
+        bundle = InstallBundle(common_name=inst.common_name, cert_pem=issued.pem, chain_pem=chain_pem,
                                key_pem=key_pem, serial_hex=issued.serial_hex, fingerprint=issued.fingerprint_sha256,
                                steps=steps)
         updates = driver.install(params, bundle)

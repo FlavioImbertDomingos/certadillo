@@ -427,7 +427,10 @@ def _client(server, key):
     if u.scheme != "https" and not (u.scheme == "http" and (u.hostname or "") in _LOOPBACK):
         if (os.environ.get("CERTADILLO_ALLOW_HTTP", "") or "").lower() != "true":
             raise click.UsageError(f"refusing to send the API key to {server} without TLS; use https://")
-    verify = os.environ.get("CERTADILLO_CACERT") or True  # a private CA bundle for the server's certificate
+    import ssl
+
+    cafile = os.environ.get("CERTADILLO_CACERT")  # a private CA bundle for the server's certificate
+    verify = ssl.create_default_context(cafile=cafile) if cafile else True
     return httpx.Client(base_url=server, headers={"X-API-Key": key}, timeout=30, verify=verify)
 
 
