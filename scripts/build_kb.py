@@ -150,6 +150,9 @@ def render_md(path: Path) -> tuple[str, str]:
     text = path.read_text()
     md = markdown.Markdown(extensions=["tables", "fenced_code", "toc"], extension_configs={"toc": {"permalink": False}})
     body = md.convert(text)
+    # GitHub-style task lists ("- [x] done", "- [ ] open") as status markers
+    body = re.sub(r"<li>(<p>)?\[x\] ", r'<li class="kb-task kb-task-done">\1<span class="kb-tick">Done</span> ', body)
+    body = re.sub(r"<li>(<p>)?\[ \] ", r'<li class="kb-task kb-task-open">\1<span class="kb-tick">Open</span> ', body)
     title = re.search(r"<h1[^>]*>(.*?)</h1>", body)
     return rewrite_links(body), html.unescape(re.sub("<[^>]+>", "", title.group(1))) if title else path.stem
 

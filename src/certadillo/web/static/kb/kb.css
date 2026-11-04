@@ -160,3 +160,16 @@ button { font: inherit; }
   .kb-brand span { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .kb-card { transition: none; } }
+
+/* roadmap status markers (task lists) */
+.kb-prose li.kb-task { list-style: none; margin-left: -22px; }
+.kb-tick { display: inline-block; min-width: 3.4em; margin-right: 6px; padding: 1px 6px; border-radius: 4px;
+  font: 600 11px/1.6 "IBM Plex Mono", monospace; text-align: center; text-transform: uppercase; vertical-align: 1px; }
+.kb-task-done .kb-tick { background: #d9f2e6; color: #0b6b45; }
+.kb-task-open .kb-tick { background: #f1f1ef; color: #6b6b66; border: 1px solid #d8d8d4; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .kb-task-done .kb-tick { background: #123d2c; color: #7fe0b0; }
+  :root:not([data-theme="light"]) .kb-task-open .kb-tick { background: transparent; color: #a3a39c; border-color: #3d3d39; }
+}
+:root[data-theme="dark"] .kb-task-done .kb-tick { background: #123d2c; color: #7fe0b0; }
+:root[data-theme="dark"] .kb-task-open .kb-tick { background: transparent; color: #a3a39c; border-color: #3d3d39; }
