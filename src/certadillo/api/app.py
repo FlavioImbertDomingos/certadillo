@@ -24,7 +24,7 @@ from certadillo.alerting.evaluator import reconcile
 from certadillo.alerting.notifiers import build_global_notifiers
 from certadillo.api.deps import actor, platform
 from certadillo.api import headers as security_headers
-from certadillo.audit.log import verify_chain
+from certadillo.audit.log import record, verify_chain
 from certadillo.config import Settings
 from certadillo.db import (
     AdcsJob,
@@ -34,6 +34,8 @@ from certadillo.db import (
     AuditEvent,
     Certificate,
     CertificateAuthority,
+    DiscoveryFinding,
+    DiscoveryRun,
     Installation,
     PolicyFolder,
     ProvisioningRun,
@@ -56,6 +58,16 @@ log = logging.getLogger("certadillo.api")
 
 
 # ------------------------------------------------------------------ schemas
+class AgentReportIn(BaseModel):
+    host: str = Field(min_length=1, max_length=200)
+    certificates: list[dict] = Field(default_factory=list, max_length=5000)
+    key_files: list[dict] = Field(default_factory=list, max_length=5000)
+
+
+class AckIn(BaseModel):
+    comment: str = Field(min_length=3, max_length=500)
+
+
 class FolderIn(BaseModel):
     name: str
     parent_id: int | None = None
@@ -295,7 +307,14 @@ def run_housekeeping() -> dict:
         from certadillo.audit.log import maybe_anchor
 
         maybe_anchor(p.s, rt.settings)
+        from certadillo.discovery.sources import run_due
         from certadillo.provisioning.engine import renew_due
+
+        try:
+            run_due(p, rt.discovery_sources)
+        except Exception:  # noqa: BLE001
+            log.exception("discovery sources cycle failed")
+            p.s.rollback()
 
         try:
             renew_due(p)
@@ -517,6 +536,7 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
 
     @app.get("/api/v1/approvals", tags=["governance"])
     def list_approvals(status: str | None = None, p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        who.require("admin", "operator", "approver", "auditor", "app")
         q = p.s.query(ApprovalRequest)
         if status:
             q = q.filter_by(status=status)
@@ -560,6 +580,7 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
                    expiring_within_days: int | None = None, renewal_due: bool = False,
                    limit: int = Query(500, le=5000),
                    p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        who.require("admin", "operator", "approver", "auditor", "app")
         q = p.s.query(Certificate)
         if who.role == "app":
             q = q.filter_by(app_id=who.app_id)
@@ -580,6 +601,7 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
 
     @app.get("/api/v1/certificates/{cert_id}", tags=["certificates"])
     def get_cert(cert_id: int, p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        who.require("admin", "operator", "approver", "auditor", "app")
         c = p.s.get(Certificate, cert_id)
         if c is None or (who.role == "app" and c.app_id != who.app_id):
             raise NotFound("certificate not found")
@@ -1001,6 +1023,64 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
     app.include_router(acme.router)
     app.include_router(scep.router)
     app.include_router(cmp.router)
+
+    # ---------------------------------------------------------- wider discovery
+    from certadillo.discovery import sources as disc
+
+    @app.post("/api/v1/discovery/agent-report", tags=["inventory"])
+    def agent_report(body: AgentReportIn, p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        who.require("agent", "admin", "operator")
+        out = disc.ingest_agent_report(p, who, body.host, body.certificates, body.key_files)
+        p.commit()
+        return out
+
+    @app.get("/api/v1/discovery/sources", tags=["inventory"])
+    def discovery_sources(p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        who.require("admin", "operator", "auditor")
+        rt = get_runtime()
+        out = []
+        for name, src in rt.discovery_sources.items():
+            last = p.s.query(DiscoveryRun).filter_by(source=name).order_by(DiscoveryRun.id.desc()).first()
+            out.append({"name": name, "type": src.kind, "interval_hours": src.cfg.get("interval_hours", 24),
+                        "last_run": None if last is None else {
+                            "status": last.status, "found": last.found, "new": last.new, "error": last.error,
+                            "started_at": as_utc(last.started_at).isoformat()}})
+        return out
+
+    @app.post("/api/v1/discovery/sources/{name}/run", tags=["inventory"])
+    def run_discovery_source(name: str, p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        who.require("admin", "operator")
+        src = get_runtime().discovery_sources.get(name)
+        if src is None:
+            raise NotFound("no such discovery source")
+        run = disc.run_source(p, name, src, who.name)
+        p.commit()
+        return JSONResponse({"source": name, "status": run.status, "found": run.found, "new": run.new,
+                             "error": run.error}, 200 if run.status == "ok" else 502)
+
+    @app.get("/api/v1/discovery/findings", tags=["inventory"])
+    def discovery_findings(status: str = "open", kind: str | None = None, p: Platform = Depends(platform),
+                           who: Actor = Depends(actor)):
+        who.require("admin", "operator", "auditor")
+        q = p.s.query(DiscoveryFinding).filter_by(status=status)
+        if kind:
+            q = q.filter_by(kind=kind)
+        return [{"id": f.id, "kind": f.kind, "location": f.location, "detail": f.detail, "status": f.status,
+                 "first_seen": as_utc(f.first_seen).isoformat(), "last_seen": as_utc(f.last_seen).isoformat()}
+                for f in q.order_by(DiscoveryFinding.id).all()]
+
+    @app.post("/api/v1/discovery/findings/{finding_id}/acknowledge", tags=["inventory"])
+    def acknowledge_finding(finding_id: int, body: AckIn, p: Platform = Depends(platform),
+                            who: Actor = Depends(actor)):
+        who.require("admin", "operator")
+        f = p.s.get(DiscoveryFinding, finding_id)
+        if f is None:
+            raise NotFound("finding not found")
+        f.status, f.acknowledged_by = "acknowledged", who.name
+        f.detail = {**f.detail, "acknowledged_comment": body.comment}
+        record(p.s, who.name, "discovery.finding.acknowledge", f.key, {"comment": body.comment})
+        p.commit()
+        return {"id": f.id, "status": f.status}
 
     # ---------------------------------------------------------- policy tree
     from certadillo.policy import folders as policy_folders

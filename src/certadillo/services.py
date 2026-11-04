@@ -31,7 +31,7 @@ from certadillo.db import (
 from certadillo.observability.metrics import ISSUANCE_TOTAL, POLICY_VIOLATIONS, REVOCATIONS
 from certadillo.policy.engine import PolicyEngine, PolicyError, grade_certificate
 
-ROLES = {"admin", "approver", "operator", "auditor", "app", "gateway"}
+ROLES = {"admin", "approver", "operator", "auditor", "app", "gateway", "agent"}
 ENVIRONMENTS = {"dev", "test", "prod"}
 
 

@@ -12,6 +12,8 @@ curl -s "${A[@]}" -X POST $S/api/v1/principals/asmith/deactivate
 
 Keys are stored as SHA-256 hashes. A lost key cannot be recovered; deactivate it and mint another.
 
+Two roles are for machines, not people: `gateway` (the AD CS gateway worker claims and completes its jobs) and `agent` (a host agent posts discovery reports). Neither can read the inventory, approvals or configuration, so a key left on a server exposes as little as possible.
+
 In production, put OIDC (Entra ID, Okta) in front of the console and API and map groups to roles; API keys then remain for apps only. That integration is on the roadmap.
 
 ## Dual control

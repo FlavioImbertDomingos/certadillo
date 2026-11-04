@@ -153,7 +153,29 @@ def evaluate(session, settings, policies: dict) -> list[Alert]:
                              f"{(now - as_utc(job.created_at)).seconds // 3600 + 1}h; check the gateway worker",
                              {"job": job.id, "type": job.job_type}, runbook=RUNBOOK + "adcsgatewayjobstuck"))
 
-    from certadillo.db import Installation, ProvisioningTarget
+    from certadillo.db import DiscoveryFinding, DiscoveryRun, Installation, ProvisioningTarget
+
+    for f in session.query(DiscoveryFinding).filter_by(status="open").all():
+        if f.kind == "key_readable":
+            out.append(Alert(_fp("finding", f.key), "PrivateKeyExposed", "critical",
+                             f"private key {f.location} is readable by every user on the host "
+                             f"(mode {f.detail.get('mode')})", {"location": f.location},
+                             runbook=RUNBOOK + "privatekeyexposed"))
+        elif f.kind == "unknown_public_cert":
+            names = ", ".join(f.detail.get("dns_names", [])[:3])
+            out.append(Alert(_fp("finding", f.key), "UnknownPublicCertificate", "warning",
+                             f"public certificate for {names} from {f.detail.get('issuer')} was not issued "
+                             f"through Certadillo (serial {f.detail.get('serial')})",
+                             {"serial": f.detail.get("serial"), "issuer": f.detail.get("issuer") or ""},
+                             runbook=RUNBOOK + "unknownpubliccertificate"))
+    latest: dict[str, DiscoveryRun] = {}
+    for r in session.query(DiscoveryRun).order_by(DiscoveryRun.id).all():
+        latest[r.source] = r
+    for name, r in latest.items():
+        if r.status == "failed":
+            out.append(Alert(_fp("discovery", name), "DiscoverySourceFailing", "warning",
+                             f"discovery source {name} failed: {(r.error or '')[:160]}", {"source": name},
+                             runbook=RUNBOOK + "discoverysourcefailing"))
 
     for inst in session.query(Installation).filter_by(status="failed").all():
         target = session.get(ProvisioningTarget, inst.target_id)

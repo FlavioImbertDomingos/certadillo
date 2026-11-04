@@ -120,6 +120,26 @@ last error says which step broke.
 
 Retries back off from 5 minutes to 24 hours. The alert turns critical after three failures in a row.
 
+## PrivateKeyExposed
+
+A host agent found a private key file every user on the host can read.
+
+1. Fix the permissions on the host (`chmod 600`, owned by the service account) and check who else has logged in to that host.
+2. If anyone outside the service team could have read it, treat the key as compromised: revoke with reason `key_compromise` and reissue with a new key.
+3. The next agent report closes the finding.
+
+## UnknownPublicCertificate
+
+Certificate Transparency shows a publicly trusted certificate for one of your zones that Certadillo did not issue and does not know.
+
+1. Look at the issuer and names in the alert. A team buying certificates outside the platform is the usual cause: onboard the app and move the name to Certadillo.
+2. If nobody in the bank requested it, treat it as a security incident: contact the issuing CA to have it revoked, and check the DNS and domain validation records for the name.
+3. Expected ones (an agency-run site) are acknowledged with a reason, which keeps the record and stops the alert.
+
+## DiscoverySourceFailing
+
+The last run of a configured discovery source failed. The error names the source and what broke: an expired token behind `token_ref`, missing permissions, or the service unreachable. `GET /api/v1/discovery/sources` shows the last run; `POST /api/v1/discovery/sources/{name}/run` retries.
+
 ## IntegritySealBroken
 
 A principal, approval or certificate row was changed outside Certadillo (in SQL, not through the application), or a certificate the audit trail records as revoked is back to "active". Treat it as a security incident: someone had write access to the database.

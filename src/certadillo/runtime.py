@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from certadillo import db
 from certadillo.config import Settings, get_settings
@@ -21,6 +21,7 @@ class Runtime:
     settings: Settings
     policies: dict
     keystore: object
+    discovery_sources: dict = field(default_factory=dict)
 
     @contextmanager
     def platform(self):
@@ -49,6 +50,9 @@ def init_runtime(settings: Settings | None = None) -> Runtime:
     from certadillo.ca.issuers import register_from_policies
 
     register_from_policies(rt.policies, settings)
+    from certadillo.discovery.sources import configured
+
+    rt.discovery_sources = configured(rt.policies, settings)
     register_inventory_collector(db.get_session)
     bootstrap(rt)
     _rt = rt

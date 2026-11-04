@@ -96,6 +96,11 @@ Authenticate with `X-API-Key: <key>` or `Authorization: Bearer <key>`. Errors ar
 | `GET` | `/scep/{app_name}` | as /scep, or a webhook-validated challenge | per-app SCEP URL |
 | `POST` | `/.well-known/cmp/p/{label}` | as /.well-known/cmp, for one app | CMP for a named app |
 | `POST` | `/.well-known/cmp` | CMP MAC (one-time secret) or signature | CMP (RFC 9483 lightweight profile) |
+| `POST` | `/api/v1/discovery/agent-report` | agent, admin, operator | a host agent's certificates and key file permissions |
+| `GET` | `/api/v1/discovery/sources` | admin, operator, auditor | configured discovery sources and their last run |
+| `POST` | `/api/v1/discovery/sources/{name}/run` | admin, operator | run one discovery source now (502 if it failed) |
+| `GET` | `/api/v1/discovery/findings` | admin, operator, auditor | open findings (`status`, `kind`): readable keys, unknown public certificates |
+| `POST` | `/api/v1/discovery/findings/{finding_id}/acknowledge` | admin, operator | acknowledge a finding with a reason |
 | `GET` | `/api/v1/folders` | admin, operator, approver, auditor | the policy tree with own and effective settings |
 | `POST` | `/api/v1/folders` | admin | create a policy folder (an approval request by default) |
 | `GET` | `/api/v1/folders/settings` | any | the folder settings and what each does |

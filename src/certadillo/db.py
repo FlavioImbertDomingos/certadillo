@@ -574,3 +574,35 @@ class ProvisioningRun(Base):
     actor: Mapped[str] = mapped_column(String(120))
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class DiscoveryRun(Base):
+    """One run of a configured discovery source (cloud stores, CT monitoring)."""
+
+    __tablename__ = "discovery_runs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source: Mapped[str] = mapped_column(String(120), index=True)
+    status: Mapped[str] = mapped_column(String(16))  # ok | failed
+    found: Mapped[int] = mapped_column(Integer, default=0)
+    new: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class DiscoveryFinding(Base):
+    """Something discovery found that is not a certificate property: a private
+    key other users can read, or a public certificate for one of our zones that
+    nobody requested through Certadillo. Open until it stops being seen or is
+    acknowledged."""
+
+    __tablename__ = "discovery_findings"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(32), index=True)  # key_readable | unknown_public_cert
+    key: Mapped[str] = mapped_column(String(255), unique=True)  # dedupe: kind + location / serial
+    location: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    detail: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(16), default="open")  # open | resolved | acknowledged
+    first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    acknowledged_by: Mapped[str | None] = mapped_column(String(120), nullable=True)

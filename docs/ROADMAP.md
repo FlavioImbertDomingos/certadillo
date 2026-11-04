@@ -66,7 +66,6 @@ Inventory connectors (`InventoryConnector`):
 | Keyfactor Command | `GET /KeyfactorAPI/Certificates` |
 | DigiCert CertCentral | `GET /services/v2/order/certificate` |
 | F5 BIG-IP | `GET /mgmt/tm/sys/crypto/cert` |
-| AWS ACM, Azure Key Vault, GCP Certificate Manager | list certificates per account/subscription |
 
 ## Phase 3.5: zero-trust access (identity from an external IdP) (done, September 2026)
 
@@ -153,10 +152,14 @@ names or interfaces is copied.
    per policy folder. See [Upstream issuers](guide/24-upstream-issuers.md).
    Next: Google CAS, Sectigo, Entrust, and DNS provider APIs (Route 53, Azure
    DNS, Cloudflare) for ACME.
-4. **Wider discovery.** A host agent that finds PEM, JKS and PKCS#12 files and
-   the Windows certificate store, cloud discovery (ACM, Azure Key Vault, GCP
-   Certificate Manager), and Certificate Transparency monitoring for public
-   certificates nobody requested through Certadillo.
+4. **Wider discovery (done, November 2026).** A host agent for PEM, DER,
+   PKCS#12, JKS and the Windows store that flags world-readable private keys;
+   AWS ACM, Azure Key Vault and GCP Certificate Manager on a schedule; and
+   Certificate Transparency monitoring that raises a finding for every public
+   certificate under the bank's zones that Certadillo did not issue. See
+   [Discovery and inventory](guide/12-discovery-inventory.md). Next: Venafi,
+   Keyfactor and DigiCert inventory imports, F5 and NetScaler inventory, and a
+   signed agent package with a systemd unit and a Windows service.
 
 ## Phase 4: workload identity
 

@@ -50,7 +50,8 @@ def init():
 
 @main.command()
 @click.argument("name")
-@click.option("--role", type=click.Choice(["admin", "approver", "operator", "auditor", "gateway"]), required=True)
+@click.option("--role", type=click.Choice(["admin", "approver", "operator", "auditor", "gateway", "agent"]),
+              required=True)
 def principal(name, role):
     """Create a human principal and print its API key once."""
     from certadillo.runtime import init_runtime
@@ -278,6 +279,43 @@ def provision_run(installation_id):
         click.echo(json.dumps({**installation_json(p.s.get(Installation, installation_id)),
                                "run": {"status": run.status, "steps": run.steps, "error": run.error}}))
         sys.exit(0 if run.status == "ok" else 1)
+
+
+@main.group()
+def agent():
+    """Host agent: find certificates and keystores on this machine."""
+
+
+@agent.command("scan")
+@click.option("--server", envvar="CERTADILLO_SERVER")
+@click.option("--api-key", envvar="CERTADILLO_API_KEY", help="an agent-role key; prefer the variable")
+@click.option("--api-key-file", envvar="CERTADILLO_API_KEY_FILE", type=click.Path(path_type=Path, exists=True, dir_okay=False))
+@click.option("--path", "paths", multiple=True, help="directories to scan (default: the usual TLS locations)")
+@click.option("--password-file", type=click.Path(path_type=Path, exists=True, dir_okay=False),
+              help="keystore passwords to try, one per line")
+@click.option("--dry-run", is_flag=True, help="print what would be reported and send nothing")
+def agent_scan(server, api_key, api_key_file, paths, password_file, dry_run):
+    """Scan, then report the public certificates and the permissions of private
+    key files. Private keys are never read into the report."""
+    import socket
+
+    from certadillo.discovery.agent import DEFAULT_PATHS, scan
+
+    passwords = [ln for ln in password_file.read_text().splitlines() if ln] if password_file else []
+    found = scan(list(paths) or [p for p in DEFAULT_PATHS if Path(p).exists()], passwords)
+    report = {"host": socket.getfqdn(), "certificates": found["certificates"], "key_files": found["key_files"]}
+    if dry_run:
+        click.echo(json.dumps({"host": report["host"], "certificates": [
+            {"path": c["path"], "format": c["format"]} for c in report["certificates"]],
+            "key_files": report["key_files"]}, indent=2))
+        return
+    if not server:
+        raise click.UsageError("set CERTADILLO_SERVER, or use --dry-run")
+    r = _client(server, _resolve_key(api_key, api_key_file)).post("/api/v1/discovery/agent-report", json=report)
+    if r.status_code != 200:
+        click.echo(r.text, err=True)
+        sys.exit(1)
+    click.echo(json.dumps(r.json()))
 
 
 @main.group()

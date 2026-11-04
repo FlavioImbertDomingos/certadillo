@@ -44,7 +44,7 @@ Every row below has automated tests. "Interop" means a third-party client was ru
 | Code signing, S/MIME | Profiles with the right EKUs; code signing always needs a second approver | `test_code_signing_dual_control`, `test_smime_profile` |
 | Revocation | CRL per CA (published on a timer and on every revoke), OCSP with a delegated responder cert | openssl ocsp interop + tests |
 | Push provisioning | Installs certificates on hosts over SSH (nginx, Apache, HAProxy), Kubernetes TLS secrets, F5 BIG-IP client-SSL profiles and AWS ACM; key generated in memory or on the host; checks the endpoint serves the new certificate before retiring the old one; renews and retries on its own | real sshd + nginx: `tests/test_provisioning.py`; F5 and Kubernetes against API fakes, ACM against moto |
-| Discovery | TLS scanner (host:port, CIDR:port), PEM import, Vault PKI and Kubernetes TLS secret connectors | `test_discovery_scan_*`, `test_inventory_connectors` |
+| Discovery | TLS scanner (host:port, CIDR:port), PEM import, Vault PKI and Kubernetes connectors; a host agent for PEM, DER, PKCS#12, JKS and the Windows store that flags world-readable keys without sending them; AWS ACM, Azure Key Vault and GCP Certificate Manager on a schedule; Certificate Transparency monitoring for public certificates nobody requested | `test_discovery_scan_*`, `test_inventory_connectors`, `tests/test_discovery_sources.py` (moto for ACM) |
 | Alerting | Lifetime-aware expiry thresholds, weak crypto, unowned certs, CA expiry, stale CRL, broken audit chain; routed per team; Slack, webhook, Jira, ServiceNow | `test_alert_lifecycle_and_routing`, `test_ticketing_notifiers` |
 | Observability | Prometheus metrics, JSON logs with request IDs, Prometheus rules, Alertmanager routing, Grafana dashboard | `promtool check rules`, compose stack |
 | Zero-trust access | OIDC/JWT bearer tokens from an external IdP (Entra ID, Vault, or any OIDC issuer) validated against the issuer's JWKS, mapped to roles by claim, fail-closed; API keys still work alongside | `tests/test_oidc_auth.py` |
@@ -62,7 +62,7 @@ Local, SQLite, software keys:
 
 ```bash
 pip install -e ".[dev,hsm]"
-make test                                      # 224 tests; the HSM test runs if SoftHSM2 is installed
+make test                                      # 232 tests; the HSM test runs if SoftHSM2 is installed
 make run                                       # http://localhost:8080, prints a random admin key
 make demo                                      # seed teams, apps, certificates and some bad legacy certs
 ```

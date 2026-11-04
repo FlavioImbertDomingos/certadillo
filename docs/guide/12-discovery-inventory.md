@@ -52,7 +52,91 @@ In code (`discovery/connectors.py`), each yielding `(certificate, location)`:
 | `VaultPKIInventory` | every certificate in a Vault or OpenBao PKI mount |
 | `KubernetesTLSSecrets` | every `kubernetes.io/tls` Secret the service account can list |
 
-Venafi, DigiCert, Keyfactor, AD CS, F5, ACM and Key Vault connectors are designed in the [roadmap](../ROADMAP.md) with the API each would call.
+The AD CS CA database is read through the AD CS gateway (see [Windows and AD CS](20-windows-adcs.md)). Venafi, DigiCert, Keyfactor and F5 inventory connectors are designed in the [roadmap](../ROADMAP.md).
+
+## The host agent
+
+Network scans see what a server serves. The agent sees what is on its disks:
+PEM and DER certificates, PKCS#12 files (with the passwords it is given, and an
+empty one), Java keystores through `keytool` (the password goes through the
+environment, not the command line), and on Windows the personal and web hosting
+certificate stores. It reports the public certificates, plus the path, owner
+and permission bits of every private key file it finds. Key material is never
+read into the report.
+
+```bash
+# once, on the server: a key that can only post agent reports
+certadillo principal agent-web1 --role agent > /etc/certadillo/agent.key
+
+# on each host, from cron or a systemd timer
+CERTADILLO_SERVER=https://pki.bank.internal \
+  certadillo agent scan --api-key-file /etc/certadillo/agent.key --password-file /etc/certadillo/keystore-passwords
+certadillo agent scan --dry-run --path /etc/nginx       # see what it would report
+```
+
+Without `--path` it scans the usual places (`/etc/ssl`, `/etc/pki`, `/etc/nginx`,
+`/etc/httpd`, `/etc/haproxy`, `/etc/letsencrypt/live`, `/opt`, `/srv`) and skips
+the system trust stores. Certificates land in the inventory with
+`source: agent` and the location `host:/path`. A private key that every user on
+the host can read opens a `PrivateKeyExposed` finding and a critical alert; the
+next report after the permissions are fixed closes it.
+
+An agent key can post reports and read nothing else: not the inventory, not
+approvals, not configuration.
+
+## Cloud certificate stores
+
+Configured in the policy file, run on their own schedule by the server, and
+run on demand with `POST /api/v1/discovery/sources/{name}/run`:
+
+```yaml
+discovery:
+  sources:
+    acm:
+      type: aws-acm
+      regions: [us-east-1, us-west-2]          # standard AWS credential chain
+      interval_hours: 24
+    kv-payments:
+      type: azure-keyvault
+      vault_url: https://kv-payments.vault.azure.net
+      token_ref: file:/run/secrets/azure-kv-token   # Entra ID token for https://vault.azure.net
+    gcp-edge:
+      type: gcp-certmanager
+      project: bank-edge
+      location: global
+      token_ref: vault:secret/data/certadillo/gcp#token
+```
+
+Every certificate found goes into the inventory with `source: cloud` and its
+ARN, Key Vault id or resource name as the location, and is de-duplicated by
+fingerprint. `GET /api/v1/discovery/sources` shows the last run of each; a
+failing source raises `DiscoverySourceFailing`.
+
+## Certificate Transparency monitoring
+
+Every publicly trusted TLS certificate is logged in CT. Certadillo watches the
+logs for your zones through SSLMate's Cert Spotter API and opens an
+`UnknownPublicCertificate` finding for each unexpired certificate it did not
+issue and does not already have in its inventory: shadow IT at best, a
+certificate for your name in someone else's hands at worst.
+
+```yaml
+discovery:
+  sources:
+    ct:
+      type: ct
+      provider: certspotter
+      zones: [bank.example, bank-online.example]
+      token_ref: env:CERTSPOTTER_TOKEN
+      interval_hours: 6
+```
+
+Matching is by serial number, because a CT entry can be the precertificate
+rather than the final certificate. Final certificates are added to the
+inventory (`source: ct`) so their expiry is tracked too; precertificates are
+recorded only as findings. A finding that is expected (a marketing site run by
+an agency) is acknowledged with a reason:
+`POST /api/v1/discovery/findings/{id}/acknowledge` with `{"comment": "..."}`.
 
 ## Give found certificates an owner
 
