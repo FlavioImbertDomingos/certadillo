@@ -20,3 +20,11 @@ updates:
     directory: /deploy
     schedule:
       interval: weekly
+  # the hash-pinned lock the image installs from (pip-compile --generate-hashes)
+  - package-ecosystem: pip
+    directory: /requirements
+    schedule:
+      interval: weekly
+    groups:
+      image-dependencies:
+        patterns: ["*"]

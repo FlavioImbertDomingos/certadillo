@@ -54,6 +54,39 @@
 | Push provisioning credentials (SSH keys, F5 passwords, cluster tokens) leaking from Certadillo | Targets hold references (`env:`, `file:`, `vault:`), never values, and a config with secret-looking keys is refused. SSH host keys are pinned, paths are limited to the target's allowed directories, and the reload command is set by an admin. A target serves only its own team's apps. Targets and installations carry integrity seals, so a database write that repoints a target or adds a reload command stops the run before it connects. Centrally generated keys live only in the run's memory; a certificate whose push failed is revoked. |
 | Code running in the container (a dependency or parser bug) persisting or escalating | The image runs as uid 10001. The shipped compose files add a read-only root filesystem (state only in the data volume, `/tmp` a small tmpfs), drop every Linux capability, set `no-new-privileges` and cap the process count. Dependabot watches the Python, Docker and Actions dependencies. |
 
+## Supply chain
+
+| Control | Where |
+| --- | --- |
+| Base image pinned by digest | `Dockerfile`; Dependabot (docker) moves the pin |
+| Every Python dependency pinned with its SHA-256 hashes | `requirements/image.txt`, installed with `pip install --require-hashes`; the application wheel goes in with `--no-deps` and `pip check` confirms nothing is missing |
+| Known-vulnerability check on the locked dependencies | `pip-audit` in CI and before every release |
+| Image vulnerability scan and SBOM | Trivy (critical and high) and a CycloneDX SBOM in CI |
+| Signed release images | `.github/workflows/release.yml`: on a version tag the image is pushed to GHCR, signed with Sigstore keyless signing (bound to the workflow's GitHub identity, logged in Rekor), and the SBOM attached as a signed attestation |
+| Actions pinned to commit SHAs | every workflow; Dependabot keeps the pins current |
+| Fuzzing of the parsers that take bytes from unauthenticated clients | `tests/test_fuzz_parsers.py` (Hypothesis): SCEP, CMP, EST, OCSP, ACME JWS, CSR and PEM input, and the AD CS security descriptor parser. Every corrupted message must get a protocol error, never a server error. The first run found three crashes (an unreadable CSR key, an unknown OCSP hash algorithm, a truncated security descriptor), all fixed |
+
+Regenerate the lock after changing dependencies in `pyproject.toml`:
+
+```bash
+pip install pip-tools
+pip-compile --generate-hashes --allow-unsafe --strip-extras \
+  --extra postgres --extra hsm --extra provisioning --output-file requirements/image.txt pyproject.toml
+pip-audit --require-hashes --disable-pip -r requirements/image.txt
+```
+
+Verify a release image before deploying it:
+
+```bash
+cosign verify ghcr.io/flavioimbertdomingos/certadillo:v0.2.0 \
+  --certificate-identity-regexp '^https://github.com/FlavioImbertDomingos/certadillo/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+cosign verify-attestation --type cyclonedx ghcr.io/flavioimbertdomingos/certadillo:v0.2.0 \
+  --certificate-identity-regexp '...same as above...' --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+A longer fuzzing run: `CERTADILLO_FUZZ_EXAMPLES=5000 pytest tests/test_fuzz_parsers.py`.
+
 ## Known gaps in this MVP
 
 These are listed so nobody deploys the MVP to production thinking they are handled.

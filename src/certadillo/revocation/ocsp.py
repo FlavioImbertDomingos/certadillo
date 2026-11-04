@@ -27,6 +27,9 @@ def _hash(alg: hashes.HashAlgorithm, data: bytes) -> bytes:
 def respond(session, ca_service, der_request: bytes) -> bytes:
     try:
         req = ocsp.load_der_ocsp_request(der_request)
+        # touch the lazily parsed fields now: an unknown hash algorithm or a
+        # broken serial is a malformed request, not a server error (fuzzing)
+        req.hash_algorithm, req.serial_number, req.issuer_key_hash  # noqa: B018
     except Exception:
         OCSP_REQUESTS.labels(status="malformed").inc()
         return ocsp.OCSPResponseBuilder.build_unsuccessful(ocsp.OCSPResponseStatus.MALFORMED_REQUEST).public_bytes(

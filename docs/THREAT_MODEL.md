@@ -196,10 +196,10 @@ What does reduce risk, in order:
    material. If any piece is worth writing in Go or Rust, it is this one: a few
    hundred lines, no parsing of client input, easy to review in full.
 3. Supply chain: hash-pinned dependencies for the image build, `pip-audit` and
-   an SBOM in CI, signed images, Dependabot (already on for Python, Docker and
-   Actions).
+   an SBOM in CI, signed images, Dependabot (done).
 4. Fuzz the parsers Certadillo owns: the CMP, SCEP and EST message handling
-   and the AD CS security descriptor parser.
+   and the AD CS security descriptor parser (done; the first run found three
+   crashes, all of them bad input reaching an unhandled exception).
 5. Keep the evidence out of reach: audit shipping to the SIEM and an Object
    Lock bucket, integrity seals, alerts on tampering (done).
 6. Run it hardened: non-root, read-only filesystem, no capabilities (done),
@@ -243,6 +243,7 @@ integrity.
 | P1 | LDAP to the directory over validated TLS only | Done |
 | P1 | No built-in key passphrase; ceremony policy allowlists key parameters | Done |
 | P2 | Container hardening (non-root, read-only filesystem, dropped capabilities) | Done: both compose files; `no-new-privileges` and a pids limit too |
+| P1 | Supply chain: image pinned by digest, hash-pinned dependencies, pip-audit, signed release images with an SBOM attestation, parser fuzzing | Done; see [SECURITY.md](SECURITY.md#supply-chain) |
 | P2 | Per-principal rate limits, egress restrictions | To do |
 
 ## For the public demo

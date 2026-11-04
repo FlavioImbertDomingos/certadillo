@@ -12,7 +12,7 @@ from cryptography.x509.oid import AuthorityInformationAccessOID, ExtendedKeyUsag
 from certadillo.crypto.signers import SoftwareKeyStore, sign_x509
 from certadillo.observability.metrics import CRL_GENERATED
 from certadillo.db import Certificate, CertificateAuthority, as_utc
-from certadillo.policy.engine import EKU, Decision, describe_key
+from certadillo.policy.engine import EKU, Decision, describe_cert_key, describe_key
 
 REASONS = {
     "unspecified": x509.ReasonFlags.unspecified,
@@ -35,7 +35,7 @@ def fingerprint(cert: x509.Certificate) -> str:
 
 
 def cert_row_fields(cert: x509.Certificate) -> dict:
-    ktype, bits, _ = describe_key(cert.public_key())
+    ktype, bits, _ = describe_cert_key(cert)
     try:
         san = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
         sans = [str(n.value) for n in san]

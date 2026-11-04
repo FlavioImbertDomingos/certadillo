@@ -1,11 +1,12 @@
 # syntax=docker/dockerfile:1
-FROM python:3.12-slim AS build
+# Base image pinned by digest; Dependabot (docker) moves the pin.
+FROM python:3.12-slim@sha256:b18b261e1b4974b4f321451ad5251ded85abb22c2b8b262da527dda1d031ab30 AS build
 WORKDIR /src
 COPY pyproject.toml README.md ./
 COPY src ./src
 RUN pip install --no-cache-dir build && python -m build --wheel --outdir /dist
 
-FROM python:3.12-slim
+FROM python:3.12-slim@sha256:b18b261e1b4974b4f321451ad5251ded85abb22c2b8b262da527dda1d031ab30
 # softhsm2 gives a PKCS#11 token for labs and CI; production mounts the
 # vendor PKCS#11 library (Luna, nShield, CloudHSM) instead.
 RUN apt-get update \
@@ -13,8 +14,14 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --system --uid 10001 --home /var/lib/certadillo certadillo \
  && mkdir -p /var/lib/certadillo && chown certadillo /var/lib/certadillo
+# Dependencies come only from the hash-pinned lock (requirements/image.txt,
+# regenerated with pip-compile --generate-hashes); pip refuses anything whose
+# hash does not match. The application wheel itself is installed without
+# resolving dependencies, so nothing unpinned can slip in.
+COPY requirements/image.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir --require-hashes -r /tmp/requirements.txt && rm /tmp/requirements.txt
 COPY --from=build /dist/*.whl /tmp/
-RUN pip install --no-cache-dir "$(ls /tmp/*.whl)[postgres,hsm,provisioning]" && rm /tmp/*.whl
+RUN pip install --no-cache-dir --no-deps /tmp/*.whl && rm /tmp/*.whl && pip check
 USER 10001
 ENV CERTADILLO_DATA_DIR=/var/lib/certadillo \
     PYTHONUNBUFFERED=1

@@ -10,6 +10,7 @@ from pathlib import Path
 
 import yaml
 from cryptography import x509
+from cryptography.exceptions import UnsupportedAlgorithm
 from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
 from cryptography.x509.oid import ExtendedKeyUsageOID
 
@@ -144,6 +145,16 @@ def load_policies(path: str | None = None) -> dict:
     if path:
         return yaml.safe_load(Path(path).read_text())
     return yaml.safe_load(resources.files("certadillo").joinpath("default_policies.yaml").read_text())
+
+
+def describe_cert_key(cert) -> tuple[str, int, str]:
+    """describe_key for a certificate found in the wild: a key algorithm this
+    library cannot parse (GOST, SM2, a draft post-quantum key) is inventoried as
+    "unknown" instead of failing the whole import or scan (found by fuzzing)."""
+    try:
+        return describe_key(cert.public_key())
+    except (UnsupportedAlgorithm, ValueError):
+        return "unknown", 0, ""
 
 
 def describe_key(pub) -> tuple[str, int, str]:
@@ -283,10 +294,20 @@ class PolicyEngine:
         prof = self.profile(profile_name)
         v: list[tuple[str, str]] = []
 
-        if not pop_verified and not csr.is_signature_valid:
+        # A CSR whose key cannot be parsed (an unknown curve, a corrupted point,
+        # an algorithm OID with the wrong parameters) is a client error, not a
+        # crash: found by fuzzing the enrollment endpoints.
+        try:
+            pub = csr.public_key()
+        except (UnsupportedAlgorithm, ValueError, TypeError) as exc:
+            raise PolicyError([("csr_key", f"the CSR's public key cannot be read: {exc}"[:200])]) from None
+        try:
+            pop_ok = pop_verified or csr.is_signature_valid
+        except (UnsupportedAlgorithm, ValueError, TypeError):
+            pop_ok = False
+        if not pop_ok:
             v.append(("csr_signature", "CSR signature does not verify (proof of possession failed)"))
 
-        pub = csr.public_key()
         ktype, bits, curve = describe_key(pub)
         allowed = prof.get("allowed_keys", {})
         if ktype == "rsa" and bits < allowed.get("rsa_min_bits", 2048):
@@ -427,7 +448,9 @@ class PolicyEngine:
 def grade_certificate(cert: x509.Certificate, policies: dict, is_public: bool = False) -> list[tuple[str, str]]:
     """Findings for discovered or imported certificates (not issued by us)."""
     findings = []
-    ktype, bits, curve = describe_key(cert.public_key())
+    ktype, bits, curve = describe_cert_key(cert)
+    if ktype == "unknown":
+        findings.append(("unknown_key", "public key algorithm not recognized"))
     if ktype == "rsa" and bits < 2048:
         findings.append(("weak_key", f"RSA {bits}"))
     sig_oid = cert.signature_algorithm_oid.dotted_string

@@ -145,9 +145,12 @@ removed.
   its own credential (or keep it entirely in the HSM or Vault), so the
   web-facing process can ask for signatures under policy but never holds key
   material.
-- [ ] **Supply chain.** Hash-pinned lock file for the image build, `pip-audit`
-  and an SBOM in CI, signed images (cosign), and fuzzing of the DER, CMS and
-  CMP parsers.
+- [x] **Supply chain** (November 2026). Base image pinned by digest,
+  dependencies installed only from a hash-pinned lock, `pip-audit` in CI,
+  release images signed with Sigstore keyless signing with the SBOM as a
+  signed attestation, and Hypothesis fuzzing of the SCEP, CMP, EST, OCSP, ACME
+  and CSR parsers (which found and fixed three crashes). See
+  [supply chain](SECURITY.md#supply-chain).
 
 ## Phase 7: enterprise CLM features
 

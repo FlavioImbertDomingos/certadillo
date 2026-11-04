@@ -33,6 +33,8 @@ def _sid_to_string(data: bytes, offset: int) -> tuple[str, int]:
     """Decode a SID starting at offset; return (string, bytes_consumed)."""
     revision = data[offset]
     sub_count = data[offset + 1]
+    if offset + 8 + 4 * sub_count > len(data):
+        raise IndexError("SID runs past the end of the descriptor")
     authority = int.from_bytes(data[offset + 2 : offset + 8], "big")
     parts = [f"S-{revision}-{authority}"]
     pos = offset + 8
@@ -61,6 +63,16 @@ class SecurityDescriptor:
 
     @classmethod
     def parse(cls, data: bytes) -> "SecurityDescriptor":
+        """Parse a self-relative descriptor. Anything malformed (offsets or
+        counts pointing past the end, short ACEs) raises ValueError; found by
+        fuzzing, where it used to escape as IndexError or struct.error."""
+        try:
+            return cls._parse(data)
+        except (IndexError, struct.error) as exc:
+            raise ValueError(f"malformed security descriptor: {exc}") from None
+
+    @classmethod
+    def _parse(cls, data: bytes) -> "SecurityDescriptor":
         if len(data) < 20:
             raise ValueError("security descriptor too short")
         (revision, _sbz1, _control, off_owner, off_group, _off_sacl, off_dacl) = struct.unpack_from(
@@ -92,6 +104,8 @@ class SecurityDescriptor:
                 p = body + 8
                 object_type = None
                 if obj_flags & ACE_OBJECT_TYPE_PRESENT:
+                    if p + 16 > len(data):
+                        raise IndexError("object ACE GUID runs past the end of the descriptor")
                     object_type = str(uuid.UUID(bytes_le=data[p : p + 16]))
                     p += 16
                 if obj_flags & ACE_INHERITED_OBJECT_TYPE_PRESENT:
