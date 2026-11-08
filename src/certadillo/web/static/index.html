@@ -55,7 +55,7 @@
       </div>
       <div id="ob-2" class="hide">
         <div class="row">
-          <div><label>App name (lowercase, dashes)</label><input id="a-name" placeholder="card-auth-api"></div>
+          <div><label>App name (lowercase, dashes)</label><input id="a-name" placeholder="card-auth-api" pattern="[a-z0-9][a-z0-9-]+" autocapitalize="none" spellcheck="false"></div>
           <div><label>Environment</label><select id="a-env"><option>dev</option><option>test</option><option>prod</option></select></div>
           <div><label>Profile</label><select id="a-profile"></select></div>
           <div><label>Data classification</label><select id="a-class"><option>internal</option><option>confidential</option><option>pci</option></select></div>

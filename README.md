@@ -68,7 +68,7 @@ Local, SQLite, software keys:
 
 ```bash
 pip install -e ".[dev,hsm]"
-make test                                      # 269 tests; the HSM test runs if SoftHSM2 is installed
+make test                                      # 270 tests; the HSM test runs if SoftHSM2 is installed
 make run                                       # http://localhost:8080, prints a random admin key
 make demo                                      # seed teams, apps, certificates and some bad legacy certs
 ```

@@ -31,13 +31,26 @@ let KEY = "";
 try { KEY = sessionStorage.getItem("cdl_key") || ""; } catch (e) { /* storage may be blocked */ }
 $("#apikey").value = KEY;
 
+// FastAPI field errors arrive as a list of {loc, msg}; policy refusals as violations; the rest as message/detail
+const FIELD_HINTS = {name: "lowercase letters, digits and dashes, starting with a letter or digit (e.g. card-auth-api)"};
+function errorText(body, text) {
+  if (body && body.violations) return body.violations.map(v => `${v.rule}: ${v.message}`).join("\n");
+  if (body && Array.isArray(body.detail)) {
+    return body.detail.map(d => {
+      const field = (d.loc || []).filter(x => x !== "body").join(".");
+      const hint = d.type === "string_pattern_mismatch" && FIELD_HINTS[field] ? FIELD_HINTS[field] : d.msg;
+      return field ? `${field}: ${hint}` : hint;
+    }).join("\n");
+  }
+  if (body && typeof body === "object") return body.message || (typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail || body));
+  return text;
+}
 async function api(path, opts = {}) {
   const r = await fetch(path, {...opts, headers: {"X-API-Key": KEY, "Content-Type": "application/json", ...(opts.headers || {})}});
   const text = await r.text();
   let body; try { body = JSON.parse(text); } catch { body = text; }
   if (!r.ok) {
-    const msg = body && body.violations ? body.violations.map(v => `${v.rule}: ${v.message}`).join("\n") : (body.message || body.detail || text);
-    throw new Error(msg);
+    throw new Error(errorText(body, text));
   }
   return body;
 }
@@ -137,7 +150,9 @@ $("#ob-next1").onclick = () => { OB.team = +$("#ob-team").value; if (OB.team) st
 $("#ob-back2").onclick = () => step(1);
 $("#ob-next2").onclick = async () => {
   try {
-    const app = await api("/api/v1/apps", {method: "POST", body: JSON.stringify({team_id: OB.team, name: $("#a-name").value.trim(), environment: $("#a-env").value, profile: $("#a-profile").value, data_classification: $("#a-class").value, allowed_domains: $("#a-domains").value.split(/\s+/).filter(Boolean)})});
+    // app names are lowercase with dashes; fix the easy cases ("Card Auth API") instead of refusing them
+    $("#a-name").value = $("#a-name").value.trim().toLowerCase().replace(/[\s_]+/g, "-");
+    const app = await api("/api/v1/apps", {method: "POST", body: JSON.stringify({team_id: OB.team, name: $("#a-name").value, environment: $("#a-env").value, profile: $("#a-profile").value, data_classification: $("#a-class").value, allowed_domains: $("#a-domains").value.split(/\s+/).filter(Boolean)})});
     OB.app = app; if (app.status === "active") step(4); else { step(3); obStatus(); }
   } catch (e) { $("#ob-err").textContent = e.message; }
 };

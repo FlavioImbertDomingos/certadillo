@@ -16,6 +16,8 @@ from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 from fastapi import Depends, FastAPI, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, Field
@@ -408,6 +410,9 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
             response.headers["X-Request-ID"] = rid
             https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
             security_headers.apply(request.url.path, response.headers, https)
+            if request.url.path == "/" or request.url.path.startswith(("/static/", "/kb/")):
+                # revalidate on every load (cheap with the ETag) so a deploy reaches open browsers
+                response.headers.setdefault("Cache-Control", "no-cache")
             return response
         finally:
             route = request.scope.get("route")
@@ -417,6 +422,19 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
                 log.info("request", extra={"method": request.method, "path": path, "status": status,
                                            "ms": round((time.perf_counter() - start) * 1000, 1)})
             request_id.reset(token)
+
+    @app.exception_handler(RequestValidationError)
+    async def _invalid(_r, e: RequestValidationError):
+        """Keep FastAPI's `detail` list for API clients, and add one readable
+        `message` for people (the console shows it as is)."""
+        def say(err):
+            field = ".".join(str(x) for x in err.get("loc", []) if x != "body") or "request"
+            if err.get("type") == "string_pattern_mismatch" and field.endswith("name"):
+                return f"{field}: use lowercase letters, digits and dashes, starting with a letter or digit (for example card-auth-api)"
+            return f"{field}: {err.get('msg', 'invalid')}"
+        errors = jsonable_encoder(e.errors())
+        return JSONResponse({"error": "invalid_request", "message": "; ".join(say(x) for x in errors),
+                             "detail": errors}, 422)
 
     @app.exception_handler(PolicyError)
     async def _policy(_r, e: PolicyError):

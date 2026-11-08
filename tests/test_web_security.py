@@ -57,3 +57,18 @@ def test_markup_sinks_only_in_audited_helpers():
     console = STATIC.joinpath("console.js").read_text()
     assert "el.innerHTML = policy ? policy.createHTML(safe.s) : safe.s;" in console
     assert "if (!(safe instanceof SafeHtml)) throw" in console
+
+
+def test_validation_errors_are_readable_and_static_files_revalidate(client):
+    from conftest import ADMIN
+
+    t = client.post("/api/v1/teams", json={"name": "retail", "contact_email": "t@example.com"}, headers=ADMIN).json()
+    r = client.post("/api/v1/apps", headers=ADMIN, json={"team_id": t["id"], "name": "Walmart", "environment": "prod",
+                                                        "profile": "tls-server", "allowed_domains": ["shop.example"]})
+    assert r.status_code == 422
+    body = r.json()
+    assert body["message"].startswith("name: use lowercase letters, digits and dashes")
+    assert body["detail"][0]["loc"] == ["body", "name"]  # FastAPI's list is still there for API clients
+    # a deploy must reach browsers that already have the console open
+    assert client.get("/static/console.js").headers["cache-control"] == "no-cache"
+    assert client.get("/").headers["cache-control"] == "no-cache"
