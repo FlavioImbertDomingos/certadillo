@@ -444,39 +444,130 @@ _engine = None
 SessionLocal: sessionmaker | None = None
 
 
-def init_db(url: str):
+def init_db(url: str, auto_migrate: bool = True):
+    """Connect, and bring the schema to the newest migration (or, with
+    auto_migrate=False, refuse to start on an out-of-date schema so a
+    deployment can run `certadillo db migrate` as its own step)."""
     global _engine, SessionLocal
     kwargs: dict[str, Any] = {}
     if url.startswith("sqlite"):
         kwargs["connect_args"] = {"check_same_thread": False}
     _engine = create_engine(url, future=True, **kwargs)
-    Base.metadata.create_all(_engine)
-    add_missing_columns(_engine)
+    if auto_migrate:
+        migrate(_engine)
+    else:
+        st = schema_status(_engine)
+        if not st["up_to_date"]:
+            raise RuntimeError(f"database schema is at {st['current'] or 'nothing'}, this version needs "
+                               f"{st['head']}; run `certadillo db migrate` first")
     install_audit_guards(_engine)
     SessionLocal = sessionmaker(bind=_engine, expire_on_commit=False, future=True)
     return _engine
 
 
-def add_missing_columns(engine) -> list[str]:
-    """create_all() makes new tables but never alters existing ones. Columns
-    added to a model after a database was created are added here, so an
-    upgrade does not need a manual migration. Only nullable columns are
-    added this way; anything else needs a real migration."""
+# ------------------------------------------------------------------ migrations (Alembic)
+BASELINE = "0001"
+_MIGRATE_LOCK = 7243902  # PostgreSQL advisory lock: one replica migrates, the others wait
+
+
+def _alembic_config():
+    from importlib import resources
+
+    from alembic.config import Config
+
+    cfg = Config()
+    cfg.set_main_option("script_location", str(resources.files("certadillo").joinpath("migrations")))
+    return cfg
+
+
+def schema_status(engine) -> dict:
+    from alembic.runtime.migration import MigrationContext
+    from alembic.script import ScriptDirectory
+
+    head = ScriptDirectory.from_config(_alembic_config()).get_current_head()
+    with engine.connect() as conn:
+        current = MigrationContext.configure(conn).get_current_revision()
+    return {"current": current, "head": head, "up_to_date": current == head}
+
+
+def migrate(engine) -> dict:
+    """Bring the schema to the newest revision.
+
+    - An empty database gets every table from the model and is stamped at head
+      (the migrations and the model are checked against each other in CI).
+    - A database made before migrations existed has its missing nullable
+      columns added (what start-up used to do), is stamped at the baseline,
+      and is then upgraded.
+    - Anything else is upgraded from the revision it is at.
+    """
+    from alembic import command
+    from alembic.runtime.migration import MigrationContext
     from sqlalchemy import inspect, text
 
-    insp = inspect(engine)
-    added = []
+    cfg = _alembic_config()
     with engine.begin() as conn:
-        for table in Base.metadata.sorted_tables:
-            if not insp.has_table(table.name):
+        pg = conn.dialect.name == "postgresql"
+        if pg:
+            conn.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": _MIGRATE_LOCK})
+        cfg.attributes["connection"] = conn
+        before = MigrationContext.configure(conn).get_current_revision()
+        ours = {t.name for t in Base.metadata.sorted_tables}
+        existing = set(inspect(conn).get_table_names()) & ours
+        if before is None and not existing:
+            Base.metadata.create_all(conn)
+            command.stamp(cfg, "head")
+            action = "created"
+        elif before is None:
+            # tables and nullable columns of the baseline that an older version never created
+            baseline = _baseline_metadata()
+            baseline.create_all(conn, tables=[t for t in baseline.sorted_tables if t.name not in existing])
+            added = add_missing_columns(conn)
+            command.stamp(cfg, BASELINE)
+            command.upgrade(cfg, "head")
+            action = f"adopted ({len(added)} column(s) added)"
+        else:
+            command.upgrade(cfg, "head")
+            action = "upgraded"
+        after = MigrationContext.configure(conn).get_current_revision()
+    return {"action": action, "from": before, "to": after}
+
+
+def _baseline_metadata():
+    """The model as it stood at the baseline migration: current tables cut
+    down to the frozen column lists in migrations/baseline_schema.py."""
+    from sqlalchemy import MetaData
+
+    from certadillo.migrations.baseline_schema import BASELINE_COLUMNS
+
+    md = MetaData()
+    for table in Base.metadata.sorted_tables:
+        keep = BASELINE_COLUMNS.get(table.name)
+        if keep is None:
+            continue
+        copy = table.to_metadata(md)
+        for col in list(copy.columns):
+            if col.name not in keep:
+                copy._columns.remove(col)
+    return md
+
+
+def add_missing_columns(conn) -> list[str]:
+    """Nullable baseline columns missing from a database made before migrations
+    existed (what start-up used to do). Everything since goes through a migration."""
+    from sqlalchemy import inspect, text
+
+    insp = inspect(conn)
+    added = []
+    for table in _baseline_metadata().sorted_tables:
+        if not insp.has_table(table.name):
+            continue
+        have = {c["name"] for c in insp.get_columns(table.name)}
+        for col in table.columns:
+            if col.name in have or not col.nullable:
                 continue
-            have = {c["name"] for c in insp.get_columns(table.name)}
-            for col in table.columns:
-                if col.name in have or not col.nullable:
-                    continue
-                ddl = col.type.compile(dialect=engine.dialect)
-                conn.execute(text(f'ALTER TABLE {table.name} ADD COLUMN {col.name} {ddl}'))
-                added.append(f"{table.name}.{col.name}")
+            ddl = col.type.compile(dialect=conn.dialect)
+            conn.execute(text(f'ALTER TABLE {table.name} ADD COLUMN {col.name} {ddl}'))
+            added.append(f"{table.name}.{col.name}")
     return added
 
 

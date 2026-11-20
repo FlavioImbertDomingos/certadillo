@@ -25,6 +25,7 @@ dependencies = [
   "pyasn1>=0.6",
   "pyasn1-modules>=0.4",
   "pyjwt[crypto]>=2.8",
+  "alembic>=1.13",
 ]
 
 [project.optional-dependencies]
@@ -41,7 +42,7 @@ certadillo = "certadillo.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-certadillo = ["web/static/*", "web/static/kb/*", "web/static/kb/img/*", "web/static/kb/vendor/*", "default_policies.yaml"]
+certadillo = ["web/static/*", "web/static/kb/*", "web/static/kb/img/*", "web/static/kb/vendor/*", "default_policies.yaml", "migrations/script.py.mako"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

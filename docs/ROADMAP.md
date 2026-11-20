@@ -15,8 +15,8 @@ interface it plugs into so contributors can pick one up.
 | [Phase 7: enterprise CLM features](#phase-7-enterprise-clm-features) | Core features, console, code signing and SSH key discovery done; IIS/NetScaler/Key Vault push, native signing clients, SSH key rotation and follow-ups open | 7 of 14 |
 | [Phase 4: workload identity](#phase-4-workload-identity) | Not started | 0 of 3 |
 | [Phase 5: post-quantum](#phase-5-post-quantum) | ML-DSA issuance and the agility drill done; composite certificates and hybrid key exchange tracking open | 2 of 4 |
-| [Phase 6: production hardening](#phase-6-production-hardening) | Not started | 0 of 8 |
-| Total | | 34 of 65 |
+| [Phase 6: production hardening](#phase-6-production-hardening) | Alembic migrations done; the rest open | 1 of 8 |
+| Total | | 35 of 65 |
 
 Below, every item is marked done (shipped and tested) or open (not built
 yet). GitHub shows them as ticked and empty checkboxes, the knowledge base as
@@ -254,7 +254,12 @@ Shipped November 2026, on pyca/cryptography 50. See [Post-quantum](guide/27-post
 - [ ] Per-principal rate limits and egress restrictions.
 - [ ] OpenTelemetry traces across enrollment, policy and signing.
 - [ ] Helm chart and a Terraform module (EKS or ECS, RDS PostgreSQL, CloudHSM).
-- [ ] Alembic migrations.
+- [x] **Alembic migrations** (November 2026). A baseline revision for the
+  current schema, `certadillo db migrate` and `db status`, upgrade at start-up
+  under a PostgreSQL advisory lock (or `CERTADILLO_DB_AUTO_MIGRATE=false` to
+  migrate as a separate step), adoption of databases made before migrations
+  existed, and a CI check that the migrations build exactly the model on
+  SQLite and PostgreSQL. See [schema upgrades](guide/15-administration.md#schema-upgrades).
 - [ ] Oracle Database support, for banks that standardize on it. A compile of
   the schema against SQLAlchemy's Oracle dialect shows the work: a portable
   JSON column type, `TIMESTAMP WITH TIME ZONE` instead of the `DATE` that

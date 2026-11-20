@@ -42,7 +42,7 @@ _rt: Runtime | None = None
 def init_runtime(settings: Settings | None = None) -> Runtime:
     global _rt
     settings = settings or get_settings()
-    db.init_db(settings.db_url)
+    db.init_db(settings.db_url, settings.db_auto_migrate)
     from certadillo import integrity
 
     integrity.configure(settings)

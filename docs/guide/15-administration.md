@@ -95,6 +95,7 @@ All settings are environment variables.
 | --- | --- | --- |
 | `CERTADILLO_DATA_DIR` | `./.certadillo` | SQLite file, software keys |
 | `CERTADILLO_DB_URL` | SQLite in the data dir | e.g. `postgresql+psycopg://user:pass@host/certadillo` |
+| `CERTADILLO_DB_AUTO_MIGRATE` | `true` | upgrade the schema at start-up; `false` refuses to start on an out-of-date schema, for deployments that run `certadillo db migrate` as their own step |
 | `CERTADILLO_BASE_URL` | `http://localhost:8080` | written into AIA and CDP URLs; set to the public HTTPS name |
 | `CERTADILLO_ORG_NAME` | `Example Bank` | O= in CA and leaf subjects |
 | `CERTADILLO_POLICY_FILE` | built-in | profile file |
@@ -153,6 +154,28 @@ All settings are environment variables.
 | `CERTADILLO_SNOW_URL` / `_USER` / `_PASSWORD` / `_ASSIGNMENT_GROUP` | group `PKI Operations` | ServiceNow incidents |
 | `CERTADILLO_RUNBOOK_URL` | GitHub runbook | base URL for alert runbook links |
 
+## Schema upgrades
+
+The schema is versioned with Alembic. Each release that changes it ships a migration under `src/certadillo/migrations/versions/`, and CI checks on SQLite and PostgreSQL that running every migration gives exactly the tables the code expects.
+
+By default the server upgrades its own schema at start-up. With several replicas, one takes a PostgreSQL advisory lock and migrates while the others wait. For a production rollout, migrate as a separate step with the owner credential and start the new version with `CERTADILLO_DB_AUTO_MIGRATE=false`, so a replica never runs DDL:
+
+```bash
+certadillo db status    # {"current": "0001", "head": "0001", "up_to_date": true}; exits 1 when behind
+certadillo db migrate   # {"action": "upgraded", "from": "0001", "to": "0002", "audit_guards": "..."}
+```
+
+A database created before migrations existed (Certadillo 0.1 from before November 2026) is adopted on the first `db migrate` or start: the tables and nullable columns it is missing are added, it is stamped at the baseline revision `0001`, and later migrations run from there. Nothing is dropped or rewritten.
+
+To write a migration after changing the model, bring a scratch PostgreSQL database to head and let Alembic compare (`alembic.ini` at the repository root points at it):
+
+```bash
+alembic upgrade head
+alembic revision --autogenerate -m "add foo to bar"
+```
+
+Read the generated file before committing it: autogenerate misses renames and data changes.
+
 ## Database hardening
 
 See [the threat model](../THREAT_MODEL.md) for why these exist.
@@ -174,7 +197,7 @@ CERTADILLO_DB_URL=postgresql+psycopg://certadillo_owner:...@db/certadillo certad
 CERTADILLO_DB_URL=postgresql+psycopg://certadillo_app:...@db/certadillo
 ```
 
-The app role then has SELECT and INSERT on `audit_events` and no way to change or drop its triggers. Run `db migrate` with the owner credential before starting each new version.
+The app role then has SELECT and INSERT on `audit_events` and no way to change or drop its triggers. Run `db migrate` with the owner credential before starting each new version, and start the app with `CERTADILLO_DB_AUTO_MIGRATE=false`: the restricted role cannot run DDL.
 
 Audit anchoring. Set `CERTADILLO_AUDIT_ANCHOR_FILE` and/or `_URL`. Once a day (and on `certadillo audit anchor` or `POST /api/v1/audit/anchor`) the verified chain head, with a MAC under the seal key, goes there. Ship the file to storage with object lock. `certadillo audit verify --anchors <file>` fails if the history was rewritten after any saved anchor, even when the rewritten chain re-hashes cleanly.
 

@@ -31,6 +31,9 @@ def _pairs(name: str) -> dict[str, str]:
 class Settings:
     data_dir: Path = field(default_factory=lambda: Path(_env("DATA_DIR", "./.certadillo")))
     db_url: str | None = field(default_factory=lambda: _env("DB_URL"))
+    # false: refuse to start on an out-of-date schema; run `certadillo db migrate`
+    # as a separate step (a Helm pre-upgrade job, a pipeline stage) instead
+    db_auto_migrate: bool = field(default_factory=lambda: (_env("DB_AUTO_MIGRATE", "true") or "").lower() == "true")
     policy_file: str | None = field(default_factory=lambda: _env("POLICY_FILE"))
     # software | pkcs11 | vault-transit (where new CA keys are generated; existing keys
     # keep loading from wherever their key_ref says they live)

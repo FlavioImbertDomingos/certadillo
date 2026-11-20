@@ -55,6 +55,7 @@ Every row below has automated tests. "Interop" means a third-party client was ru
 | Audit | SHA-256 hash-chained audit log in an append-only table (database triggers; PostgreSQL role split), anchored off the host daily, verify endpoint, metric and alerts on tampering; every event shipped within seconds to syslog over TLS, Splunk HEC, HTTPS or S3 Object Lock, signed with Ed25519 so receivers can verify but not forge, with an offline `verify-export` | `test_audit_chain_detects_tampering`, `tests/test_integrity.py`, `tests/test_audit_shipping.py` (real TLS syslog receiver, moto for S3 Object Lock) |
 | Supply chain | Image pinned by digest, dependencies only from a hash-pinned lock, pip-audit, Trivy and an SBOM in CI, release images signed with Sigstore keyless signing and an SBOM attestation, Hypothesis fuzzing of every unauthenticated parser; encrypted off-host backups with age | `tests/test_fuzz_parsers.py`, `tests/test_backup_scripts.py` |
 | Database tamper resistance | HMAC integrity seals on principals, approvals and certificate status (a row changed in SQL cannot log in, cannot be approved, and reads as revoked); secret columns encrypted with a local key or Vault Transit; name constraints on issuing CAs. See the [threat model](docs/THREAT_MODEL.md) | `tests/test_integrity.py` |
+| Schema migrations | Alembic revisions applied at start-up under a PostgreSQL advisory lock, or as a separate `certadillo db migrate` step; databases from before migrations are adopted in place | `tests/test_migrations.py` (SQLite and PostgreSQL 16 in CI) |
 | Crypto agility / PQC | ML-DSA-65 and ML-DSA-87 (FIPS 204) issuing CAs, offline roots and leaf certificates, with ML-DSA signed CRLs and OCSP; crypto-agility drills that move certificates to a new issuing CA through ARI and time it to 100%, naming whatever keeps an app on the old CA; CycloneDX 1.6 CBOM with NIST security levels, PQC readiness report, CA-outlives-2035 check | `tests/test_post_quantum.py`, `tests/test_agility_drill.py`, `test_reports` |
 | Web console | Overview, onboarding wizard, inventory, approvals, discovery findings and sources, push provisioning (add targets and installations, push now, run steps), the policy tree (create and edit folders, move apps, effective policy per app), issuers, code signing, static SSH keys, audit and shipping, reports and crypto-agility drills. Every change goes through the same approval flow as the API; buttons a role cannot use are hidden; HTML only through an escaping template under a Trusted Types CSP | `tests/test_web_security.py`; screens checked in a browser for admin, operator and auditor |
 | Automation | CLI (`cert request`, `cert renew-if-due`), Ansible role, PowerShell module, Python demo seeder | Ansible and PowerShell run against a live server |
@@ -112,7 +113,7 @@ Interactive API docs are at `/docs` (OpenAPI).
 
 ```
 src/certadillo/
-  ca/            CA hierarchy, issuance, CRL (authority.py), SSH CA, issuer backends (Vault)
+  ca/            CA hierarchy, issuance, CRL (authority.py), SSH CA, agility drills, issuer backends
   crypto/        Signer abstraction: software keys, PKCS#11 HSM, DER re-signing for HSM keys
   policy/        profile evaluation and certificate grading
   services.py    registration authority: onboarding, dual control, issue, renew, revoke, ingest
@@ -124,6 +125,7 @@ src/certadillo/
   reporting/     summary, crypto/PQC report, CycloneDX CBOM, PCI inventory
   api/           FastAPI app, REST v1, PKI repository endpoints, web console
   web/static/    console and mascot
+  migrations/    Alembic revisions (the schema's history)
 Dockerfile       container image (SoftHSM2 and OpenSC included)
 deploy/          compose stack, Prometheus rules, Alertmanager, Grafana
 automation/      Ansible role, PowerShell module

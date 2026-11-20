@@ -615,13 +615,32 @@ def db():
 
 @db.command("migrate")
 def db_migrate():
-    """Create missing tables and columns and install the audit guards. Run with
-    the owner credential in CERTADILLO_DB_URL before starting a new version."""
+    """Upgrade the schema to this version (Alembic) and install the audit
+    guards. Run with the owner credential in CERTADILLO_DB_URL before starting
+    a new version; replicas started with CERTADILLO_DB_AUTO_MIGRATE=false wait
+    for it. A database made before migrations existed is adopted in place."""
+    from sqlalchemy import create_engine
+
     from certadillo import db as dbm
     from certadillo.config import get_settings
 
-    engine = dbm.init_db(get_settings().db_url)
-    click.echo(json.dumps({"migrated": True, "audit_guards": dbm.install_audit_guards(engine)}))
+    engine = create_engine(get_settings().db_url, future=True)
+    result = dbm.migrate(engine)
+    click.echo(json.dumps({**result, "audit_guards": dbm.install_audit_guards(engine)}))
+
+
+@db.command("status")
+def db_status():
+    """The schema revision the database is at and the one this version needs."""
+    from sqlalchemy import create_engine
+
+    from certadillo import db as dbm
+    from certadillo.config import get_settings
+
+    st = dbm.schema_status(create_engine(get_settings().db_url, future=True))
+    click.echo(json.dumps(st))
+    if not st["up_to_date"]:
+        sys.exit(1)
 
 
 @db.command("harden")
