@@ -49,6 +49,12 @@ pkcs11-tool --module $CERTADILLO_PKCS11_LIB --token-label certadillo --login --p
 
 Set `CERTADILLO_PKCS11_LIB`, `CERTADILLO_PKCS11_TOKEN` and `CERTADILLO_PKCS11_PIN` (from your secrets manager, never from a file in the image). The container image ships `softhsm2` and `opensc` only; mount the vendor client and its config into the container.
 
+## Sessions
+
+Certadillo logs in once and keeps that session open, instead of opening a session and logging in for every signature, which on a network HSM costs more than the signature. If the HSM drops the session (an HA failover, a restarted appliance, an expired login), the signature is retried once on a fresh session, so a failover shows up as one slow signature rather than an error.
+
+Calls into the PKCS#11 library are serialized. python-pkcs11 initializes the library with `C_Initialize(NULL)`, and the PKCS#11 standard then forbids calling it from several threads at once (SoftHSM2 crashes if you do). One signature at a time is far above what a CA needs; if you need more, run more replicas, each with its own session.
+
 ## How signing works with a key that never leaves the HSM
 
 pyca/cryptography only signs with in-process keys. For HSM keys Certadillo:

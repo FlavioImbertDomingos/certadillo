@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from prometheus_client import REGISTRY, Counter, Histogram
+from prometheus_client import REGISTRY, Counter, Gauge, Histogram
 from prometheus_client.core import GaugeMetricFamily
 
 ISSUANCE_TOTAL = Counter(
@@ -25,6 +25,7 @@ SIGNING_SECONDS = Histogram(
     ["signer"],
     buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5),
 )
+LEADER = Gauge("certadillo_leader", "1 on the replica that holds the lease for a background task", ["task"])
 HTTP_SECONDS = Histogram(
     "certadillo_http_request_duration_seconds", "HTTP request latency", ["method", "route", "status"]
 )

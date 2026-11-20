@@ -63,11 +63,15 @@ More than a quarter of requests are rejected by policy over 15 minutes. Usually 
 
 ## SigningLatencyHigh
 
-p95 signing time is above 500 ms. For `signer="pkcs11"`, look at HSM partition load, network latency to the HSM, and session limits. Each signature opens a session today; session pooling is on the roadmap.
+p95 signing time is above 500 ms. For `signer="pkcs11"`, look at HSM partition load, network latency to the HSM, and session limits. Certadillo keeps one logged-in session open per replica and serializes calls to the PKCS#11 library; a burst of signatures queues behind it. Add replicas for more signing throughput.
 
 ## CertadilloDown
 
 Prometheus cannot scrape the service. OCSP, CRL downloads and enrollment are down. Relying parties with soft-fail OCSP keep working; hard-fail clients do not. Restart the container, check database connectivity and `readyz`.
+
+## NoHousekeepingLeader
+
+No replica has held the housekeeping lease for 20 minutes, so CRLs are not being re-signed, alerts are not evaluated and push renewals do not run. `GET /api/v1/leaders` shows the last holder and when its lease expired. Usually every replica is failing to reach the database (check `readyz`); a lease left by a crashed replica expires on its own after `CERTADILLO_LEADER_LEASE_CYCLES` cycles. To force a cycle now, `POST /api/v1/alerts/evaluate` runs housekeeping on the replica that receives it.
 
 ## NotificationFailures
 

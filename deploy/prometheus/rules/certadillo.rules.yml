@@ -92,6 +92,14 @@ groups:
           summary: "Certadillo is not answering scrapes; OCSP, CRL and enrollment are affected"
           runbook_url: https://github.com/FlavioImbertDomingos/certadillo/blob/main/docs/RUNBOOK.md#certadillodown
 
+      - alert: NoHousekeepingLeader
+        expr: sum(certadillo_leader{task="housekeeping"}) == 0
+        for: 20m
+        labels: {severity: critical}
+        annotations:
+          summary: "No replica holds the housekeeping lease; CRLs, alerts and push renewals have stopped"
+          runbook_url: https://github.com/FlavioImbertDomingos/certadillo/blob/main/docs/RUNBOOK.md#nohousekeepingleader
+
       - alert: NotificationFailures
         expr: increase(certadillo_notifications_total{result="error"}[30m]) > 0
         labels: {severity: warning}

@@ -163,6 +163,9 @@ class Pkcs11Signer:
         return None  # never leaves the HSM
 
     def sign(self, data: bytes, hash_alg: hashes.HashAlgorithm) -> bytes:
+        return self._store.retrying(lambda: self._sign(data, hash_alg))
+
+    def _sign(self, data: bytes, hash_alg: hashes.HashAlgorithm) -> bytes:
         from pkcs11 import KeyType, Mechanism, ObjectClass
         from pkcs11.util.ec import encode_ecdsa_signature
 
@@ -183,8 +186,103 @@ class Pkcs11Signer:
             return key.sign(data, mechanism=mech)
 
 
+class SessionPool:
+    """Logged-in PKCS#11 sessions kept open and reused.
+
+    Opening a session and logging in costs more than the signature itself on
+    most network HSMs, and PKCS#11 login state belongs to the whole process:
+    closing one session can log out the others. So sessions are opened once,
+    lent to one thread at a time, and closed only when the HSM reports one as
+    broken (a failover, a restarted appliance, an expired login). At most
+    `size` sessions exist; a caller waits for a free one."""
+
+    BROKEN = ("SessionHandleInvalid", "SessionClosed", "DeviceRemoved", "DeviceError", "TokenNotPresent",
+              "UserNotLoggedIn")
+
+    def __init__(self, opener, size: int = 4, wait_seconds: float = 30.0):
+        import queue
+
+        self._open = opener
+        self.size = max(1, size)
+        self._wait = wait_seconds
+        self._idle: queue.LifoQueue = queue.LifoQueue()
+        self._lock = threading.Lock()
+        self.created = 0
+        self.discarded = 0
+
+    @classmethod
+    def is_broken(cls, exc: BaseException) -> bool:
+        return type(exc).__name__ in cls.BROKEN
+
+    def _borrow(self):
+        import queue
+
+        try:
+            return self._idle.get_nowait()
+        except queue.Empty:
+            pass
+        with self._lock:
+            if self.created < self.size:
+                self.created += 1
+                try:
+                    return self._open()
+                except BaseException:
+                    self.created -= 1
+                    raise
+        try:
+            return self._idle.get(timeout=self._wait)
+        except queue.Empty:
+            raise RuntimeError(f"no free HSM session after {self._wait:g}s (pool size {self.size})") from None
+
+    def _discard(self, session) -> None:
+        with self._lock:
+            self.created -= 1
+            self.discarded += 1
+        try:
+            session.close()
+        except Exception:  # noqa: BLE001, S110 - it is already broken
+            pass
+
+    def session(self):
+        import contextlib
+
+        @contextlib.contextmanager
+        def lend():
+            s = self._borrow()
+            try:
+                yield s
+            except BaseException as exc:
+                if self.is_broken(exc):
+                    self._discard(s)
+                else:
+                    self._idle.put(s)
+                raise
+            else:
+                self._idle.put(s)
+
+        return lend()
+
+    def close(self) -> None:
+        import queue
+
+        while True:
+            try:
+                self._discard(self._idle.get_nowait())
+            except queue.Empty:
+                return
+
+
+_LIBRARY_LOCKS: dict[str, threading.RLock] = {}
+
+
 class Pkcs11KeyStore:
-    """Keys generated on the token as sensitive and non-extractable."""
+    """Keys generated on the token as sensitive and non-extractable.
+
+    The logged-in session is kept open and reused (see SessionPool) instead of
+    opening and logging in for every signature. Calls into the PKCS#11 library
+    are serialized: python-pkcs11 initializes it with C_Initialize(NULL), and
+    the PKCS#11 standard says the application must then not call it from
+    several threads at once (doing so crashes SoftHSM2)."""
 
     _lock = threading.Lock()
 
@@ -194,9 +292,38 @@ class Pkcs11KeyStore:
         self._lib = pkcs11.lib(lib_path)
         self._token = self._lib.get_token(token_label=token_label)
         self._pin = pin
+        self._calls = _LIBRARY_LOCKS.setdefault(lib_path, threading.RLock())
+        self.pool = SessionPool(self._open_session, size=1)
+
+    def _open_session(self):
+        """The first session logs in; PKCS#11 login covers the whole process,
+        so later sessions open already logged in."""
+        from pkcs11.exceptions import UserAlreadyLoggedIn
+
+        try:
+            return self._token.open(user_pin=self._pin, rw=True)
+        except UserAlreadyLoggedIn:
+            return self._token.open(rw=True)
 
     def session(self):
-        return self._token.open(user_pin=self._pin, rw=True)
+        import contextlib
+
+        @contextlib.contextmanager
+        def serialized():
+            with self._calls, self.pool.session() as s:
+                yield s
+
+        return serialized()
+
+    def retrying(self, fn):
+        """Run fn; if the HSM dropped its session (failover, appliance restart),
+        try once more on a fresh one."""
+        try:
+            return fn()
+        except Exception as exc:
+            if not SessionPool.is_broken(exc):
+                raise
+            return fn()
 
     def generate(self, name: str, alg: str = "ec-p384") -> Pkcs11Signer:
         if alg.startswith("ml-dsa"):
@@ -223,6 +350,9 @@ class Pkcs11KeyStore:
         return self.load(f"pkcs11:{name}")
 
     def load(self, key_ref: str) -> Pkcs11Signer:
+        return self.retrying(lambda: self._load(key_ref))
+
+    def _load(self, key_ref: str) -> Pkcs11Signer:
         from pkcs11 import KeyType, ObjectClass
         from pkcs11.util.ec import encode_ec_public_key
         from pkcs11.util.rsa import encode_rsa_public_key

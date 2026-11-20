@@ -15,8 +15,8 @@ interface it plugs into so contributors can pick one up.
 | [Phase 7: enterprise CLM features](#phase-7-enterprise-clm-features) | Core features, console, code signing and SSH key discovery done; IIS/NetScaler/Key Vault push, native signing clients, SSH key rotation and follow-ups open | 7 of 14 |
 | [Phase 4: workload identity](#phase-4-workload-identity) | Not started | 0 of 3 |
 | [Phase 5: post-quantum](#phase-5-post-quantum) | ML-DSA issuance and the agility drill done; composite certificates and hybrid key exchange tracking open | 2 of 4 |
-| [Phase 6: production hardening](#phase-6-production-hardening) | Alembic migrations and Oracle Database support done; the rest open | 2 of 8 |
-| Total | | 36 of 65 |
+| [Phase 6: production hardening](#phase-6-production-hardening) | Alembic migrations, Oracle support, leader election and HSM session reuse done; the rest open | 3 of 8 |
+| Total | | 37 of 65 |
 
 Below, every item is marked done (shipped and tested) or open (not built
 yet). GitHub shows them as ticked and empty checkboxes, the knowledge base as
@@ -250,7 +250,14 @@ Shipped November 2026, on pyca/cryptography 50. See [Post-quantum](guide/27-post
 ## Phase 6: production hardening
 
 - [ ] Console single sign-on on top of the zero-trust access work in Phase 3.5.
-- [ ] Leader election for housekeeping (PostgreSQL advisory lock) and HSM session pooling.
+- [x] **Leader election and HSM session reuse** (November 2026). Every
+  replica runs the background loops, but housekeeping and audit shipping run
+  only on the holder of a lease row (portable across PostgreSQL, Oracle and
+  SQLite, so no advisory lock); a dead leader is replaced after three cycles,
+  a clean shutdown hands over at once; `GET /api/v1/leaders` and a
+  `certadillo_leader` gauge. PKCS#11 keeps one logged-in session open,
+  retries once on a fresh session after a failover, and serializes library
+  calls as `C_Initialize(NULL)` requires (concurrent calls crashed SoftHSM2).
 - [ ] Per-principal rate limits and egress restrictions.
 - [ ] OpenTelemetry traces across enrollment, policy and signing.
 - [ ] Helm chart and a Terraform module (EKS or ECS, RDS PostgreSQL, CloudHSM).

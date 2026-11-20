@@ -371,10 +371,25 @@ def run_audit_shipping() -> dict:
         return ship(p.s, rt.settings)
 
 
+def run_if_leader(task: str, interval: int, fn) -> bool:
+    """Run fn only on the replica holding the lease for task (see leader.py).
+    The lease lasts three intervals, so a crashed leader is replaced within
+    three cycles. Returns whether this replica ran it."""
+    from certadillo import leader
+    from certadillo.observability.metrics import LEADER
+
+    settings = get_runtime().settings
+    held = leader.acquire(task, max(30, settings.leader_lease_cycles * interval))
+    LEADER.labels(task=task).set(1 if held else 0)
+    if held:
+        fn()
+    return held
+
+
 async def _ship_loop(interval: int):
     while True:
         try:
-            await asyncio.to_thread(run_audit_shipping)
+            await asyncio.to_thread(run_if_leader, "audit-shipping", interval, run_audit_shipping)
         except Exception:  # noqa: BLE001
             log.exception("audit shipping failed")
         await asyncio.sleep(interval)
@@ -383,7 +398,7 @@ async def _ship_loop(interval: int):
 async def _loop(interval: int):
     while True:
         try:
-            await asyncio.to_thread(run_housekeeping)
+            await asyncio.to_thread(run_if_leader, "housekeeping", interval, run_housekeeping)
         except Exception:  # noqa: BLE001
             log.exception("housekeeping failed")
         await asyncio.sleep(interval)
@@ -403,6 +418,14 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
         yield
         for task in tasks:
             task.cancel()
+        if background:
+            from certadillo import leader
+
+            for name in ("housekeeping", "audit-shipping"):
+                try:
+                    leader.release(name)  # a clean shutdown hands over at once
+                except Exception:  # noqa: BLE001, S110 - the database may already be gone
+                    pass
 
     app = FastAPI(title="Certadillo", version=__version__, lifespan=lifespan,
                   description="Open source PKI and certificate lifecycle platform")
@@ -1065,6 +1088,14 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
         return [{"fingerprint": a.fingerprint, "rule": a.rule, "severity": a.severity, "summary": a.summary,
                  "labels": a.labels, "first_seen": as_utc(a.first_seen).isoformat(),
                  "resolved_at": as_utc(a.resolved_at).isoformat() if a.resolved_at else None} for a in rows]
+
+    @app.get("/api/v1/leaders", tags=["observability"])
+    def leaders(who: Actor = Depends(actor)):
+        """Which replica runs each background task, and until when its lease lasts."""
+        from certadillo import leader
+
+        who.require("admin", "operator", "auditor")
+        return {"this_replica": leader.IDENTITY, "leases": leader.status()}
 
     @app.post("/api/v1/alerts/evaluate", tags=["observability"])
     def evaluate_now(who: Actor = Depends(actor)):

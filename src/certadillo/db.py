@@ -358,6 +358,18 @@ class AgilityDrill(Base):
     created_by: Mapped[str] = mapped_column(String(120))
 
 
+class Lease(Base):
+    """Leader election for background work. Every replica runs the same loops;
+    only the one holding an unexpired lease for a task does the work, so CRLs
+    are signed once, alerts sent once and audit records shipped once."""
+
+    __tablename__ = "leases"
+    name: Mapped[str] = mapped_column(String(64), primary_key=True)  # housekeeping | audit-shipping
+    holder: Mapped[str] = mapped_column(String(120))
+    acquired_at: Mapped[datetime] = mapped_column(TZDateTime)
+    expires_at: Mapped[datetime] = mapped_column(TZDateTime)
+
+
 class ScepTransaction(Base):
     """A SCEP request waiting for a second person (dual-control profiles). The
     client polls with CertPoll (GetCertInitial) until it is approved or rejected."""

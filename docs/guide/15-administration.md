@@ -96,6 +96,7 @@ All settings are environment variables.
 | `CERTADILLO_DATA_DIR` | `./.certadillo` | SQLite file, software keys |
 | `CERTADILLO_DB_URL` | SQLite in the data dir | `postgresql+psycopg://user:pass@host/certadillo`, or `oracle+oracledb://user:pass@host:1521/?service_name=PDB1` |
 | `CERTADILLO_DB_SCHEMA` | | the schema that owns the tables, when the app connects as a separate restricted user (Oracle `CURRENT_SCHEMA`, PostgreSQL `search_path`) |
+| `CERTADILLO_LEADER_LEASE_CYCLES` | `3` | with several replicas, a background task's lease lasts this many of its intervals; a dead leader is replaced after that |
 | `CERTADILLO_DB_AUTO_MIGRATE` | `true` | upgrade the schema at start-up; `false` refuses to start on an out-of-date schema, for deployments that run `certadillo db migrate` as their own step |
 | `CERTADILLO_BASE_URL` | `http://localhost:8080` | written into AIA and CDP URLs; set to the public HTTPS name |
 | `CERTADILLO_ORG_NAME` | `Example Bank` | O= in CA and leaf subjects |
@@ -154,6 +155,17 @@ All settings are environment variables.
 | `CERTADILLO_JIRA_URL` / `_USER` / `_TOKEN` / `_PROJECT` | project `PKI` | Jira issues for critical alerts |
 | `CERTADILLO_SNOW_URL` / `_USER` / `_PASSWORD` / `_ASSIGNMENT_GROUP` | group `PKI Operations` | ServiceNow incidents |
 | `CERTADILLO_RUNBOOK_URL` | GitHub runbook | base URL for alert runbook links |
+
+## Running several replicas
+
+Run as many API replicas as you like behind a load balancer; they share only the database. Background work is coordinated through leases: every replica runs the housekeeping loop (CRLs, OCSP signer rotation, discovery, push provisioning, alerts) and the audit shipper, but only the replica holding the lease for a task does it, so a CRL is signed once per cycle and an alert is sent once. If the leader stops, another replica takes over within `CERTADILLO_LEADER_LEASE_CYCLES` cycles; a clean shutdown hands over at once.
+
+```bash
+curl -s "${A[@]}" $S/api/v1/leaders
+# {"this_replica": "certadillo-7d9f:1:3a4b1c", "leases": [{"task": "housekeeping", "holder": "certadillo-5c2e:1:9f00aa", ...}]}
+```
+
+`certadillo_leader{task="housekeeping"}` is 1 on exactly one replica. Alert on its sum being 0 for longer than three cycles.
 
 ## Schema upgrades
 

@@ -43,6 +43,7 @@ DESCRIBE = {
     ("POST", "/api/v1/renewal-campaigns/{campaign_id}/revoke-replaced"): ("admin, operator", "revoke certificates that have a successor"),
     ("POST", "/api/v1/renewal-campaigns/{campaign_id}/revoke-remaining"): ("admin, operator", "request the cutoff for the rest (dual control)"),
     ("POST", "/api/v1/renewal-campaigns/{campaign_id}/close"): ("admin, operator", "close a campaign; its windows stop applying"),
+    ("GET", "/api/v1/leaders"): ("admin, operator, auditor", "which replica holds each background task's lease"),
     ("POST", "/api/v1/agility-drills"): ("admin, operator", "start a crypto-agility drill (`target_ca`, `source_cas`, `renew_within_hours`)"),
     ("GET", "/api/v1/agility-drills"): (STAFF, "list drills with progress and time to 50/90/99/100%"),
     ("GET", "/api/v1/agility-drills/{drill_id}"): (STAFF, "drill status by certificate, with blocked apps"),

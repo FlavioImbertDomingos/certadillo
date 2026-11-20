@@ -118,6 +118,8 @@ class Settings:
     #   splunk+https://splunk:8088            https://collector/ingest  s3://bucket/prefix
     audit_ship: list[str] = field(default_factory=lambda: _list("AUDIT_SHIP"))
     audit_ship_interval: int = field(default_factory=lambda: int(_env("AUDIT_SHIP_INTERVAL", "15") or 15))
+    # a background task's lease lasts this many of its intervals; a dead leader is replaced after that
+    leader_lease_cycles: int = field(default_factory=lambda: int(_env("LEADER_LEASE_CYCLES", "3") or 3))
     audit_ship_token_ref: str | None = field(default_factory=lambda: _env("AUDIT_SHIP_TOKEN_REF"))
     audit_ship_cacert: str | None = field(default_factory=lambda: _env("AUDIT_SHIP_CACERT"))
     audit_ship_s3_retention_days: int = field(default_factory=lambda: int(_env("AUDIT_SHIP_S3_RETENTION_DAYS", "2555") or 2555))

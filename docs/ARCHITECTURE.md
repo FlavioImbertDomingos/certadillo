@@ -149,7 +149,7 @@ Clients ───▶ │ LB (mTLS for EST) ─▶ Certadillo API ×N │── P
 Offline root: air-gapped HSM, used in ceremonies only.
 ```
 
-The API is stateless apart from the database, so it scales horizontally. The housekeeping loop (CRL publishing, ACME and CMP cleanup, alert evaluation) should run on one replica; set `CERTADILLO_ALERT_INTERVAL` high on the others or run `certadillo alerts run` as a Kubernetes CronJob. Leader election is on the roadmap.
+The API is stateless apart from the database, so it scales horizontally. Every replica runs the background loops (housekeeping: CRL publishing, OCSP signer rotation, ACME and CMP cleanup, discovery, push provisioning and alert evaluation; and audit shipping), but each loop first takes a lease in the `leases` table and only the holder does the work. The holder renews its lease every cycle; if it dies, another replica takes over when the lease expires, after `CERTADILLO_LEADER_LEASE_CYCLES` cycles (3). `GET /api/v1/leaders` and the `certadillo_leader{task}` gauge show which replica holds what.
 
 ## Extension points
 

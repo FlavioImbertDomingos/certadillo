@@ -64,7 +64,8 @@ def test_ca_keys_in_pkcs11_hsm(tmp_path, softhsm):
     from pkcs11 import Attribute, KeyType, ObjectClass
 
     token = pkcs11.lib(softhsm).get_token(token_label="certadillo")
-    with token.open(user_pin="1234") as s:
+    # the server keeps its session logged in, and PKCS#11 login covers the whole process
+    with token.open() as s:
         k = s.get_key(label="issuing-ca-1", key_type=KeyType.EC, object_class=ObjectClass.PRIVATE_KEY)
         assert k[Attribute.SENSITIVE] and not k[Attribute.EXTRACTABLE]
     assert not (tmp_path / "data" / "keys").exists()  # no CA key files on disk
