@@ -3,6 +3,7 @@ EST, ACME, Prometheus metrics and the web console."""
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import base64
 import json
 import logging
@@ -328,6 +329,13 @@ def approval_json(r: ApprovalRequest) -> dict:
 # ------------------------------------------------------------------ background jobs
 def run_housekeeping() -> dict:
     """Publish CRLs that are due, clean up protocol state, then evaluate alerts."""
+    from certadillo.observability import tracing
+
+    with tracing.span("certadillo.housekeeping"):
+        return _run_housekeeping()
+
+
+def _run_housekeeping() -> dict:
     rt = get_runtime()
     with rt.platform() as p:
         acme.housekeeping(p.s)
@@ -411,6 +419,9 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
     configure_logging()
     rt = init_runtime(settings)
     LIMITER.reset()  # rate-limit buckets belong to this app instance
+    from certadillo.observability import tracing
+
+    log.info("tracing", extra={"tracing": tracing.configure(rt.settings)})
     for spec in [*rt.settings.rate_limits.values(), rt.settings.issuance_limit]:
         parse(spec)  # a malformed limit fails at start-up, not on the first request
 
@@ -437,6 +448,17 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
 
     @app.middleware("http")
     async def observe(request: Request, call_next):
+        from certadillo.observability import tracing
+
+        if request.url.path in ("/metrics", "/healthz", "/readyz"):
+            sp = contextlib.nullcontext()
+        else:
+            sp = tracing.server_span(request.method, request.url.path, request.headers)
+        with sp as server:
+            return await _observed(request, call_next, server)
+
+    async def _observed(request: Request, call_next, server):
+
         rid = request.headers.get("x-request-id") or uuid.uuid4().hex[:16]
         token = request_id.set(rid)
         start = time.perf_counter()
@@ -445,6 +467,10 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
             response = await call_next(request)
             status = response.status_code
             response.headers["X-Request-ID"] = rid
+            if server is not None:
+                # W3C Trace Context "traceresponse": the trace to look up for this request
+                ctx = server.get_span_context()
+                response.headers["traceresponse"] = f"00-{ctx.trace_id:032x}-{ctx.span_id:016x}-01"
             https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
             security_headers.apply(request.url.path, response.headers, https)
             if request.url.path == "/" or request.url.path.startswith(("/static/", "/kb/")):
@@ -454,6 +480,14 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
         finally:
             route = request.scope.get("route")
             path = getattr(route, "path", "unmatched")
+            if server is not None:
+                server.update_name(f"{request.method} {path}")
+                server.set_attributes({"http.route": path, "http.response.status_code": status,
+                                       "certadillo.request_id": rid})
+                if status >= 500:
+                    from opentelemetry.trace import Status, StatusCode
+
+                    server.set_status(Status(StatusCode.ERROR))
             HTTP_SECONDS.labels(request.method, path, str(status)).observe(time.perf_counter() - start)
             if path not in ("/metrics", "/healthz"):
                 log.info("request", extra={"method": request.method, "path": path, "status": status,

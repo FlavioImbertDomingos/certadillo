@@ -398,6 +398,14 @@ def _dummy_kind(pub) -> str:
 
 def sign_x509(builder, signer: Signer, hash_alg: hashes.HashAlgorithm | None = None):
     """Sign a CertificateBuilder, CertificateSigningRequestBuilder or CertificateRevocationListBuilder."""
+    from certadillo.observability import tracing
+
+    what = type(builder).__name__.replace("Builder", "")
+    with tracing.span("certadillo.sign", signer=signer.kind, object=what, key_ref=signer.key_ref):
+        return _sign_x509(builder, signer, hash_alg)
+
+
+def _sign_x509(builder, signer: Signer, hash_alg: hashes.HashAlgorithm | None):
     hash_alg = hash_for(signer.public_key(), hash_alg)
     start = time.perf_counter()
     try:

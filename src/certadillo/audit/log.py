@@ -39,6 +39,13 @@ def _digest(prev: str, ts: datetime, actor: str, action: str, target: str, detai
 
 
 def record(session, actor: str, action: str, target: str, details: dict | None = None) -> AuditEvent:
+    from certadillo.observability import tracing
+
+    with tracing.span("certadillo.audit.record", action=action):
+        return _record(session, actor, action, target, details)
+
+
+def _record(session, actor: str, action: str, target: str, details: dict | None = None) -> AuditEvent:
     details = json.loads(json.dumps(details or {}, default=str))
     dialect = session.get_bind().dialect.name
     # serialize chain appends across replicas until this transaction ends

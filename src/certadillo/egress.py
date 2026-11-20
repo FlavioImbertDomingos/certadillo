@@ -88,6 +88,9 @@ def check(url: str, purpose: str = "http", allow: list[str] | None = None) -> No
 def _hook(purpose: str):
     def on_request(request: httpx.Request) -> None:
         check(str(request.url), purpose)
+        from certadillo.observability import tracing
+
+        tracing.inject(request.headers)  # the trace continues into the called system
 
     return on_request
 

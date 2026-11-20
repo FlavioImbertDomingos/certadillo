@@ -15,8 +15,8 @@ interface it plugs into so contributors can pick one up.
 | [Phase 7: enterprise CLM features](#phase-7-enterprise-clm-features) | Core features, console, code signing and SSH key discovery done; IIS/NetScaler/Key Vault push, native signing clients, SSH key rotation and follow-ups open | 7 of 14 |
 | [Phase 4: workload identity](#phase-4-workload-identity) | Not started | 0 of 3 |
 | [Phase 5: post-quantum](#phase-5-post-quantum) | ML-DSA issuance and the agility drill done; composite certificates and hybrid key exchange tracking open | 2 of 4 |
-| [Phase 6: production hardening](#phase-6-production-hardening) | Migrations, Oracle, leader election, HSM session reuse, rate limits and egress done; console SSO, tracing, Helm/Terraform and ServiceNow open | 4 of 8 |
-| Total | | 38 of 65 |
+| [Phase 6: production hardening](#phase-6-production-hardening) | Migrations, Oracle, leader election, HSM session reuse, rate limits, egress and tracing done; console SSO, Helm/Terraform and ServiceNow open | 5 of 8 |
+| Total | | 39 of 65 |
 
 Below, every item is marked done (shipped and tested) or open (not built
 yet). GitHub shows them as ticked and empty checkboxes, the knowledge base as
@@ -264,7 +264,12 @@ Shipped November 2026, on pyca/cryptography 50. See [Post-quantum](guide/27-post
   `CERTADILLO_EGRESS_ALLOW` checks every outbound HTTP call, redirects
   included, and cloud metadata addresses are refused unless listed. Metrics
   and alerts for both. See [rate limits and outbound calls](guide/15-administration.md#rate-limits-and-outbound-calls).
-- [ ] OpenTelemetry traces across enrollment, policy and signing.
+- [x] **OpenTelemetry traces** (November 2026). One trace from the HTTP
+  request through enrollment, policy, signing (software, PKCS#11, Vault) and
+  the audit record; approvals, OCSP and housekeeping too; W3C traceparent in
+  and out (outbound calls carry it), `traceresponse` on every response,
+  trace ids in the JSON logs; OTLP export from the `otel` extra, included in
+  the image. See [traces](guide/13-alerting-observability.md#traces).
 - [ ] Helm chart and a Terraform module (EKS or ECS, RDS PostgreSQL, CloudHSM).
 - [x] **Alembic migrations** (November 2026). A baseline revision for the
   current schema, `certadillo db migrate` and `db status`, upgrade at start-up

@@ -453,6 +453,12 @@ class Platform:
         return req
 
     def decide(self, actor: Actor, approval_id: int, approve: bool, comment: str | None = None) -> ApprovalRequest:
+        from certadillo.observability import tracing
+
+        with tracing.span("certadillo.approval.decide", approval_id=approval_id, approve=approve):
+            return self._decide(actor, approval_id, approve, comment)
+
+    def _decide(self, actor: Actor, approval_id: int, approve: bool, comment: str | None = None) -> ApprovalRequest:
         actor.require("approver")  # separation of duties: admins request, approvers decide
         req = self.s.get(ApprovalRequest, approval_id)
         if req is None:
@@ -604,6 +610,19 @@ class Platform:
         return folders.apply(folders.effective(self.s, app.folder_id), decision, csr, days, hours)
 
     def request_certificate(self, actor: Actor, app_id: int, csr_pem: str | None, profile: str | None = None,
+                            days: int | None = None, hours: int | None = None, protocol: str = "rest",
+                            previous: Certificate | None = None,
+                            pop_verified: bool = False, template=None) -> Certificate | ApprovalRequest:
+        from certadillo.observability import tracing
+
+        with tracing.span("certadillo.enrollment.request", app_id=app_id, profile=profile, protocol=protocol,
+                          actor_role=actor.role, renewal=previous is not None) as sp:
+            result = self._request_certificate(actor, app_id, csr_pem, profile, days, hours, protocol, previous,
+                                               pop_verified, template)
+            tracing.set_attrs(sp, outcome="pending_approval" if isinstance(result, ApprovalRequest) else "issued")
+            return result
+
+    def _request_certificate(self, actor: Actor, app_id: int, csr_pem: str | None, profile: str | None = None,
                             days: int | None = None, hours: int | None = None, protocol: str = "rest",
                             previous: Certificate | None = None,
                             pop_verified: bool = False, template=None) -> Certificate | ApprovalRequest:

@@ -32,6 +32,13 @@ def _hash(alg: hashes.HashAlgorithm, data: bytes) -> bytes:
 
 
 def respond(session, ca_service, der_request: bytes) -> bytes:
+    from certadillo.observability import tracing
+
+    with tracing.span("certadillo.ocsp.respond"):
+        return _respond(session, ca_service, der_request)
+
+
+def _respond(session, ca_service, der_request: bytes) -> bytes:
     try:
         req = ocsp.load_der_ocsp_request(der_request)
         # touch the lazily parsed fields now: an unknown hash algorithm or a

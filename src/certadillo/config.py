@@ -124,6 +124,8 @@ class Settings:
     # requests per principal role ("app=600/m;operator=1200/m"), and certificates per app ("500/h"); 0 turns one off
     rate_limits: dict[str, str] = field(default_factory=lambda: _pairs("RATE_LIMITS"))
     issuance_limit: str = field(default_factory=lambda: _env("ISSUANCE_LIMIT", "500/h") or "500/h")
+    # off | otlp (OTEL_EXPORTER_OTLP_* variables) | console
+    tracing: str = field(default_factory=lambda: (_env("TRACING", "off") or "off").lower())
     leader_lease_cycles: int = field(default_factory=lambda: int(_env("LEADER_LEASE_CYCLES", "3") or 3))
     audit_ship_token_ref: str | None = field(default_factory=lambda: _env("AUDIT_SHIP_TOKEN_REF"))
     audit_ship_cacert: str | None = field(default_factory=lambda: _env("AUDIT_SHIP_CACERT"))

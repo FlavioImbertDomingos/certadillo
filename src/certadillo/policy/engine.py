@@ -295,6 +295,24 @@ class PolicyEngine:
         previous_public_key_fp: str | None = None,
         pop_verified: bool = False,
     ) -> Decision:
+        from certadillo.observability import tracing
+
+        with tracing.span("certadillo.policy.evaluate", profile=profile_name) as sp:
+            result = self._evaluate(csr, profile_name, allowed_domains, requested_days, requested_hours,
+                                    previous_public_key_fp, pop_verified)
+            tracing.set_attrs(sp, validity_days=result.validity.days, names=len(result.dns_names) + len(result.uris))
+            return result
+
+    def _evaluate(
+        self,
+        csr: x509.CertificateSigningRequest,
+        profile_name: str,
+        allowed_domains: list[str],
+        requested_days: int | None = None,
+        requested_hours: int | None = None,
+        previous_public_key_fp: str | None = None,
+        pop_verified: bool = False,
+    ) -> Decision:
         from certadillo.crypto.signers import key_fingerprint
 
         prof = self.profile(profile_name)

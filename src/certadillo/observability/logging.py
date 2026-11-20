@@ -21,6 +21,11 @@ class JsonFormatter(logging.Formatter):
             "msg": record.getMessage(),
             "request_id": request_id.get(),
         }
+        from certadillo.observability.tracing import current_trace_id
+
+        trace_id = current_trace_id()
+        if trace_id:
+            doc["trace_id"] = trace_id
         for k, v in record.__dict__.items():
             if k not in _STD:
                 doc[k] = v

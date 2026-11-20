@@ -69,12 +69,16 @@ Each alert is sent when it starts, repeated every 4 hours (critical), 24 hours (
 | `certadillo_ocsp_requests_total` | counter | status |
 | `certadillo_signing_duration_seconds` | histogram | signer (software, pkcs11) |
 | `certadillo_http_request_duration_seconds` | histogram | method, route, status |
+| `certadillo_leader` | gauge | task (1 on the replica holding the lease) |
+| `certadillo_rate_limited_total` | counter | limit (requests, issuance), role |
+| `certadillo_egress_denied_total` | counter | purpose |
+| `certadillo_agility_drill_progress_ratio` | gauge | drill, target_ca |
 
 Inventory gauges are read from the database at scrape time, so they survive restarts and match the database exactly.
 
 ## Prometheus rules, Alertmanager, Grafana
 
-`deploy/prometheus/rules/certadillo.rules.yml` has 11 rules (validated with `promtool` in CI), including `CertadilloDown`, `SigningLatencyHigh` (HSM saturation), `IssuanceErrorsHigh` and `NotificationFailures`. `deploy/alertmanager/alertmanager.yml` routes critical alerts to on-call and anything with a `team` label to the owning team; fill in the receivers.
+`deploy/prometheus/rules/certadillo.rules.yml` has 14 rules (validated with `promtool` in CI), including `CertadilloDown`, `SigningLatencyHigh` (HSM saturation), `IssuanceErrorsHigh`, `NoHousekeepingLeader`, `RateLimited`, `EgressDenied` and `NotificationFailures`. `deploy/alertmanager/alertmanager.yml` routes critical alerts to on-call and anything with a `team` label to the owning team; fill in the receivers.
 
 The Grafana dashboard (`deploy/grafana/dashboards/certadillo.json`) shows active, expired and critical counts, quantum-vulnerable certificates, audit chain state, the 25 soonest expiries, inventory by source, CA expiry, issuance by protocol, policy rejections by rule, signing latency, OCSP traffic and API latency.
 
@@ -88,4 +92,29 @@ One JSON object per line on stdout, ready for Splunk, Elastic or Loki:
  "audit": {"actor": "app:card-api:1", "action": "certificate.issue", "target": "7b4c29...", "protocol": "rest"}}
 ```
 
-Every response carries `X-Request-ID`; send your own to trace a request across systems.
+Every response carries `X-Request-ID`; send your own to trace a request across systems. With tracing on, every log line written inside a request also carries `trace_id`.
+
+## Traces
+
+Certadillo emits OpenTelemetry traces when `CERTADILLO_TRACING=otlp` (or `console` to print them). Point it at your collector with the standard variables; the container image includes the exporter, and `pip install certadillo[otel]` adds it elsewhere:
+
+```bash
+CERTADILLO_TRACING=otlp
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+OTEL_SERVICE_NAME=certadillo            # the default
+```
+
+A certificate request becomes one trace:
+
+```text
+POST /api/v1/certificates                      server span: route, status, request id
+  certadillo.enrollment.request                app, profile, protocol, role, renewal, outcome
+    certadillo.policy.evaluate                 profile, validity, number of names
+    certadillo.sign                            signer (software, pkcs11, vault-transit), object, key reference
+    certadillo.audit.record                    action
+```
+
+Approvals (`certadillo.approval.decide`), OCSP (`certadillo.ocsp.respond`) and each housekeeping cycle (`certadillo.housekeeping`) have spans too. A policy refusal or a signing failure marks its span as an error with the exception attached.
+
+Incoming `traceparent` headers are honored, so a CI pipeline or cert-manager trace continues into Certadillo, and outbound calls (webhooks, upstream CAs, Vault, ServiceNow) carry `traceparent` onward. Each response has a `traceresponse` header naming its trace. Spans never contain CSRs, keys, tokens or certificate bodies.
+
