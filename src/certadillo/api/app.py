@@ -191,6 +191,14 @@ class CampaignIn(BaseModel):
     immediate: bool = False
 
 
+class DrillIn(BaseModel):
+    name: str = Field(min_length=3, max_length=120)
+    target_ca: str = Field(pattern=r"^[a-z0-9-]+$")
+    source_cas: list[str] | None = None
+    renew_within_hours: int = Field(default=72, ge=1, le=720)
+    immediate: bool = False
+
+
 class ChangeRefIn(BaseModel):
     change_ref: str | None = None
 
@@ -226,6 +234,7 @@ class SubCAIn(BaseModel):
     name: str = Field(pattern=r"^[a-z0-9-]+$")
     parent: str = "root-ca"
     years: int = 5
+    alg: str = Field("ec-p384", pattern=r"^(ec-p256|ec-p384|rsa-3072|rsa-4096|ml-dsa-65|ml-dsa-87)$")
 
 
 class AdcsImportIn(BaseModel):
@@ -765,6 +774,50 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
         p.commit()
         return {"status": "pending_approval", "approval_id": req.id}
 
+    # ---------------------------------------------------------- crypto-agility drills
+    @app.post("/api/v1/agility-drills", status_code=201, tags=["renewal campaigns"])
+    def start_drill(body: DrillIn, p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        """Move every active certificate of the source CAs (default: all other
+        issuing CAs) to target_ca through an ARI campaign, and time it."""
+        from certadillo.ca import agility
+        from certadillo.enrollment import ari
+
+        drill = p.start_drill(who, **body.model_dump())
+        p.commit()
+        out = agility.status(p, drill)
+        out["warnings"] = ari.campaign_warnings(body.renew_within_hours, p.settings.ari_retry_after_seconds)
+        return out
+
+    @app.get("/api/v1/agility-drills", tags=["renewal campaigns"])
+    def list_drills(p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        from certadillo.ca import agility
+        from certadillo.db import AgilityDrill
+
+        who.require("admin", "operator", "approver", "auditor")
+        out = []
+        for d in p.s.query(AgilityDrill).order_by(AgilityDrill.id.desc()).all():
+            st = agility.status(p, d)
+            st.pop("certificates")
+            out.append(st)
+        return out
+
+    @app.get("/api/v1/agility-drills/{drill_id}", tags=["renewal campaigns"])
+    def get_drill(drill_id: int, p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        from certadillo.ca import agility
+        from certadillo.db import AgilityDrill
+
+        who.require("admin", "operator", "approver", "auditor")
+        drill = p.s.get(AgilityDrill, drill_id)
+        if drill is None:
+            raise NotFound("drill not found")
+        return agility.status(p, drill)
+
+    @app.post("/api/v1/agility-drills/{drill_id}/close", tags=["renewal campaigns"])
+    def close_drill(drill_id: int, p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        out = p.close_drill(who, drill_id)
+        p.commit()
+        return out
+
     @app.post("/api/v1/renewal-campaigns/{campaign_id}/close", tags=["renewal campaigns"])
     def close_campaign(campaign_id: int, p: Platform = Depends(platform), who: Actor = Depends(actor)):
         from certadillo.audit.log import record
@@ -1135,6 +1188,14 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
                 continue
             pub = c.public_key()
             jwk = {"use": "x509-svid", "x5c": [base64.b64encode(c.public_bytes(serialization.Encoding.DER)).decode()]}
+            from certadillo.crypto.signers import ml_dsa_params
+
+            params = ml_dsa_params(pub)
+            if params:
+                # ML-DSA keys as "AKP" JWKs (IETF draft-ietf-cose-dilithium)
+                jwk.update(kty="AKP", alg=params.upper(), pub=b64u(pub.public_bytes_raw()))
+                keys.append(jwk)
+                continue
             nums = pub.public_numbers()
             if hasattr(nums, "curve"):
                 size = (pub.curve.key_size + 7) // 8

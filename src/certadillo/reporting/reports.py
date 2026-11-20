@@ -72,10 +72,12 @@ def crypto_report(s) -> dict:
         kt, bits, curve = describe_key(cert.public_key())
         ca_rows.append({
             "ca": ca.name,
-            "algorithm": f"{kt.upper()}-{curve or bits}",
+            "algorithm": curve.upper() if kt == "ml-dsa" else f"{kt.upper()}-{curve or bits}",
             "not_after": cert.not_valid_after_utc.isoformat(),
             "signer": ca.signer_type,
-            "outlives_2035_cutoff": cert.not_valid_after_utc >= PQC_DISALLOW,
+            "post_quantum": kt == "ml-dsa",
+            # an ML-DSA CA is not affected by the 2035 cutoff for quantum-vulnerable keys
+            "outlives_2035_cutoff": kt != "ml-dsa" and cert.not_valid_after_utc >= PQC_DISALLOW,
         })
     return {
         "generated_at": now.isoformat(),
@@ -107,6 +109,19 @@ def _recommendations(active, ca_rows) -> list[str]:
     return recs
 
 
+_ML_DSA_LEVEL = {44: 2, 65: 3, 87: 5}  # FIPS 204 security categories
+
+
+def _quantum_level(c: Certificate) -> int:
+    """NIST post-quantum security category of the certificate's signature
+    algorithm: 0 for RSA, EC and EdDSA, 2/3/5 for ML-DSA-44/65/87."""
+    name = (c.sig_alg or "").upper()
+    for size, level in _ML_DSA_LEVEL.items():
+        if name == f"ML-DSA-{size}":
+            return level
+    return 0
+
+
 def _alg_ref(c: Certificate) -> tuple[str, dict]:
     ref = f"alg:{c.sig_alg}"
     return ref, {
@@ -118,7 +133,7 @@ def _alg_ref(c: Certificate) -> tuple[str, dict]:
             "algorithmProperties": {
                 "primitive": "signature",
                 "cryptoFunctions": ["sign", "verify"],
-                "nistQuantumSecurityLevel": 0 if c.key_type in ("rsa", "ec", "ed25519") else 2,
+                "nistQuantumSecurityLevel": _quantum_level(c),
             },
         },
     }
@@ -132,15 +147,17 @@ def cbom(s) -> dict:
         alg_ref, alg = _alg_ref(c)
         comps.setdefault(alg_ref, alg)
         key_ref = f"key:{c.key_type}-{c.key_size}"
-        comps.setdefault(key_ref, {
-            "type": "cryptographic-asset",
-            "bom-ref": key_ref,
-            "name": f"{c.key_type.upper()} {c.key_size} public key",
-            "cryptoProperties": {
-                "assetType": "related-crypto-material",
-                "relatedCryptoMaterialProperties": {"type": "public-key", "size": c.key_size},
-            },
-        })
+        if c.key_type == "ml-dsa":
+            # key_size is the parameter set; the CBOM names it rather than give a bit size
+            key_asset = {"name": f"ML-DSA-{c.key_size} public key",
+                         "cryptoProperties": {"assetType": "related-crypto-material",
+                                              "relatedCryptoMaterialProperties": {"type": "public-key"}}}
+        else:
+            key_asset = {"name": f"{c.key_type.upper()} {c.key_size} public key",
+                         "cryptoProperties": {"assetType": "related-crypto-material",
+                                              "relatedCryptoMaterialProperties": {"type": "public-key",
+                                                                                  "size": c.key_size}}}
+        comps.setdefault(key_ref, {"type": "cryptographic-asset", "bom-ref": key_ref, **key_asset})
         comps[f"cert:{c.fingerprint_sha256}"] = {
             "type": "cryptographic-asset",
             "bom-ref": f"cert:{c.fingerprint_sha256}",

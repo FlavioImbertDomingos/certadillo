@@ -10,14 +10,21 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509 import ocsp
 
 from certadillo.ca.authority import REASONS
+from certadillo.crypto.der import _read_len, split_sequence
 from certadillo.db import Certificate, CertificateAuthority, as_utc
 from certadillo.observability.metrics import OCSP_REQUESTS
 
 
 def _key_bits(pub) -> bytes:
+    """The subjectPublicKey BIT STRING contents that RFC 6960 issuerKeyHash
+    covers. Read from the SubjectPublicKeyInfo so it works for every key type,
+    ML-DSA included, not only EC and RSA."""
     if isinstance(pub, ec.EllipticCurvePublicKey):
         return pub.public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
-    return pub.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.PKCS1)
+    spki = pub.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+    bit_string = split_sequence(spki)[1]
+    _, pos = _read_len(bit_string, 1)
+    return bit_string[pos + 1:]  # skip the unused-bits octet
 
 
 def _hash(alg: hashes.HashAlgorithm, data: bytes) -> bytes:

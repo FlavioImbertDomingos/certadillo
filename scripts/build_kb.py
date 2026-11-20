@@ -41,6 +41,7 @@ PAGES = [
     ("revocation", "guide/11-revocation.md", "Operate", "Revocation: OCSP and CRL", "revocation"),
     ("campaigns", "guide/19-renewal-campaigns.md", "Operate", "Renewal campaigns (ARI)", "ari"),
     ("offline-root", "guide/26-offline-root.md", "Operate", "Offline root ceremony", "offlineroot"),
+    ("post-quantum", "guide/27-post-quantum.md", "Operate", "Post-quantum and agility drills", None),
     ("upstream-issuers", "guide/24-upstream-issuers.md", "Operate", "Upstream issuers", "upstream"),
     ("policy-tree", "guide/23-policy-tree.md", "Operate", "The policy tree", "policytree"),
     ("push-provisioning", "guide/22-push-provisioning.md", "Operate", "Push provisioning", "provision"),

@@ -32,6 +32,7 @@ Pick the protocol your client already speaks. They all go through the same onboa
 
 - [Revocation: OCSP and CRL](11-revocation.md)
 - [Renewal campaigns: planned early renewal before a mass revocation](19-renewal-campaigns.md)
+- [Post-quantum: ML-DSA certificates and the crypto-agility drill](27-post-quantum.md)
 - [Offline root ceremony: the root key never on the server](26-offline-root.md)
 - [Upstream issuers: Let's Encrypt and other ACME CAs, DigiCert, AWS Private CA, EJBCA](24-upstream-issuers.md)
 - [The policy tree: folders with inherited and locked settings](23-policy-tree.md)

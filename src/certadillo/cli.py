@@ -273,9 +273,12 @@ def ca_ceremony_policy(name, parent, init_):
 @click.option("--name", required=True, help="new CA name, e.g. issuing-ca-2")
 @click.option("--parent", default="root-ca", show_default=True)
 @click.option("--years", default=5, show_default=True, type=int)
+@click.option("--alg", default="ec-p384", show_default=True,
+              type=click.Choice(["ec-p256", "ec-p384", "rsa-3072", "rsa-4096", "ml-dsa-65", "ml-dsa-87"]),
+              help="key algorithm of the new CA; ml-dsa-* makes a post-quantum CA (software keys only for now)")
 @click.option("--operator", required=True, help="the person running the ceremony")
 @click.option("--witness", required=True, help="the second person present")
-def ca_create_issuing(name, parent, years, operator, witness):
+def ca_create_issuing(name, parent, years, alg, operator, witness):
     """Key ceremony: create a new issuing CA signed by PARENT.
 
     Run it from an admin workstation with a short-lived ceremony token
@@ -298,13 +301,16 @@ def ca_create_issuing(name, parent, years, operator, witness):
         if parent_ca.signer_type == "offline":
             raise click.ClickException(f"{parent} is an offline root; use `certadillo ca offline-csr` and "
                                        "`ca import-issuing` instead")
-        new = p.ca.create_subordinate(parent_ca, name, years=years)
+        try:
+            new = p.ca.create_subordinate(parent_ca, name, years=years, alg=alg)
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from None
         p.ca.generate_crl(new)
         record(p.s, f"ceremony:{operator}", "ca.create", name,
                {"parent": parent, "operator": operator, "witness": witness, "key_ref": new.key_ref,
-                "signer": new.signer_type})
+                "signer": new.signer_type, "alg": alg})
         p.commit()
-        out = {"created": name, "parent": parent, "key_ref": new.key_ref, "signer": new.signer_type}
+        out = {"created": name, "parent": parent, "key_ref": new.key_ref, "signer": new.signer_type, "alg": alg}
     click.echo(json.dumps(out))
 
 
@@ -320,7 +326,7 @@ def _ceremony(fn):
 @ca.command("offline-csr")
 @click.option("--name", required=True, help="the new issuing CA, e.g. issuing-ca-1")
 @click.option("--alg", default="ec-p384", show_default=True,
-              type=click.Choice(["ec-p256", "ec-p384", "rsa-3072", "rsa-4096"]))
+              type=click.Choice(["ec-p256", "ec-p384", "rsa-3072", "rsa-4096", "ml-dsa-65", "ml-dsa-87"]))
 @click.option("--operator", required=True)
 @click.option("--witness", required=True)
 @click.option("--out", type=click.Path(dir_okay=False, path_type=Path), help="write the CSR here (default: stdout)")
@@ -403,7 +409,8 @@ _DIR = click.option("--dir", "directory", required=True, type=click.Path(file_ok
 @_DIR
 @click.option("--org", required=True, help="organization name for the root's subject")
 @click.option("--years", default=20, show_default=True, type=int)
-@click.option("--alg", default="ec-p384", show_default=True, type=click.Choice(["ec-p384", "rsa-4096"]))
+@click.option("--alg", default="ec-p384", show_default=True,
+              type=click.Choice(["ec-p384", "rsa-4096", "ml-dsa-65", "ml-dsa-87"]))
 @_PW
 def offline_root_init(directory, org, years, alg, passphrase_file):
     """Create the root key (encrypted) and its self-signed certificate."""
@@ -760,7 +767,14 @@ def _key_and_csr(cn, sans, spiffe_id, key_type):
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import ec, rsa
 
-    key = ec.generate_private_key(ec.SECP256R1()) if key_type == "ec" else rsa.generate_private_key(65537, 3072)
+    from certadillo.crypto.signers import _generate, hash_for
+
+    if key_type == "ec":
+        key = ec.generate_private_key(ec.SECP256R1())
+    elif key_type == "rsa":
+        key = rsa.generate_private_key(65537, 3072)
+    else:
+        key = _generate(key_type)  # ml-dsa-65, ml-dsa-87
     names = [x509.DNSName(s) for s in sans]
     if spiffe_id:
         names.append(x509.UniformResourceIdentifier(spiffe_id))
@@ -769,7 +783,7 @@ def _key_and_csr(cn, sans, spiffe_id, key_type):
     )
     if names:
         b = b.add_extension(x509.SubjectAlternativeName(names), critical=False)
-    csr = b.sign(key, hashes.SHA256())
+    csr = b.sign(key, hash_for(key, hashes.SHA256()))
     key_pem = key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
     return key_pem, csr.public_bytes(serialization.Encoding.PEM).decode()
 
@@ -796,7 +810,8 @@ def _write(out: Path, key_pem: bytes, data: dict):
 @click.option("--cn")
 @click.option("--san", multiple=True)
 @click.option("--spiffe-id")
-@click.option("--key-type", type=click.Choice(["ec", "rsa"]), default="ec")
+@click.option("--key-type", type=click.Choice(["ec", "rsa", "ml-dsa-65", "ml-dsa-87"]), default="ec",
+              help="ml-dsa-* needs a profile that allows ML-DSA, such as tls-server-pq")
 @click.option("--days", type=int)
 @click.option("--out", type=click.Path(path_type=Path), default=Path("."))
 def cert_request(server, api_key, api_key_file, cn, san, spiffe_id, key_type, days, out):
@@ -855,7 +870,11 @@ def cert_renew(server, api_key, api_key_file, directory, fraction, force):
         dns, uris = [], []
     from cryptography.hazmat.primitives.asymmetric import ec
 
-    key_type = "ec" if isinstance(current.public_key(), ec.EllipticCurvePublicKey) else "rsa"
+    from certadillo.crypto.signers import ml_dsa_params
+
+    # renew with the same kind of key: EC stays EC, ML-DSA stays at its parameter set
+    key_type = ml_dsa_params(current.public_key()) or (
+        "ec" if isinstance(current.public_key(), ec.EllipticCurvePublicKey) else "rsa")
     key_pem, csr = _key_and_csr(cn_attr[0].value if cn_attr else None, dns, uris[0] if uris else None, key_type)
     r = _client(server, api_key).post(f"/api/v1/certificates/{meta['id']}/renew", json={"csr_pem": csr})
     if r.status_code != 201:
@@ -863,6 +882,91 @@ def cert_renew(server, api_key, api_key_file, directory, fraction, force):
         sys.exit(1)
     _write(directory, key_pem, r.json())
     click.echo(f"renewed: serial {r.json()['serial']} valid until {r.json()['not_after']}")
+
+
+@main.group()
+def drill():
+    """Crypto-agility drills: move certificates to a new issuing CA and time it."""
+
+
+def _drill_summary(st: dict) -> str:
+    c = st["counts"]
+    lines = [f"drill {st['id']} {st['name']!r} -> {st['target_ca']} ({st['status']})",
+             f"  moved {c['moved']} of {c['total'] - c['gone']} ({st['progress']:.0%}); "
+             f"remaining {c['remaining']}, replaced by another CA {c['elsewhere']}, gone {c['gone']}",
+             "  time to " + ", ".join(f"{k} {_dur(v)}" for k, v in st["time_to_seconds"].items())]
+    for b in st["blocked"]:
+        lines.append(f"  blocked: {b['app'] or '(no app)'} would renew from {b['next_ca']} "
+                     f"({b['set_by']}), {b['certificates']} certificate(s)")
+    if st["overdue"]:
+        lines.append(f"  overdue: the renewal window ended {st['renew_by']}")
+    return "\n".join(lines)
+
+
+def _dur(seconds) -> str:
+    if seconds is None:
+        return "-"
+    seconds = int(seconds)
+    h, rem = divmod(seconds, 3600)
+    return f"{h}h{rem // 60:02d}m" if h else f"{rem // 60}m{rem % 60:02d}s"
+
+
+@drill.command("start")
+@click.option("--name", required=True)
+@click.option("--target", "target_ca", required=True, help="the issuing CA to move to, e.g. issuing-pq-1")
+@click.option("--source", "source_cas", multiple=True, help="CA to move away from (repeatable; default: all others)")
+@click.option("--hours", "renew_within_hours", default=72, show_default=True, type=int,
+              help="renewal window advertised through ARI")
+@click.option("--immediate", is_flag=True, help="ask every client to renew on its next check")
+@click.option("--operator", required=True, help="who is running the drill (goes into the audit trail)")
+def drill_start(name, target_ca, source_cas, renew_within_hours, immediate, operator):
+    """Freeze the set of certificates to move and open the renewal campaign."""
+    from certadillo.ca import agility
+    from certadillo.runtime import init_runtime
+    from certadillo.services import Actor, NotFound
+
+    with init_runtime().platform() as p:
+        try:
+            d = p.start_drill(Actor(f"cli:{operator}", "admin"), name, target_ca, list(source_cas) or None,
+                              renew_within_hours, immediate)
+        except (ValueError, LookupError, NotFound) as exc:
+            raise click.ClickException(str(exc)) from None
+        p.commit()
+        click.echo(_drill_summary(agility.status(p, d)))
+
+
+@drill.command("status")
+@click.argument("drill_id", type=int)
+@click.option("--json", "as_json", is_flag=True)
+def drill_status(drill_id, as_json):
+    """Progress, time to 50/90/99/100%, and what is holding the rest back."""
+    from certadillo.ca import agility
+    from certadillo.db import AgilityDrill
+    from certadillo.runtime import init_runtime
+
+    with init_runtime().platform() as p:
+        d = p.s.get(AgilityDrill, drill_id)
+        if d is None:
+            raise click.ClickException(f"no drill {drill_id}")
+        st = agility.status(p, d)
+        click.echo(json.dumps(st, indent=2) if as_json else _drill_summary(st))
+
+
+@drill.command("close")
+@click.argument("drill_id", type=int)
+@click.option("--operator", required=True)
+def drill_close(drill_id, operator):
+    """Keep the final numbers and close the drill's renewal campaign."""
+    from certadillo.runtime import init_runtime
+    from certadillo.services import Actor, NotFound
+
+    with init_runtime().platform() as p:
+        try:
+            st = p.close_drill(Actor(f"cli:{operator}", "admin"), drill_id)
+        except (ValueError, LookupError, NotFound) as exc:
+            raise click.ClickException(str(exc)) from None
+        p.commit()
+        click.echo(_drill_summary(st))
 
 
 if __name__ == "__main__":

@@ -37,6 +37,10 @@ Authenticate with `X-API-Key: <key>` or `Authorization: Bearer <key>`. Errors ar
 | `GET` | `/api/v1/renewal-campaigns/{campaign_id}` | admin, operator, approver, auditor | campaign status by certificate and team |
 | `POST` | `/api/v1/renewal-campaigns/{campaign_id}/revoke-replaced` | admin, operator | revoke certificates that have a successor |
 | `POST` | `/api/v1/renewal-campaigns/{campaign_id}/revoke-remaining` | admin, operator | request the cutoff for the rest (dual control) |
+| `GET` | `/api/v1/agility-drills` | admin, operator, approver, auditor | list drills with progress and time to 50/90/99/100% |
+| `POST` | `/api/v1/agility-drills` | admin, operator | start a crypto-agility drill (`target_ca`, `source_cas`, `renew_within_hours`) |
+| `GET` | `/api/v1/agility-drills/{drill_id}` | admin, operator, approver, auditor | drill status by certificate, with blocked apps |
+| `POST` | `/api/v1/agility-drills/{drill_id}/close` | admin, operator | close a drill, keep its numbers, close its campaign |
 | `POST` | `/api/v1/renewal-campaigns/{campaign_id}/close` | admin, operator | close a campaign; its windows stop applying |
 | `POST` | `/api/v1/adcs/audit/import` | admin, operator | audit an Export-CertadilloAdcsTemplates document |
 | `POST` | `/api/v1/adcs/audit/ldap` | admin, operator | audit the live directory over LDAP (CERTADILLO_ADCS_LDAP_*) |
@@ -51,7 +55,7 @@ Authenticate with `X-API-Key: <key>` or `Authorization: Bearer <key>`. Errors ar
 | `POST` | `/api/v1/discovery/scan` | admin, operator | scan TLS endpoints into the inventory |
 | `POST` | `/api/v1/inventory/import` | admin, operator | import PEM certificates |
 | `GET` | `/api/v1/cas` | admin, operator, approver, auditor | list CAs |
-| `POST` | `/api/v1/cas` | admin | request a subordinate CA (dual control) |
+| `POST` | `/api/v1/cas` | admin | request a subordinate CA (dual control; `alg` may be ml-dsa-65 or ml-dsa-87) |
 | `POST` | `/api/v1/cas/{name}/crl` | admin | publish a CRL signed in the offline ceremony for an offline root |
 | `GET` | `/api/v1/issuers` | admin, operator, approver, auditor | every CA that can sign: local CAs, AD CS, Vault PKI, upstream issuers; routing and counts, no credentials |
 | `GET` | `/api/v1/cas/keys` | admin, operator, auditor | where each CA key lives and whether it is reachable and intact (live check for Vault keys) |

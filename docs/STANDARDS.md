@@ -56,5 +56,5 @@ Which requirement each part of Certadillo covers. "Partial" means the platform s
 | SP 800-53 Rev 5 SI-4 system monitoring | Metrics, alerts, Prometheus rules | Done |
 | SP 800-207 zero trust | Workload identity (SPIFFE), short-lived mTLS certificates | Partial |
 | FIPS 140-3 | Delegated to the HSM (Level 3 appliances) | Depends on HSM |
-| FIPS 203 / 204 / 205 (ML-KEM, ML-DSA, SLH-DSA) | ML-DSA and SLH-DSA OIDs recognised in inventory; issuance waits for pyca/cryptography support | Partial |
+| FIPS 203 / 204 / 205 (ML-KEM, ML-DSA, SLH-DSA) | ML-DSA-65 and ML-DSA-87 issuing CAs, offline roots and leaf certificates, CRLs and OCSP (software keys); ML-DSA-44 accepted in requests; SLH-DSA OIDs recognised in inventory; ML-KEM not used (no TLS termination here) | Partial |
 | NIST IR 8547 (draft) PQC transition: RSA/ECC deprecated after 2030, disallowed after 2035 | Crypto report flags CAs and certificates that cross those dates | Done |

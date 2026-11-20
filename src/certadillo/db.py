@@ -305,6 +305,26 @@ class RenewalAdvice(Base):
     revoked_by_campaign: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
+class AgilityDrill(Base):
+    """A crypto-agility drill: move a set of certificates to a new issuing CA
+    (for example an ML-DSA one) and measure how long the estate takes to get
+    there. The set is frozen when the drill starts so the percentage means
+    the same thing from start to finish."""
+
+    __tablename__ = "agility_drills"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    target_ca: Mapped[str] = mapped_column(String(120))
+    source_cas: Mapped[list[str]] = mapped_column(JSON, default=list)
+    certificate_ids: Mapped[list[int]] = mapped_column(JSON, default=list)
+    campaign_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="running")  # running | closed
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    result: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)  # final status, kept at close
+    created_by: Mapped[str] = mapped_column(String(120))
+
+
 class ScepTransaction(Base):
     """A SCEP request waiting for a second person (dual-control profiles). The
     client polls with CertPoll (GetCertInitial) until it is approved or rejected."""

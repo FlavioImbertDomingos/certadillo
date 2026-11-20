@@ -524,11 +524,35 @@ async function loadReports() {
       <td>${h ? (h.ok ? pill("ok") : html`${pill("critical")} <span class="err">${h.problems.join("; ")}</span>`) : ""}</td><td>${c.not_after.slice(0, 10)}</td><td class="num">${c.crl_number}</td></tr>`;
     })}</table>`);
   });
+  part403("#drills", loadDrills);
   const r = await api("/api/v1/reports/crypto");
   render($("#crypto"), html`<div class="kpis"><div class="kpi"><b>${r.active_certificates}</b><span>Active certificates</span></div><div class="kpi warn"><b>${r.quantum_vulnerable}</b><span>RSA/ECC (quantum-vulnerable)</span></div><div class="kpi"><b>${r.pqc_signed}</b><span>PQC-signed</span></div><div class="kpi"><b>${r.valid_past_2030_deprecation}</b><span>Valid past 2030</span></div></div>
-  <table><tr><th>CA</th><th>Algorithm</th><th>Key custody</th><th>Expires</th><th>Outlives 2035 cutoff</th></tr>${r.certificate_authorities.map(c => html`<tr><td>${c.ca}</td><td>${c.algorithm}</td><td>${c.signer}</td><td>${c.not_after.slice(0, 10)}</td><td>${c.outlives_2035_cutoff ? pill("warning") : pill("ok")}</td></tr>`)}</table>
+  <table><tr><th>CA</th><th>Algorithm</th><th>Key custody</th><th>Expires</th><th>Outlives 2035 cutoff</th></tr>${r.certificate_authorities.map(c => html`<tr><td>${c.ca}</td><td>${c.algorithm}${c.post_quantum ? html` ${pill("pqc")}` : ""}</td><td>${c.signer}</td><td>${c.not_after.slice(0, 10)}</td><td>${c.outlives_2035_cutoff ? pill("warning") : pill("ok")}</td></tr>`)}</table>
   <h2 class="recs-title">Recommendations</h2><ul>${r.recommendations.map(x => html`<li>${x}</li>`)}</ul>`);
 }
+const dur = s => s == null ? "-" : s < 3600 ? `${Math.floor(s / 60)}m${String(Math.round(s % 60)).padStart(2, "0")}s` : `${Math.floor(s / 3600)}h${String(Math.floor(s % 3600 / 60)).padStart(2, "0")}m`;
+async function loadDrills() {
+  const [cas, drills] = await Promise.all([api("/api/v1/cas"), api("/api/v1/agility-drills")]);
+  render($("#dr-target"), options(cas.filter(c => !c.root), c => c.name, c => c.name));
+  render($("#drills"), drills.length
+    ? html`<table><tr><th>Drill</th><th>Target</th><th>Progress</th><th>Time to 50 / 90 / 100%</th><th>Blocked</th><th></th></tr>${drills.map(d => html`<tr>
+      <td>${d.name}<br><span class="muted">started ${when(d.started_at)} by ${d.created_by}</span></td><td>${d.target_ca}</td>
+      <td><progress max="1" value="${d.progress}"></progress> ${Math.round(d.progress * 100)}%<br><span class="muted">${d.counts.moved} of ${d.counts.total - d.counts.gone} moved${d.counts.elsewhere ? `, ${d.counts.elsewhere} renewed from another CA` : ""}</span></td>
+      <td>${dur(d.time_to_seconds["50%"])} / ${dur(d.time_to_seconds["90%"])} / ${dur(d.time_to_seconds["100%"])}</td>
+      <td>${d.blocked.length ? d.blocked.map(b => html`<div><b>${b.app || "(no app)"}</b> renews from ${b.next_ca} <span class="muted">(${b.set_by})</span></div>`) : html`<span class="muted">none</span>`}</td>
+      <td>${d.status === "running" ? html`${d.overdue ? pill("warning") : pill(d.complete ? "ok" : "running")} <button class="act" data-drill-close="${d.id}">Close</button>` : pill("closed")}</td></tr>`)}</table>`
+    : html`No drills yet. A drill measures how long moving every certificate to a new CA takes, before it has to happen for real.`);
+  document.querySelectorAll("[data-drill-close]").forEach(b => b.onclick = async () => {
+    try { await api(`/api/v1/agility-drills/${b.dataset.drillClose}/close`, {method: "POST"}); loadDrills(); } catch (e) { toast(e.message); }
+  });
+}
+$("#dr-start").onclick = async () => {
+  try {
+    await api("/api/v1/agility-drills", {method: "POST", body: JSON.stringify({name: $("#dr-name").value.trim(), target_ca: $("#dr-target").value,
+      renew_within_hours: parseInt($("#dr-hours").value, 10) || 72})});
+    say("#dr-err", "Drill started.", true); loadDrills();
+  } catch (e) { say("#dr-err", e.message); }
+};
 document.querySelectorAll("[data-dl]").forEach(b => b.onclick = async () => {
   const r = await fetch(b.dataset.dl, {headers: {"X-API-Key": KEY}}); const blob = await r.blob();
   const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = b.dataset.name; a.click();

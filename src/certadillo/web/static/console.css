@@ -86,3 +86,5 @@ label.inline{display:inline;font-weight:400}
 .okmsg{color:var(--teal);white-space:pre-wrap}
 input[type=checkbox]{width:auto;padding:0;margin:0 4px 0 0;vertical-align:middle}
 #fe-rules td{vertical-align:middle}
+.pill.pqc{background:#ede9fe;color:#5b21b6}
+.pill.closed{background:var(--chip);color:var(--muted)}

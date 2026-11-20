@@ -532,8 +532,10 @@ class Platform:
             req.payload = p
         elif req.action == "create_ca":
             parent = self.ca.get(p["parent"])
-            self.ca.create_subordinate(parent, p["name"], years=p.get("years", 5))
-            record(self.s, req.decided_by, "ca.create", p["name"], {"parent": p["parent"], "approval": req.id})
+            alg = p.get("alg", "ec-p384")
+            self.ca.create_subordinate(parent, p["name"], years=p.get("years", 5), alg=alg)
+            record(self.s, req.decided_by, "ca.create", p["name"],
+                   {"parent": p["parent"], "approval": req.id, "alg": alg})
         elif req.action == "add_est_trust_anchor":
             self._add_trust_anchor(req.requested_by, p)
         elif req.action == "policy_change":
@@ -833,6 +835,24 @@ class Platform:
             raise ValueError(f"unknown revocation reason {revocation_reason}")
         return ari.create_campaign(self.s, actor.name, name, reason, criteria, renew_within_hours, explanation_url,
                                    revocation_reason, immediate)
+
+    # ------------------------------------------------------------- crypto-agility drills
+    def start_drill(self, actor: Actor, name: str, target_ca: str, source_cas: list[str] | None = None,
+                    renew_within_hours: int = 72, immediate: bool = False):
+        from certadillo.ca import agility
+
+        actor.require("admin", "operator")
+        return agility.start(self, actor.name, name, target_ca, source_cas, renew_within_hours, immediate)
+
+    def close_drill(self, actor: Actor, drill_id: int) -> dict:
+        from certadillo.ca import agility
+        from certadillo.db import AgilityDrill
+
+        actor.require("admin", "operator")
+        drill = self.s.get(AgilityDrill, drill_id)
+        if drill is None:
+            raise NotFound("drill not found")
+        return agility.close(self, actor.name, drill)
 
     def campaign_revoke(self, actor: Actor, campaign_id: int, which: str, change_ref: str | None = None):
         """which = 'replaced': revoke certificates that already have a successor,

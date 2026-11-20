@@ -46,6 +46,17 @@ def _curves(v):
     return v
 
 
+ML_DSA_SETS = {"ml-dsa-44", "ml-dsa-65", "ml-dsa-87"}
+
+
+def _ml_dsa(v):
+    _list_of_str(v)
+    bad = set(v) - ML_DSA_SETS
+    if bad:
+        raise ValueError(f"unknown ML-DSA parameter sets {sorted(bad)}; use {sorted(ML_DSA_SETS)}")
+    return v
+
+
 def _ca_name(v):
     if not isinstance(v, str) or not v:
         raise ValueError("must be a CA name")
@@ -65,6 +76,7 @@ SETTINGS = {
     "allowed_zones": (_zones, "DNS zones every name an app here may get must fall under"),
     "rsa_min_bits": (_pos_int, "smallest RSA key accepted"),
     "ec_curves": (_curves, "EC curves accepted"),
+    "ml_dsa": (_ml_dsa, "ML-DSA parameter sets accepted (only where the profile allows ML-DSA)"),
     "max_validity_days": (_pos_int, "longest validity; longer requests are refused, defaults are shortened"),
     "issuing_ca": (_ca_name, "the CA that signs for apps here"),
     "dual_control": (_bool, "every issuance needs a second approver"),
@@ -175,6 +187,8 @@ def apply(eff: dict, decision, csr, requested_days: int | None, requested_hours:
                                          f"required by {eff['rsa_min_bits']['folder']}"))
     if "ec_curves" in eff and ktype == "ec" and curve not in eff["ec_curves"]["value"]:
         v.append(("folder_key_curve", f"curve {curve} not allowed by {eff['ec_curves']['folder']}"))
+    if "ml_dsa" in eff and ktype == "ml-dsa" and curve not in eff["ml_dsa"]["value"]:
+        v.append(("folder_key_type", f"{curve.upper()} not allowed by {eff['ml_dsa']['folder']}"))
     if "max_validity_days" in eff:
         cap = timedelta(days=eff["max_validity_days"]["value"])
         if decision.validity > cap:

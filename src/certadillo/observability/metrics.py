@@ -67,6 +67,9 @@ class InventoryCollector:
         )
         alerts = GaugeMetricFamily("certadillo_alerts_active", "Open alerts", labels=["rule", "severity"])
         audit_ok = GaugeMetricFamily("certadillo_audit_chain_valid", "1 when the audit hash chain verifies")
+        drills = GaugeMetricFamily("certadillo_agility_drill_progress_ratio",
+                                   "Share of a running crypto-agility drill's certificates moved to the target CA",
+                                   labels=["drill", "target_ca"])
 
         with self._session_factory() as s:
             apps = {a.id: a for a in s.query(App).all()}
@@ -109,8 +112,13 @@ class InventoryCollector:
             for (rule, sev), n in open_alerts.items():
                 alerts.add_metric([rule, sev], n)
             audit_ok.add_metric([], 1.0 if verify_chain(s)["valid"] else 0.0)
+            from certadillo.ca.agility import progress
+            from certadillo.db import AgilityDrill
 
-        yield from (expiry, lifetime, counts, weak, ca_exp, crl_age, alerts, audit_ok)
+            for d in s.query(AgilityDrill).filter_by(status="running").all():
+                drills.add_metric([d.name, d.target_ca], progress(s, d, now))
+
+        yield from (expiry, lifetime, counts, weak, ca_exp, crl_age, alerts, audit_ok, drills)
 
 
 _registered: InventoryCollector | None = None

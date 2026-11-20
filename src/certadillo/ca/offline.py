@@ -33,6 +33,8 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.x509.oid import ExtensionOID
 
+from certadillo.crypto.signers import hash_for
+
 OFFLINE = "offline"
 _NAME = re.compile(r"[a-z0-9-]{3,60}")
 
@@ -254,11 +256,19 @@ def offline_init(directory: Path, org: str, passphrase: str, years: int = 20, al
     directory.mkdir(parents=True, exist_ok=True)
     if (directory / "root.key.pem").exists():
         raise CeremonyError(f"{directory} already holds a root key")
+    from certadillo.crypto.signers import ML_DSA_CA_ALGS, _generate
+
     key = {"ec-p384": lambda: ec.generate_private_key(ec.SECP384R1()),
            "rsa-4096": lambda: rsa.generate_private_key(65537, 4096)}.get(alg)
+    if key is None and alg in ML_DSA_CA_ALGS:
+        # a post-quantum root: the key stays on the offline machine like any other root key
+        key = lambda: _generate(alg)  # noqa: E731
     if key is None:
-        raise CeremonyError("root key algorithm must be ec-p384 or rsa-4096")
-    key = key()
+        raise CeremonyError(f"root key algorithm must be ec-p384, rsa-4096 or one of {', '.join(ML_DSA_CA_ALGS)}")
+    try:
+        key = key()
+    except ValueError as exc:
+        raise CeremonyError(str(exc)) from None
     pw = _key_pw(passphrase)
     subject = x509.Name([x509.NameAttribute(NameOID.COUNTRY_NAME, country),
                          x509.NameAttribute(NameOID.ORGANIZATION_NAME, org),
@@ -271,7 +281,7 @@ def offline_init(directory: Path, org: str, passphrase: str, years: int = 20, al
             .add_extension(x509.BasicConstraints(ca=True, path_length=1), critical=True)
             .add_extension(_ku(), critical=True)
             .add_extension(x509.SubjectKeyIdentifier.from_public_key(key.public_key()), critical=False)
-            .sign(key, hashes.SHA384()))
+            .sign(key, hash_for(key)))
     fd = os.open(directory / "root.key.pem", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "wb") as fh:
         fh.write(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
@@ -306,7 +316,7 @@ def offline_sign(directory: Path, csr_pem: str, passphrase: str, years: int = 5,
     for ext in csr.extensions:
         if ext.oid == ExtensionOID.NAME_CONSTRAINTS:
             b = b.add_extension(ext.value, critical=True)
-    cert = b.sign(key, hashes.SHA384())
+    cert = b.sign(key, hash_for(key))
     _log(directory / "signed.jsonl", {"event": "sign", "serial": format(cert.serial_number, "x"),
                                       "sha256": _fp(cert), "subject": cert.subject.rfc4514_string(),
                                       "not_after": not_after.isoformat()})
@@ -338,7 +348,7 @@ def offline_crl(directory: Path, passphrase: str, days: int = 180) -> bytes:
             x509.RevokedCertificateBuilder().serial_number(int(e["serial"], 16))
             .revocation_date(datetime.fromisoformat(e["at"]))
             .add_extension(x509.CRLReason(_REASONS[e["reason"]]), critical=False).build())
-    crl = b.sign(key, hashes.SHA384())
+    crl = b.sign(key, hash_for(key))
     (directory / "crlnumber").write_text(f"{number}\n")
     return crl.public_bytes(serialization.Encoding.PEM)
 

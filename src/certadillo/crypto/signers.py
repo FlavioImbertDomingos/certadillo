@@ -18,7 +18,42 @@ from cryptography.hazmat.primitives.asymmetric import ec, ed25519, padding, rsa
 from certadillo.crypto.der import replace_signature, split_sequence, tlv
 from certadillo.observability.metrics import SIGNING_SECONDS
 
-SUPPORTED_ALGS = {"ec-p256", "ec-p384", "rsa-3072", "rsa-4096", "ed25519"}
+try:  # ML-DSA (FIPS 204) arrived in pyca/cryptography 50
+    from cryptography.hazmat.primitives.asymmetric import mldsa
+except ImportError:  # pragma: no cover - older cryptography
+    mldsa = None
+
+# Parameter sets Certadillo issues with: ML-DSA-65 (NIST category 3) and
+# ML-DSA-87 (category 5, the one CNSA 2.0 asks for). ML-DSA-44 is recognised in
+# requests and inventory but not offered for CA keys.
+ML_DSA_CA_ALGS = ("ml-dsa-65", "ml-dsa-87")
+_ML_DSA = {} if mldsa is None else {
+    "ml-dsa-44": (mldsa.MLDSA44PrivateKey, mldsa.MLDSA44PublicKey),
+    "ml-dsa-65": (mldsa.MLDSA65PrivateKey, mldsa.MLDSA65PublicKey),
+    "ml-dsa-87": (mldsa.MLDSA87PrivateKey, mldsa.MLDSA87PublicKey),
+}
+
+SUPPORTED_ALGS = {"ec-p256", "ec-p384", "rsa-3072", "rsa-4096", "ed25519"} | (set(ML_DSA_CA_ALGS) if mldsa else set())
+
+
+def ml_dsa_params(key) -> str | None:
+    """'ml-dsa-65' for an ML-DSA-65 public or private key, None for anything else."""
+    for name, classes in _ML_DSA.items():
+        if isinstance(key, classes):
+            return name
+    return None
+
+
+def signs_whole_message(key) -> bool:
+    """Ed25519 and ML-DSA sign the message itself, with no separate hash
+    algorithm: X.509 builders take None for the hash and the AlgorithmIdentifier
+    has no parameters (RFC 8410, RFC 9881)."""
+    return isinstance(key, (ed25519.Ed25519PrivateKey, ed25519.Ed25519PublicKey)) or ml_dsa_params(key) is not None
+
+
+def hash_for(key, default: hashes.HashAlgorithm | None = None) -> hashes.HashAlgorithm | None:
+    """The hash argument for builder.sign(key, ...) with this key."""
+    return None if signs_whole_message(key) else (default or hashes.SHA384())
 
 
 class Signer(Protocol):
@@ -47,7 +82,9 @@ class SoftwareSigner:
     def private_key(self):
         return self._key
 
-    def sign(self, data: bytes, hash_alg: hashes.HashAlgorithm) -> bytes:
+    def sign(self, data: bytes, hash_alg: hashes.HashAlgorithm | None) -> bytes:
+        if signs_whole_message(self._key):
+            return self._key.sign(data)
         if isinstance(self._key, ec.EllipticCurvePrivateKey):
             return self._key.sign(data, ec.ECDSA(hash_alg))
         return self._key.sign(data, padding.PKCS1v15(), hash_alg)
@@ -75,6 +112,10 @@ def _generate(alg: str):
         return rsa.generate_private_key(65537, 4096)
     if alg == "ed25519":
         return ed25519.Ed25519PrivateKey.generate()
+    if alg in _ML_DSA:
+        return _ML_DSA[alg][0].generate()
+    if alg.startswith("ml-dsa"):
+        raise ValueError(f"{alg} needs pyca/cryptography 50 or later for ML-DSA")
     raise ValueError(f"unsupported algorithm {alg}")
 
 
@@ -158,6 +199,11 @@ class Pkcs11KeyStore:
         return self._token.open(user_pin=self._pin, rw=True)
 
     def generate(self, name: str, alg: str = "ec-p384") -> Pkcs11Signer:
+        if alg.startswith("ml-dsa"):
+            # PKCS#11 3.2 defines CKM_ML_DSA, but python-pkcs11 and most HSM
+            # firmware do not expose it yet. Refuse rather than fall back to software.
+            raise ValueError(f"{alg} keys cannot be generated on a PKCS#11 token yet; create ML-DSA CAs "
+                             "with CERTADILLO_SIGNER=software until the HSM supports PKCS#11 3.2 ML-DSA")
         from pkcs11 import Attribute, KeyType
         from pkcs11.util.ec import encode_named_curve_parameters
 
@@ -205,18 +251,31 @@ def _rsa_spki(pkcs1_der: bytes) -> bytes:
 def _dummy_key(kind: str):
     if kind == "ec":
         return ec.generate_private_key(ec.SECP384R1())
+    if kind == "ed25519":
+        return ed25519.Ed25519PrivateKey.generate()
+    if kind in _ML_DSA:
+        return _ML_DSA[kind][0].generate()
     return rsa.generate_private_key(65537, 2048)
+
+
+def _dummy_kind(pub) -> str:
+    if isinstance(pub, ec.EllipticCurvePublicKey):
+        return "ec"
+    if isinstance(pub, ed25519.Ed25519PublicKey):
+        return "ed25519"
+    return ml_dsa_params(pub) or "rsa"
 
 
 def sign_x509(builder, signer: Signer, hash_alg: hashes.HashAlgorithm | None = None):
     """Sign a CertificateBuilder, CertificateSigningRequestBuilder or CertificateRevocationListBuilder."""
-    hash_alg = hash_alg or hashes.SHA384()
+    hash_alg = hash_for(signer.public_key(), hash_alg)
     start = time.perf_counter()
     try:
         if signer.private_key is not None:
             return builder.sign(signer.private_key, hash_alg)
-        kind = "ec" if isinstance(signer.public_key(), ec.EllipticCurvePublicKey) else "rsa"
-        tmp = builder.sign(_dummy_key(kind), hash_alg)
+        # The throwaway key has the same algorithm (and ML-DSA parameter set),
+        # so the AlgorithmIdentifier in the to-be-signed bytes is the right one.
+        tmp = builder.sign(_dummy_key(_dummy_kind(signer.public_key())), hash_alg)
         if isinstance(tmp, x509.Certificate):
             tbs, load = tmp.tbs_certificate_bytes, x509.load_der_x509_certificate
         elif isinstance(tmp, x509.CertificateSigningRequest):

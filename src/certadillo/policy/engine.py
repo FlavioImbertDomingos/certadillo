@@ -165,6 +165,12 @@ def describe_key(pub) -> tuple[str, int, str]:
         return "ec", pub.curve.key_size, pub.curve.name
     if isinstance(pub, ed25519.Ed25519PublicKey):
         return "ed25519", 256, "ed25519"
+    from certadillo.crypto.signers import ml_dsa_params
+
+    params = ml_dsa_params(pub)
+    if params:
+        # key_size holds the parameter set (44, 65, 87); the third field names it
+        return "ml-dsa", int(params.rsplit("-", 1)[1]), params
     return "unknown", 0, ""
 
 
@@ -310,11 +316,16 @@ class PolicyEngine:
 
         ktype, bits, curve = describe_key(pub)
         allowed = prof.get("allowed_keys", {})
-        if ktype == "rsa" and bits < allowed.get("rsa_min_bits", 2048):
+        if ktype == "rsa" and "rsa_min_bits" not in allowed and allowed.get("ml_dsa"):
+            v.append(("key_type", "RSA keys are not allowed for this profile"))
+        elif ktype == "rsa" and bits < allowed.get("rsa_min_bits", 2048):
             v.append(("key_strength", f"RSA {bits} below minimum {allowed.get('rsa_min_bits')}"))
         elif ktype == "ec" and curve not in allowed.get("ec_curves", []):
             v.append(("key_curve", f"curve {curve} not allowed"))
-        elif ktype not in ("rsa", "ec"):
+        elif ktype == "ml-dsa" and curve not in allowed.get("ml_dsa", []):
+            # opt-in per profile: a client that cannot verify ML-DSA would reject the chain
+            v.append(("key_type", f"{curve.upper()} is not allowed for this profile"))
+        elif ktype not in ("rsa", "ec", "ml-dsa"):
             v.append(("key_type", f"key type {ktype} not allowed for this profile"))
 
         if prof.get("require_new_key_on_renewal") and previous_public_key_fp:

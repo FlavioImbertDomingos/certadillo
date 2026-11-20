@@ -12,6 +12,8 @@ The pieces:
 
 The knowledge base at `/kb` has a 3D walkthrough of a campaign, from the wildcard order to the overdue alert.
 
+To move certificates to a new issuing CA and measure how long it takes, use a [crypto-agility drill](27-post-quantum.md#the-crypto-agility-drill). It opens a campaign like this one and tracks which replacements came from the new CA.
+
 ## Start a campaign
 
 ```bash

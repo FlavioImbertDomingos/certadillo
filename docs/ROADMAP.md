@@ -14,9 +14,9 @@ interface it plugs into so contributors can pick one up.
 | [Security hardening](#security-hardening-from-the-threat-model) | Done except a separate signing service | 9 of 10 |
 | [Phase 7: enterprise CLM features](#phase-7-enterprise-clm-features) | Core features, console, code signing and SSH key discovery done; IIS/NetScaler/Key Vault push, native signing clients, SSH key rotation and follow-ups open | 7 of 14 |
 | [Phase 4: workload identity](#phase-4-workload-identity) | Not started | 0 of 3 |
-| [Phase 5: post-quantum](#phase-5-post-quantum) | Not started | 0 of 4 |
+| [Phase 5: post-quantum](#phase-5-post-quantum) | ML-DSA issuance and the agility drill done; composite certificates and hybrid key exchange tracking open | 2 of 4 |
 | [Phase 6: production hardening](#phase-6-production-hardening) | Not started | 0 of 8 |
-| Total | | 32 of 65 |
+| Total | | 34 of 65 |
 
 Below, every item is marked done (shipped and tested) or open (not built
 yet). GitHub shows them as ticked and empty checkboxes, the knowledge base as
@@ -231,10 +231,21 @@ Smaller follow-ups to the four shipped features:
 
 ## Phase 5: post-quantum
 
-- [ ] ML-DSA-65 / ML-DSA-87 issuance once pyca/cryptography exposes ML-DSA; the signer layer and DER re-signing are already algorithm-agnostic.
+Shipped November 2026, on pyca/cryptography 50. See [Post-quantum](guide/27-post-quantum.md).
+
+- [x] **ML-DSA-65 / ML-DSA-87 issuance.** ML-DSA issuing CAs and offline roots
+  (software keys; an HSM or Vault refuses rather than fall back), ML-DSA leaf
+  keys in profiles that opt in (`tls-server-pq`, or `ml_dsa` in any profile's
+  `allowed_keys`, narrowed per folder), ML-DSA signed CRLs and OCSP responder
+  certificates, the external (HSM-style) signing path, the CLI, the SPIFFE
+  bundle and the CBOM.
 - [ ] Composite ML-DSA + ECDSA certificates (IETF LAMPS drafts) for a transition root.
 - [ ] Hybrid key exchange tracking: collect TLS group support (X25519MLKEM768) during discovery scans and add it to the CBOM.
-- [ ] A crypto-agility drill: rotate the whole estate to a new issuing CA and measure time to 100%.
+- [x] **Crypto-agility drill.** Freeze the certificates of the source CAs,
+  move them to a target CA through an ARI renewal campaign, and report
+  progress, time to 50/90/99/100%, and the folder or profile setting that
+  keeps each blocked application on the old CA. API, CLI (`certadillo
+  drill`), console and a Prometheus gauge.
 
 ## Phase 6: production hardening
 

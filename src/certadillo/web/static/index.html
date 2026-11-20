@@ -200,6 +200,16 @@
   <section id="view-reports" class="hide">
     <div class="card"><h2>Certificate authorities</h2><div id="cas" class="muted"></div></div>
     <div class="card"><h2>Crypto agility and PQC readiness</h2><div id="crypto"></div></div>
+    <details class="card act"><summary><h2>Start a crypto-agility drill</h2></summary>
+      <p class="muted">Freezes every active certificate of the source CAs and asks clients, through ARI and push provisioning, to renew from the target CA. Nothing is revoked.</p>
+      <div class="row">
+        <div><label>Drill name</label><input id="dr-name" placeholder="move to ML-DSA, Q1"></div>
+        <div><label>Target issuing CA</label><select id="dr-target"></select></div>
+        <div><label>Renew within (hours)</label><input id="dr-hours" type="number" min="1" max="720" value="72"></div>
+      </div>
+      <p><button class="primary" id="dr-start">Start drill</button> <span class="err" id="dr-err"></span></p>
+    </details>
+    <div class="card"><h2>Crypto-agility drills</h2><div id="drills" class="muted">Nothing loaded yet.</div></div>
     <div class="card"><h2>Exports</h2>
       <p><button data-dl="/api/v1/reports/cbom" data-name="cbom.cdx.json">CycloneDX CBOM</button>
       <button data-dl="/api/v1/reports/pci-inventory?format=csv" data-name="pci-4.2.1.1-inventory.csv">PCI DSS 4.2.1.1 inventory (CSV)</button>

@@ -45,6 +45,18 @@ profiles:
     allowed_keys: {rsa_min_bits: 2048, ec_curves: [secp256r1, secp384r1]}
     require_new_key_on_renewal: true
 
+  tls-server-pq:
+    description: Post-quantum TLS server certificate with an ML-DSA key (FIPS 204), for clients that verify ML-DSA
+    extended_key_usage: [server_auth]
+    default_validity_days: 30
+    max_validity_days: 90
+    require_dns_san: true
+    allow_wildcard: false
+    # ML-DSA only: a profile is where the decision to serve a post-quantum
+    # chain is made, since a client without ML-DSA support rejects it.
+    allowed_keys: {ml_dsa: [ml-dsa-65, ml-dsa-87]}
+    require_new_key_on_renewal: true
+
   spiffe-svid:
     description: X.509-SVID for workload identity (SPIFFE)
     extended_key_usage: [server_auth, client_auth]
