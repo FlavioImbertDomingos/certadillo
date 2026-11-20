@@ -16,9 +16,9 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509 import ocsp
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DatabaseError
 
-from conftest import ADMIN, APPROVER, issue, make_csr, make_settings, onboard
+from conftest import ADMIN, APPROVER, as_json, drop_audit_guard, issue, make_csr, make_settings, onboard
 from certadillo.db import get_session
 from certadillo.services import hash_key
 
@@ -59,7 +59,7 @@ def rules(client):
 def test_rogue_admin_inserted_in_sql_cannot_log_in(client):
     raw = "cdl_attacker-chosen-key"
     sql("INSERT INTO principals (name, role, key_hash, active, created_by, created_at) "
-        "VALUES ('backdoor', 'admin', :h, 1, 'system', CURRENT_TIMESTAMP)", h=hash_key(raw))
+        "VALUES ('backdoor', 'admin', :h, TRUE, 'system', CURRENT_TIMESTAMP)", h=hash_key(raw))
     assert client.get("/api/v1/teams", headers={"X-API-Key": raw}).status_code == 401
     scan = client.get("/api/v1/integrity", headers=ADMIN).json()
     assert not scan["ok"] and any(p["label"] == "backdoor" for p in scan["problems"])
@@ -142,7 +142,7 @@ def test_tampered_approval_cannot_be_decided(client):
     # the attacker swaps the CSR in the pending request for one of their own
     _, evil = make_csr("attacker-signer", key=ec.generate_private_key(ec.SECP384R1()))
     with get_session() as s:
-        payload = json.loads(s.execute(text("SELECT payload FROM approvals WHERE id = :i"), {"i": appr}).scalar())
+        payload = as_json(s.execute(text("SELECT payload FROM approvals WHERE id = :i"), {"i": appr}).scalar())
     payload["csr_pem"] = evil
     sql("UPDATE approvals SET payload = :p WHERE id = :i", p=json.dumps(payload), i=appr)
     r = client.post(f"/api/v1/approvals/{appr}/approve", headers=APPROVER)
@@ -195,9 +195,9 @@ def test_seal_key_rotation(tmp_path):
 # =========================================================================== append-only audit and anchors
 def test_audit_rows_cannot_be_updated_or_deleted(client):
     onboard(client)
-    with pytest.raises(IntegrityError):
+    with pytest.raises(DatabaseError):
         sql("UPDATE audit_events SET actor = 'nobody'")
-    with pytest.raises(IntegrityError):
+    with pytest.raises(DatabaseError):
         sql("DELETE FROM audit_events")
 
 
@@ -217,8 +217,8 @@ def test_rewritten_history_fails_against_saved_anchors(tmp_path):
             assert verify_against_anchors(s, load_anchors(str(anchors)))["valid"]
 
         # a DB owner drops the guard, edits an old event and recomputes every hash
-        sql("DROP TRIGGER audit_events_no_update")
         with get_session() as s:
+            drop_audit_guard(s)
             prev = GENESIS
             for ev in s.query(AuditEvent).order_by(AuditEvent.id):
                 if ev.id == 2:
@@ -275,7 +275,7 @@ def test_secret_columns_are_encrypted_at_rest(client):
         eab = s.execute(text("SELECT hmac_key_b64, hmac_key_enc FROM acme_eab")).one()
         cmp_ = s.execute(text("SELECT secret_enc FROM cmp_secrets")).scalar()
         team = s.execute(text("SELECT webhook_url, webhook_enc FROM teams WHERE name = 't-hook'")).one()
-    assert eab.hmac_key_b64 == "" and eab.hmac_key_enc.startswith("enc:v1:local:")
+    assert not eab.hmac_key_b64 and eab.hmac_key_enc.startswith("enc:v1:local:")
     assert cmp_.startswith("enc:v1:local:")
     assert team.webhook_url is None and "secret" not in team.webhook_enc
 
@@ -289,13 +289,13 @@ def test_legacy_plaintext_secrets_are_encrypted_at_startup(tmp_path):
         app_id, _ = onboard(c)
         team = c.post("/api/v1/teams", json={"name": "legacy", "contact_email": "l@e.com"}, headers=ADMIN).json()["id"]
     sql("INSERT INTO acme_eab (kid, hmac_key_b64, app_id, used, created_at) "
-        "VALUES ('eab_legacy', 'bGVnYWN5LWtleQ', :a, 0, CURRENT_TIMESTAMP)", a=app_id)
+        "VALUES ('eab_legacy', 'bGVnYWN5LWtleQ', :a, FALSE, CURRENT_TIMESTAMP)", a=app_id)
     sql("UPDATE teams SET webhook_url = 'https://hooks.example/legacy' WHERE id = :t", t=team)
     with TestClient(create_app(make_settings(tmp_path), background=False)):
         with get_session() as s:
             eab = s.execute(text("SELECT hmac_key_b64, hmac_key_enc FROM acme_eab WHERE kid='eab_legacy'")).one()
             t = s.execute(text("SELECT webhook_url, webhook_enc FROM teams WHERE id = :t"), {"t": team}).one()
-        assert eab.hmac_key_b64 == "" and eab.hmac_key_enc.startswith("enc:v1:")
+        assert not eab.hmac_key_b64 and eab.hmac_key_enc.startswith("enc:v1:")
         assert t.webhook_url is None and t.webhook_enc.startswith("enc:v1:")
         from certadillo.crypto.fieldcipher import get_cipher
         from certadillo.runtime import get_runtime

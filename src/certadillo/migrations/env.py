@@ -7,7 +7,7 @@ from __future__ import annotations
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from certadillo.db import Base
+from certadillo.db import Base, autogenerate_filter
 
 target_metadata = Base.metadata
 
@@ -18,6 +18,8 @@ def _configure(connection):
         target_metadata=target_metadata,
         render_as_batch=connection.dialect.name == "sqlite",  # SQLite alters tables by copying them
         compare_type=True,
+        include_object=autogenerate_filter(connection.dialect.name),
+        version_table_schema=context.config.attributes.get("version_table_schema"),
     )
 
 

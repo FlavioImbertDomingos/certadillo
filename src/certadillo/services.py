@@ -326,7 +326,7 @@ class Platform:
             raise Forbidden(f"app is {app.status}")
         kid = "eab_" + secrets.token_hex(8)
         key = base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode()
-        self.s.add(AcmeEab(kid=kid, hmac_key_b64="", hmac_key_enc=self.cipher.encrypt(key), app_id=app_id))
+        self.s.add(AcmeEab(kid=kid, hmac_key_b64=None, hmac_key_enc=self.cipher.encrypt(key), app_id=app_id))
         self.s.flush()
         record(self.s, actor.name, "acme.eab.create", app.name, {"kid": kid})
         return {"kid": kid, "hmac_key": key}

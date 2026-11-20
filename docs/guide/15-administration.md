@@ -94,7 +94,8 @@ All settings are environment variables.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `CERTADILLO_DATA_DIR` | `./.certadillo` | SQLite file, software keys |
-| `CERTADILLO_DB_URL` | SQLite in the data dir | e.g. `postgresql+psycopg://user:pass@host/certadillo` |
+| `CERTADILLO_DB_URL` | SQLite in the data dir | `postgresql+psycopg://user:pass@host/certadillo`, or `oracle+oracledb://user:pass@host:1521/?service_name=PDB1` |
+| `CERTADILLO_DB_SCHEMA` | | the schema that owns the tables, when the app connects as a separate restricted user (Oracle `CURRENT_SCHEMA`, PostgreSQL `search_path`) |
 | `CERTADILLO_DB_AUTO_MIGRATE` | `true` | upgrade the schema at start-up; `false` refuses to start on an out-of-date schema, for deployments that run `certadillo db migrate` as their own step |
 | `CERTADILLO_BASE_URL` | `http://localhost:8080` | written into AIA and CDP URLs; set to the public HTTPS name |
 | `CERTADILLO_ORG_NAME` | `Example Bank` | O= in CA and leaf subjects |
@@ -156,9 +157,9 @@ All settings are environment variables.
 
 ## Schema upgrades
 
-The schema is versioned with Alembic. Each release that changes it ships a migration under `src/certadillo/migrations/versions/`, and CI checks on SQLite and PostgreSQL that running every migration gives exactly the tables the code expects.
+The schema is versioned with Alembic. Each release that changes it ships a migration under `src/certadillo/migrations/versions/`, and CI checks on SQLite, PostgreSQL 16 and Oracle Database 23 that running every migration gives exactly the tables the code expects.
 
-By default the server upgrades its own schema at start-up. With several replicas, one takes a PostgreSQL advisory lock and migrates while the others wait. For a production rollout, migrate as a separate step with the owner credential and start the new version with `CERTADILLO_DB_AUTO_MIGRATE=false`, so a replica never runs DDL:
+By default the server upgrades its own schema at start-up. With several replicas on PostgreSQL, one takes an advisory lock and migrates while the others wait; on Oracle, run `db migrate` as its own step instead. For a production rollout, migrate as a separate step with the owner credential and start the new version with `CERTADILLO_DB_AUTO_MIGRATE=false`, so a replica never runs DDL:
 
 ```bash
 certadillo db status    # {"current": "0001", "head": "0001", "up_to_date": true}; exits 1 when behind
@@ -176,13 +177,48 @@ alembic revision --autogenerate -m "add foo to bar"
 
 Read the generated file before committing it: autogenerate misses renames and data changes.
 
+## Oracle Database
+
+Certadillo runs on Oracle Database 19c and later (CI uses Oracle Database 23ai Free) through python-oracledb in thin mode, so no Instant Client is needed; the container image includes the driver. The differences from PostgreSQL are handled in the model and do not need configuration:
+
+| Topic | On Oracle |
+| --- | --- |
+| Timestamps | `TIMESTAMP WITH TIME ZONE`, never `DATE`, which would drop the microseconds the audit hash covers |
+| JSON columns | stored as text, so numbers come back exactly as written and seals and the audit hash stay stable |
+| Primary keys | identity columns |
+| Empty strings | never written to NOT NULL columns (Oracle stores `''` as NULL) |
+| Audit appends | serialized with `LOCK TABLE audit_events IN EXCLUSIVE MODE` (readers are not blocked) |
+| Append-only guard | a row trigger refuses UPDATE and DELETE, and a schema DDL trigger refuses TRUNCATE |
+
+Use one schema owner for the tables and a separate application user:
+
+```bash
+# once, as a DBA
+CREATE USER certadillo_owner IDENTIFIED BY "..." QUOTA UNLIMITED ON users;
+GRANT CREATE SESSION, CREATE TABLE, CREATE TRIGGER, CREATE SEQUENCE TO certadillo_owner;
+CREATE USER certadillo_app IDENTIFIED BY "...";
+GRANT CREATE SESSION TO certadillo_app;
+
+# as the owner: create or upgrade the schema, then grant the app user what it needs
+export CERTADILLO_DB_URL='oracle+oracledb://certadillo_owner:...@db:1521/?service_name=PKIPDB'
+certadillo db migrate
+certadillo db harden --app-role certadillo_app
+
+# the application connects as the app user and works in the owner's schema
+CERTADILLO_DB_URL='oracle+oracledb://certadillo_app:...@db:1521/?service_name=PKIPDB'
+CERTADILLO_DB_SCHEMA=CERTADILLO_OWNER
+CERTADILLO_DB_AUTO_MIGRATE=false
+```
+
+Oracle has no default privileges for future tables, so run `db harden` again after a `db migrate` that adds tables.
+
 ## Database hardening
 
 See [the threat model](../THREAT_MODEL.md) for why these exist.
 
 Integrity seals. Principals, approvals and certificate status carry an HMAC over their security-relevant fields, keyed with `CERTADILLO_SEAL_KEY` (or a key derived from the passphrase). Every change the application makes reseals the row. A change made directly in SQL does not, and the row is treated as tampered. The first start after an upgrade seals existing rows once and writes `integrity.epoch` into the data directory; from then on a missing seal counts as tampering. `certadillo integrity check` lists problems. Rotate the key by setting the old one as `CERTADILLO_SEAL_KEY_PREVIOUS`, running `certadillo integrity reseal`, then removing it.
 
-Append-only audit table. Triggers refuse UPDATE, DELETE and TRUNCATE on `audit_events` (SQLite and PostgreSQL). On PostgreSQL, split the roles so the application's credential cannot drop them:
+Append-only audit table. Triggers refuse UPDATE, DELETE and TRUNCATE on `audit_events` (SQLite, PostgreSQL and Oracle). On PostgreSQL (and on Oracle, as shown above), split the roles so the application's credential cannot drop them:
 
 ```bash
 # once, as a superuser: an owner role for schema changes and a restricted role for the app

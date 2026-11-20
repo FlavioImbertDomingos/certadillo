@@ -619,12 +619,11 @@ def db_migrate():
     guards. Run with the owner credential in CERTADILLO_DB_URL before starting
     a new version; replicas started with CERTADILLO_DB_AUTO_MIGRATE=false wait
     for it. A database made before migrations existed is adopted in place."""
-    from sqlalchemy import create_engine
 
     from certadillo import db as dbm
     from certadillo.config import get_settings
 
-    engine = create_engine(get_settings().db_url, future=True)
+    engine = dbm.make_engine(get_settings().db_url, get_settings().db_schema)
     result = dbm.migrate(engine)
     click.echo(json.dumps({**result, "audit_guards": dbm.install_audit_guards(engine)}))
 
@@ -632,56 +631,35 @@ def db_migrate():
 @db.command("status")
 def db_status():
     """The schema revision the database is at and the one this version needs."""
-    from sqlalchemy import create_engine
 
     from certadillo import db as dbm
     from certadillo.config import get_settings
 
-    st = dbm.schema_status(create_engine(get_settings().db_url, future=True))
+    st = dbm.schema_status(dbm.make_engine(get_settings().db_url, get_settings().db_schema))
     click.echo(json.dumps(st))
     if not st["up_to_date"]:
         sys.exit(1)
 
 
 @db.command("harden")
-@click.option("--app-role", required=True, help="the PostgreSQL role the application connects as")
+@click.option("--app-role", required=True, help="the database role or user the application connects as")
 def db_harden(app_role):
-    """PostgreSQL: give the application role only the rights it needs, and no
-    UPDATE, DELETE or TRUNCATE on audit_events. Run as the table owner (the
-    migration role). The application then connects as --app-role, which cannot
-    drop the audit triggers because it does not own the table."""
-    import re
-
-    from sqlalchemy import text
-
+    """Give the application role only the rights it needs, and no UPDATE,
+    DELETE or TRUNCATE on audit_events (PostgreSQL and Oracle). Run as the
+    table owner (the migration role). The application then connects as
+    --app-role, which cannot drop the audit triggers because it does not own
+    the table. On Oracle, rerun after every `db migrate` that adds tables, and
+    start the app with CERTADILLO_DB_SCHEMA set to the owner."""
     from certadillo import db as dbm
     from certadillo.config import get_settings
 
-    if not re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", app_role):
-        raise click.ClickException("role names are lowercase letters, digits and underscores")
-    engine = dbm.init_db(get_settings().db_url)
-    if engine.dialect.name != "postgresql":
-        raise click.ClickException("db harden is for PostgreSQL")
-    r = f'"{app_role}"'
-    with engine.begin() as conn:
-        if not conn.execute(text("SELECT 1 FROM pg_roles WHERE rolname = :r"), {"r": app_role}).first():
-            raise click.ClickException(f"role {app_role} does not exist; create it first (CREATE ROLE {app_role} "
-                                       "LOGIN PASSWORD '...'), then rerun")
-        owner = conn.execute(text("SELECT tableowner FROM pg_tables WHERE tablename = 'audit_events'")).scalar()
-        if owner == app_role:
-            raise click.ClickException(f"{app_role} owns the tables; the application role must not be the owner. "
-                                       "Run this as a separate owner role and point the app at the restricted role")
-        for stmt in (
-            f"GRANT USAGE ON SCHEMA public TO {r}",
-            f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {r}",
-            f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {r}",
-            f"REVOKE UPDATE, DELETE, TRUNCATE ON audit_events FROM {r}",
-            f"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {r}",
-            f"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO {r}",
-        ):
-            conn.execute(text(stmt))
-    click.echo(json.dumps({"hardened": True, "owner": owner, "app_role": app_role,
-                           "audit_events": "SELECT, INSERT only for the app role"}))
+    engine = dbm.make_engine(get_settings().db_url)
+    dbm.migrate(engine)
+    dbm.install_audit_guards(engine)
+    try:
+        click.echo(json.dumps(dbm.harden(engine, app_role)))
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from None
 
 
 @main.group()

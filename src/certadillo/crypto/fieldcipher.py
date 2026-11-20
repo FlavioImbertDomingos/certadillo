@@ -125,7 +125,7 @@ def backfill_encrypted_fields(platform) -> dict:
         s = platform.s
         for e in s.query(AcmeEab).filter(AcmeEab.hmac_key_enc.is_(None)):
             if e.hmac_key_b64:
-                e.hmac_key_enc, e.hmac_key_b64 = cipher.encrypt(e.hmac_key_b64), ""
+                e.hmac_key_enc, e.hmac_key_b64 = cipher.encrypt(e.hmac_key_b64), None
                 done["eab"] += 1
         for t in s.query(Team).filter(Team.webhook_enc.is_(None), Team.webhook_url.isnot(None)):
             t.webhook_enc, t.webhook_url = cipher.encrypt(t.webhook_url), None

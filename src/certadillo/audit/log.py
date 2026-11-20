@@ -40,9 +40,13 @@ def _digest(prev: str, ts: datetime, actor: str, action: str, target: str, detai
 
 def record(session, actor: str, action: str, target: str, details: dict | None = None) -> AuditEvent:
     details = json.loads(json.dumps(details or {}, default=str))
-    if session.get_bind().dialect.name == "postgresql":
-        # serialize chain appends across replicas until this transaction ends
+    dialect = session.get_bind().dialect.name
+    # serialize chain appends across replicas until this transaction ends
+    if dialect == "postgresql":
         session.execute(text("SELECT pg_advisory_xact_lock(7243901)"))
+    elif dialect == "oracle":
+        # readers are not blocked; a second writer waits for this commit
+        session.execute(text("LOCK TABLE audit_events IN EXCLUSIVE MODE"))
     with _lock:
         last = session.query(AuditEvent).order_by(AuditEvent.id.desc()).first()
         prev = last.hash if last else GENESIS

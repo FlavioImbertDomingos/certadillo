@@ -48,9 +48,14 @@ jobs:
           docker run --rm -v "$PWD/deploy/alertmanager:/a" --entrypoint amtool prom/alertmanager:v0.28.1 check-config /a/alertmanager.yml
 
   databases:
-    # the migrations must build exactly the model on each production database
+    # the whole suite on each production database, plus the migration and
+    # least-privilege checks that only make sense on a server
     runs-on: ubuntu-latest
     needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        db: [postgres, oracle]
     services:
       postgres:
         image: postgres:16-alpine
@@ -61,6 +66,19 @@ jobs:
         ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U cdl" --health-interval 5s --health-timeout 5s --health-retries 20
+      oracle:
+        image: gvenzl/oracle-free:23-slim-faststart
+        env:
+          ORACLE_PASSWORD: system-pw
+          APP_USER: cdl
+          APP_USER_PASSWORD: cdl
+        ports: ["1521:1521"]
+        options: >-
+          --health-cmd healthcheck.sh --health-interval 10s --health-timeout 5s --health-retries 30
+    env:
+      CERTADILLO_TEST_PG_URL: postgresql+psycopg://cdl:cdl@localhost:5432/cdl
+      CERTADILLO_TEST_ORACLE_URL: oracle+oracledb://cdl:cdl@localhost:1521/?service_name=FREEPDB1
+      CERTADILLO_TEST_ORACLE_SYSTEM_URL: oracle+oracledb://system:system-pw@localhost:1521/?service_name=FREEPDB1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -68,11 +86,14 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
-      - run: pip install -e ".[dev,postgres]"
-      - name: Migrations against PostgreSQL 16
-        env:
-          CERTADILLO_TEST_PG_URL: postgresql+psycopg://cdl:cdl@localhost:5432/cdl
-        run: pytest tests/test_migrations.py
+      - run: pip install -e ".[dev,postgres,oracle]"
+      - name: Migrations and db harden
+        run: pytest tests/test_migrations.py tests/test_db_harden.py
+      - name: Full suite on ${{ matrix.db }}
+        run: |
+          if [ "${{ matrix.db }}" = postgres ]; then export CERTADILLO_TEST_DB_URL="$CERTADILLO_TEST_PG_URL";
+          else export CERTADILLO_TEST_DB_URL="$CERTADILLO_TEST_ORACLE_URL"; fi
+          pytest
 
   interop:
     runs-on: ubuntu-latest

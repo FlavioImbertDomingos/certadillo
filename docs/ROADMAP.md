@@ -15,8 +15,8 @@ interface it plugs into so contributors can pick one up.
 | [Phase 7: enterprise CLM features](#phase-7-enterprise-clm-features) | Core features, console, code signing and SSH key discovery done; IIS/NetScaler/Key Vault push, native signing clients, SSH key rotation and follow-ups open | 7 of 14 |
 | [Phase 4: workload identity](#phase-4-workload-identity) | Not started | 0 of 3 |
 | [Phase 5: post-quantum](#phase-5-post-quantum) | ML-DSA issuance and the agility drill done; composite certificates and hybrid key exchange tracking open | 2 of 4 |
-| [Phase 6: production hardening](#phase-6-production-hardening) | Alembic migrations done; the rest open | 1 of 8 |
-| Total | | 35 of 65 |
+| [Phase 6: production hardening](#phase-6-production-hardening) | Alembic migrations and Oracle Database support done; the rest open | 2 of 8 |
+| Total | | 36 of 65 |
 
 Below, every item is marked done (shipped and tested) or open (not built
 yet). GitHub shows them as ticked and empty checkboxes, the knowledge base as
@@ -260,12 +260,11 @@ Shipped November 2026, on pyca/cryptography 50. See [Post-quantum](guide/27-post
   migrate as a separate step), adoption of databases made before migrations
   existed, and a CI check that the migrations build exactly the model on
   SQLite and PostgreSQL. See [schema upgrades](guide/15-administration.md#schema-upgrades).
-- [ ] Oracle Database support, for banks that standardize on it. A compile of
-  the schema against SQLAlchemy's Oracle dialect shows the work: a portable
-  JSON column type, `TIMESTAMP WITH TIME ZONE` instead of the `DATE` that
-  `DateTime(timezone=True)` becomes (DATE drops the microseconds the audit hash
-  covers), identity columns for primary keys, no empty strings in NOT NULL
-  columns (Oracle stores '' as NULL), and Oracle versions of the audit lock,
-  the append-only triggers, `add_missing_columns` and `db harden`. Plus a CI
-  job against Oracle Database Free.
+- [x] **Oracle Database support** (November 2026), for banks that standardize
+  on it. Portable JSON (text on Oracle), `TIMESTAMP WITH TIME ZONE`, identity
+  primary keys, no empty strings in NOT NULL columns, an Oracle audit lock and
+  append-only triggers, `db harden` for a separate application user with
+  `CERTADILLO_DB_SCHEMA`, python-oracledb in the image, and a CI job that runs
+  the whole suite on Oracle Database 23ai Free (and on PostgreSQL 16). See
+  [Oracle Database](guide/15-administration.md#oracle-database).
 - [ ] ServiceNow catalog item for self-service onboarding, with the approval recorded in both systems.

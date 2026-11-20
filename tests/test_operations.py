@@ -16,7 +16,7 @@ from certadillo.alerting import evaluator
 from certadillo.alerting.notifiers import JiraNotifier, ServiceNowNotifier, SlackNotifier, WebhookNotifier, Alert
 from certadillo.db import AuditEvent, get_session
 from certadillo.discovery.connectors import KubernetesTLSSecrets, VaultPKIInventory
-from conftest import ADMIN, issue, onboard
+from conftest import ADMIN, drop_audit_guard, issue, onboard
 
 
 def self_signed(cn: str, days_valid: int, days_ago: int = 1, key=None, hash_alg=None):
@@ -145,8 +145,7 @@ def test_ticketing_notifiers():
 
 def test_audit_chain_detects_tampering(client):
     import pytest
-    from sqlalchemy import text
-    from sqlalchemy.exc import IntegrityError
+    from sqlalchemy.exc import DatabaseError
 
     onboard(client)
     assert client.get("/api/v1/audit/verify", headers=ADMIN).json()["valid"]
@@ -154,11 +153,11 @@ def test_audit_chain_detects_tampering(client):
     with get_session() as s:
         ev = s.query(AuditEvent).order_by(AuditEvent.id).offset(2).first()
         ev.details = {**ev.details, "tampered": True}
-        with pytest.raises(IntegrityError):
+        with pytest.raises(DatabaseError):
             s.commit()
     # an attacker with owner rights drops the guard first; the hash chain still catches it
     with get_session() as s:
-        s.execute(text("DROP TRIGGER audit_events_no_update"))
+        drop_audit_guard(s)
         ev = s.query(AuditEvent).order_by(AuditEvent.id).offset(2).first()
         ev.details = {**ev.details, "tampered": True}
         s.commit()

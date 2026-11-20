@@ -15,7 +15,7 @@ ranks the assets and walks the attack paths end to end.
 | RA keys (OCSP responder, SCEP RA, CMP RA) | Same as above | OCSP: say "good" for a revoked certificate. SCEP: decrypt enrollment envelopes. CMP: answer as the RA | Revoke and rotate; limited to what that role can sign |
 | SSH CA key | Software key (known gap) | Log in to any host that trusts it, as any principal | Replace the CA in every `TrustedUserCAKeys` |
 | Admin and approver credentials | API keys (SHA-256 hash in the DB), or tokens from the IdP | Onboard apps, approve dual-control requests, revoke anything | Deactivate and rotate |
-| The database | PostgreSQL | Inventory (a map of the internal estate), approvals, revocation status, the audit trail, encrypted secrets | Restore from backup; integrity is the harder problem |
+| The database | PostgreSQL or Oracle Database | Inventory (a map of the internal estate), approvals, revocation status, the audit trail, encrypted secrets | Restore from backup; integrity is the harder problem |
 | The deploy path | GitHub `main`, the deploy SSH key, the server | Whatever runs in production | Rebuild the host |
 
 The CA keys are the only assets whose loss cannot be undone by rotating a
@@ -64,7 +64,7 @@ Controls:
   certificate against the audit trail's revocation events, and any mismatch
   fires the same alert.
 - Append-only audit table. Triggers reject UPDATE and DELETE on
-  `audit_events`. On PostgreSQL, `certadillo db harden` also moves ownership to
+  `audit_events`. On PostgreSQL and Oracle, `certadillo db harden` also moves ownership to
   a separate migration role and leaves the application role with SELECT and
   INSERT only, so the application's own credential cannot drop the trigger.
 - Anchored audit chain. Once a day the chain head (last event id and hash) is
@@ -230,7 +230,7 @@ integrity.
 | P0 | Encrypted, off-host database backups | Done: `deploy/server/backup.sh` encrypts the database and data volume to age public keys whose private halves stay off the server, ships them with `BACKUP_COPY_CMD`, runs daily; `restore.sh` checks a hash manifest |
 | P0 | Branch protection and signed commits on `main` | GitHub settings; to do |
 | P0 | Application port reachable only through the TLS proxy | `deploy.sh` sets `CERTADILLO_BIND=127.0.0.1` for the Traefik and nginx setups; check with `curl -m5 http://<server-ip>:8080/healthz` from outside (it should not connect) |
-| P1 | Append-only audit table (triggers; role split on PostgreSQL) | Done |
+| P1 | Append-only audit table (triggers; role split on PostgreSQL and Oracle) | Done |
 | P1 | Audit chain anchored off the host, verifiable against saved anchors | Done |
 | P1 | Every audit event shipped off the host (SIEM, S3 Object Lock), signed, with chain-break detection | Done |
 | P1 | Integrity seals on principals, approvals and certificate status, with rollback check | Done |

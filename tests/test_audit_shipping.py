@@ -18,7 +18,7 @@ from sqlalchemy import text
 from certadillo.api.app import create_app, run_audit_shipping, run_housekeeping
 from certadillo.audit import shipping
 from certadillo.db import get_session
-from conftest import ADMIN, issue, make_settings, onboard
+from conftest import ADMIN, drop_audit_guard, issue, make_settings, onboard
 
 
 def _records(path: Path) -> list[dict]:
@@ -80,7 +80,7 @@ def test_history_changed_after_shipping_stops_the_shipper_and_alerts(tmp_path):
         shipped = len(_records(out))
         with get_session() as db:
             # someone with database owner rights drops the guard and rewrites the last event
-            db.execute(text("DROP TRIGGER IF EXISTS audit_events_no_update"))
+            drop_audit_guard(db)
             db.execute(text("UPDATE audit_events SET hash = :h WHERE id = (SELECT MAX(id) FROM audit_events)"),
                        {"h": "f" * 64})
             db.commit()

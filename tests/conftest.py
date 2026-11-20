@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -35,8 +36,57 @@ def softhsm(tmp_path, monkeypatch):
     return lib
 
 
+# Run the suite against a real server database with
+#   CERTADILLO_TEST_DB_URL=postgresql+psycopg://user:pw@localhost/db pytest
+#   CERTADILLO_TEST_DB_URL=oracle+oracledb://user:pw@localhost:1521/?service_name=FREEPDB1 pytest
+# The first settings object made for a data directory starts from an empty
+# schema, like the fresh SQLite file it stands in for; later ones (a restart in
+# the same test) keep the data.
+TEST_DB_URL = os.environ.get("CERTADILLO_TEST_DB_URL")
+_reset_for: set[str] = set()
+
+
+def reset_test_db(url: str) -> None:
+    from sqlalchemy import create_engine
+
+    from certadillo import db as dbm
+
+    engine = create_engine(url)
+    try:
+        dbm.drop_everything(engine)
+    finally:
+        engine.dispose()
+
+
+def drop_audit_guard(session) -> None:
+    """What an attacker with owner rights on the database does first: switch
+    off the append-only guard on audit_events (the hash chain must still
+    catch what follows)."""
+    from sqlalchemy import text
+
+    name = session.get_bind().dialect.name
+    if name == "postgresql":
+        session.execute(text("ALTER TABLE audit_events DISABLE TRIGGER audit_events_append_only"))
+    elif name == "oracle":
+        session.execute(text("ALTER TRIGGER audit_events_append_only DISABLE"))
+    else:
+        session.execute(text("DROP TRIGGER IF EXISTS audit_events_no_update"))
+
+
+def as_json(value):
+    """A JSON column read with raw SQL: text on SQLite and Oracle, already parsed on PostgreSQL."""
+    import json
+
+    return json.loads(value) if isinstance(value, (str, bytes)) else value
+
+
 def make_settings(tmp_path, **kw) -> Settings:
     kw.setdefault("dev_domains", ["bank.internal", "bank.example"])
+    if TEST_DB_URL and "db_url" not in kw:
+        if str(tmp_path) not in _reset_for:
+            reset_test_db(TEST_DB_URL)
+            _reset_for.add(str(tmp_path))
+        kw["db_url"] = TEST_DB_URL
     return Settings(
         data_dir=tmp_path,
         bootstrap_admin_key="admin-key",

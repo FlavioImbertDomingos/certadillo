@@ -33,7 +33,8 @@ def _empty(url):
 
 def _diff(engine):
     with engine.connect() as conn:
-        ctx = MigrationContext.configure(conn, opts={"compare_type": True})
+        ctx = MigrationContext.configure(conn, opts={"compare_type": True,
+                                                     "include_object": db.autogenerate_filter(conn.dialect.name)})
         return compare_metadata(ctx, db.Base.metadata)
 
 
@@ -103,3 +104,23 @@ def test_cli_migrate_and_status(tmp_path, monkeypatch):
     assert '"action": "created"' in r.output and "sqlite triggers" in r.output
     r = run.invoke(cli.main, ["db", "status"])
     assert r.exit_code == 0 and '"up_to_date": true' in r.output
+
+
+def test_0002_turns_empty_eab_plaintext_into_null(url):
+    if url.startswith("oracle"):
+        pytest.skip("Oracle databases start at head; '' is already NULL there")
+    engine = _empty(url)
+    cfg = db._alembic_config()
+    with engine.begin() as conn:
+        cfg.attributes["connection"] = conn
+        command.upgrade(cfg, "0001")
+        conn.execute(text("INSERT INTO teams (id, name, contact_email, created_at) "
+                          "VALUES (1, 't', 't@bank.example', CURRENT_TIMESTAMP)"))
+        conn.execute(text("INSERT INTO apps (id, team_id, name, environment, profile, allowed_domains, data_classification, status, created_by, "
+                          "created_at) VALUES (1, 1, 'a', 'dev', 'tls-server', '[]', 'internal', 'active', 'test', CURRENT_TIMESTAMP)"))
+        conn.execute(text("INSERT INTO acme_eab (kid, hmac_key_b64, hmac_key_enc, app_id, used, created_at) "
+                          "VALUES ('eab_1', '', 'enc:v1:local:x', 1, FALSE, CURRENT_TIMESTAMP)"))
+        command.upgrade(cfg, "0002")
+        assert conn.execute(text("SELECT hmac_key_b64 FROM acme_eab")).scalar() is None
+        command.downgrade(cfg, "0001")
+        assert conn.execute(text("SELECT hmac_key_b64 FROM acme_eab")).scalar() == ""
