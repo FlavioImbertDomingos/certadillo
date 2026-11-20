@@ -73,6 +73,14 @@ Prometheus cannot scrape the service. OCSP, CRL downloads and enrollment are dow
 
 No replica has held the housekeeping lease for 20 minutes, so CRLs are not being re-signed, alerts are not evaluated and push renewals do not run. `GET /api/v1/leaders` shows the last holder and when its lease expired. Usually every replica is failing to reach the database (check `readyz`); a lease left by a crashed replica expires on its own after `CERTADILLO_LEADER_LEASE_CYCLES` cycles. To force a cycle now, `POST /api/v1/alerts/evaluate` runs housekeeping on the replica that receives it.
 
+## RateLimited
+
+A principal reached its request limit, or an app its issuance limit. Check the audit log for that app or principal: a burst of `certificate.issue` events from one app that nobody planned is how a stolen app credential looks, so rotate the credential (`POST /api/v1/apps/{id}/credentials`) and revoke what it issued. A planned mass renewal (a campaign, an agility drill) can hit the issuance limit legitimately; raise `CERTADILLO_ISSUANCE_LIMIT` for its duration.
+
+## EgressDenied
+
+Something tried to call a host outside `CERTADILLO_EGRESS_ALLOW`. The `purpose` label says what: `notifications` usually means a team webhook URL was set to an unexpected host (check `GET /api/v1/teams`), `discovery` or `provisioning` a source or target. Add the host if it is legitimate; otherwise find who configured it in the audit log.
+
 ## NotificationFailures
 
 An alert channel is rejecting deliveries. Check the webhook URL, Jira token or ServiceNow credentials. Alerts are still visible in the console and in Alertmanager.

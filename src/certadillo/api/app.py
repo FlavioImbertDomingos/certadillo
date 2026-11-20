@@ -406,8 +406,13 @@ async def _loop(interval: int):
 
 # ------------------------------------------------------------------ app factory
 def create_app(settings: Settings | None = None, background: bool = True) -> FastAPI:
+    from certadillo.ratelimit import LIMITER, parse
+
     configure_logging()
-    init_runtime(settings)
+    rt = init_runtime(settings)
+    LIMITER.reset()  # rate-limit buckets belong to this app instance
+    for spec in [*rt.settings.rate_limits.values(), rt.settings.issuance_limit]:
+        parse(spec)  # a malformed limit fails at start-up, not on the first request
 
     @asynccontextmanager
     async def lifespan(_app):
@@ -483,6 +488,19 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
     @app.exception_handler(LookupError)
     async def _lookup(_r, e):
         return JSONResponse({"error": "not_found", "message": str(e)}, 404)
+
+    from certadillo.ratelimit import RateLimited
+
+    @app.exception_handler(RateLimited)
+    async def _limited(_r, e: RateLimited):
+        return JSONResponse({"error": "rate_limited", "message": str(e)}, 429,
+                            headers={"Retry-After": str(e.retry_after)})
+
+    from certadillo.egress import EgressDenied
+
+    @app.exception_handler(EgressDenied)
+    async def _egress(_r, e: EgressDenied):
+        return JSONResponse({"error": "egress_denied", "message": str(e)}, 502)
 
     @app.exception_handler(ValueError)
     async def _value(_r, e):

@@ -100,6 +100,20 @@ groups:
           summary: "No replica holds the housekeeping lease; CRLs, alerts and push renewals have stopped"
           runbook_url: https://github.com/FlavioImbertDomingos/certadillo/blob/main/docs/RUNBOOK.md#nohousekeepingleader
 
+      - alert: RateLimited
+        expr: increase(certadillo_rate_limited_total[15m]) > 0
+        labels: {severity: warning}
+        annotations:
+          summary: "A principal or app hit its {{ $labels.limit }} limit ({{ $labels.role }})"
+          runbook_url: https://github.com/FlavioImbertDomingos/certadillo/blob/main/docs/RUNBOOK.md#ratelimited
+
+      - alert: EgressDenied
+        expr: increase(certadillo_egress_denied_total[15m]) > 0
+        labels: {severity: warning}
+        annotations:
+          summary: "An outbound call ({{ $labels.purpose }}) was refused by CERTADILLO_EGRESS_ALLOW"
+          runbook_url: https://github.com/FlavioImbertDomingos/certadillo/blob/main/docs/RUNBOOK.md#egressdenied
+
       - alert: NotificationFailures
         expr: increase(certadillo_notifications_total{result="error"}[30m]) > 0
         labels: {severity: warning}

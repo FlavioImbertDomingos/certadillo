@@ -20,6 +20,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Iterator
 
 import httpx
+
+from certadillo import egress
 from cryptography import x509
 
 from certadillo.db import Certificate, DiscoveryFinding, DiscoveryRun, as_utc
@@ -57,7 +59,7 @@ def _client(kind: str, cfg: dict, settings, base_url: str) -> httpx.Client:
     headers = {}
     if cfg.get("token_ref"):
         headers["Authorization"] = "Bearer " + credentials.resolve(cfg["token_ref"], settings)
-    return httpx.Client(base_url=base_url, headers=headers, timeout=30, transport=test_transports.get(kind))
+    return egress.client("discovery", base_url=base_url, headers=headers, timeout=30, transport=test_transports.get(kind))
 
 
 # ------------------------------------------------------------------ cloud stores

@@ -255,10 +255,10 @@ def build_cert_rep(ra_cert: x509.Certificate, ra_key, transaction_id: str, recip
 
 def validation_call(url: str, token: str | None, payload: dict) -> dict:
     """POST to the validation webhook. Overridable in tests."""
-    import httpx
+    from certadillo import egress
 
     headers = {"Authorization": f"Bearer {token}"} if token else {}
-    r = httpx.post(url, json=payload, headers=headers, timeout=15)
+    r = egress.post(url, "scep-webhook", json=payload, headers=headers, timeout=15)
     r.raise_for_status()
     return r.json() if r.content else {}
 

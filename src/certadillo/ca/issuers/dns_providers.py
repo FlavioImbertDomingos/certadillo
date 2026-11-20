@@ -7,7 +7,8 @@
 """
 from __future__ import annotations
 
-import httpx
+
+from certadillo import egress
 
 from certadillo.provisioning import credentials
 
@@ -75,7 +76,7 @@ class HttpHook:
         headers = {}
         if self.cfg.get("token_ref"):
             headers["Authorization"] = "Bearer " + credentials.resolve(self.cfg["token_ref"], self.settings)
-        r = httpx.post(url, json=body, headers=headers, timeout=15)
+        r = egress.post(url, "dns-provider", json=body, headers=headers, timeout=15)
         if r.status_code >= 300:
             raise DnsError(f"DNS hook {url} returned {r.status_code}")
 

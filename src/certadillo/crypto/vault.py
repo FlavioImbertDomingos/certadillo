@@ -15,6 +15,8 @@ from pathlib import Path
 
 import httpx
 
+from certadillo import egress
+
 
 class VaultError(Exception):
     """Vault refused or could not be reached. Callers fail closed."""
@@ -37,7 +39,7 @@ class VaultClient:
         self._token_file = token_file
         self.namespace = namespace
         verify = ssl.create_default_context(cafile=cacert) if cacert else True
-        self._http = http or httpx.Client(timeout=timeout, verify=verify)
+        self._http = http or egress.client("vault", timeout=timeout, verify=verify)
 
     @classmethod
     def from_settings(cls, settings, http: httpx.Client | None = None) -> "VaultClient":

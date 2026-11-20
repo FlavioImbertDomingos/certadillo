@@ -42,8 +42,11 @@ def _credential(request: Request):
 
 
 def actor(request: Request, p: Platform = Depends(platform)) -> Actor:
+    from certadillo.ratelimit import check_request
+
     a = p.authenticate_request(_credential(request))
     if a is None:
         raise HTTPException(401, "missing or invalid credential",
                             headers={"WWW-Authenticate": 'Bearer, Basic realm="certadillo"'})
+    check_request(p.settings, a.name, a.role)
     return a

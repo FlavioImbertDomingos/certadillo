@@ -8,6 +8,8 @@ import ssl
 
 import httpx
 
+from certadillo import egress
+
 from certadillo.provisioning.drivers import register
 from certadillo.provisioning.drivers.base import Driver, InstallBundle, ProvisioningError, safe_name
 
@@ -32,7 +34,7 @@ class F5Driver(Driver):
         verify: bool | ssl.SSLContext = True
         if self.config.get("ca_cert"):
             verify = ssl.create_default_context(cadata=self.config["ca_cert"])
-        return httpx.Client(base_url=self.config["host"], verify=verify, timeout=30, transport=self.transport)
+        return egress.client("provisioning", base_url=self.config["host"], verify=verify, timeout=30, transport=self.transport)
 
     def _login(self, c: httpx.Client) -> None:
         r = c.post("/mgmt/shared/authn/login", json={"username": self.config["username"], "password": self.secret,

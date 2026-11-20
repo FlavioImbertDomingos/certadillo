@@ -25,6 +25,9 @@ SIGNING_SECONDS = Histogram(
     ["signer"],
     buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5),
 )
+EGRESS_DENIED = Counter("certadillo_egress_denied_total", "Outbound calls refused by CERTADILLO_EGRESS_ALLOW",
+                        ["purpose"])
+RATE_LIMITED = Counter("certadillo_rate_limited_total", "Requests refused by a per-principal limit", ["limit", "role"])
 LEADER = Gauge("certadillo_leader", "1 on the replica that holds the lease for a background task", ["task"])
 HTTP_SECONDS = Histogram(
     "certadillo_http_request_duration_seconds", "HTTP request latency", ["method", "route", "status"]

@@ -21,6 +21,8 @@ import time
 from pathlib import Path
 
 import httpx
+
+from certadillo import egress
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -63,7 +65,7 @@ class AcmeIssuer:
     def _http(self) -> httpx.Client:
         # a private ACME CA's root (step-ca, Pebble) as a file path
         verify = ssl.create_default_context(cafile=self.cfg["ca_bundle"]) if self.cfg.get("ca_bundle") else True
-        return httpx.Client(timeout=30, verify=verify, transport=self.transport,
+        return egress.client("upstream-ca", timeout=30, verify=verify, transport=self.transport,
                             headers={"User-Agent": "certadillo-acme-client"})
 
     def _account_key(self):

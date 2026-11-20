@@ -96,6 +96,9 @@ All settings are environment variables.
 | `CERTADILLO_DATA_DIR` | `./.certadillo` | SQLite file, software keys |
 | `CERTADILLO_DB_URL` | SQLite in the data dir | `postgresql+psycopg://user:pass@host/certadillo`, or `oracle+oracledb://user:pass@host:1521/?service_name=PDB1` |
 | `CERTADILLO_DB_SCHEMA` | | the schema that owns the tables, when the app connects as a separate restricted user (Oracle `CURRENT_SCHEMA`, PostgreSQL `search_path`) |
+| `CERTADILLO_RATE_LIMITS` | `app=600/m;operator=1200/m;...` | API requests per principal, by role; `0` turns a role's limit off |
+| `CERTADILLO_ISSUANCE_LIMIT` | `500/h` | certificates per app per period, across REST, ACME, EST, SCEP and CMP; `0` turns it off |
+| `CERTADILLO_EGRESS_ALLOW` | | outbound HTTP allow-list: hosts, `*.suffix`, `host:port`, CIDR. Empty allows everything except cloud metadata addresses |
 | `CERTADILLO_LEADER_LEASE_CYCLES` | `3` | with several replicas, a background task's lease lasts this many of its intervals; a dead leader is replaced after that |
 | `CERTADILLO_DB_AUTO_MIGRATE` | `true` | upgrade the schema at start-up; `false` refuses to start on an out-of-date schema, for deployments that run `certadillo db migrate` as their own step |
 | `CERTADILLO_BASE_URL` | `http://localhost:8080` | written into AIA and CDP URLs; set to the public HTTPS name |
@@ -166,6 +169,25 @@ curl -s "${A[@]}" $S/api/v1/leaders
 ```
 
 `certadillo_leader{task="housekeeping"}` is 1 on exactly one replica. Alert on its sum being 0 for longer than three cycles.
+
+## Rate limits and outbound calls
+
+Two limits protect the platform from a runaway script or a stolen credential. Every authenticated API call counts against its principal, at a rate set per role. Every certificate request counts against its app, whichever protocol it arrives by and whoever sends it, so a stolen app key cannot mint thousands of certificates before anyone notices.
+
+```bash
+CERTADILLO_RATE_LIMITS='app=600/m;agent=600/m;operator=1200/m'   # roles not listed keep their defaults
+CERTADILLO_ISSUANCE_LIMIT=500/h
+```
+
+A refused request gets HTTP 429 with `Retry-After`; ACME clients get the `rateLimited` problem type, which certbot and cert-manager understand, and the order stays ready for a retry. `certadillo_rate_limited_total{limit,role}` counts refusals and the `RateLimited` alert fires on the first one. The limits are kept per replica.
+
+Outbound HTTP is restricted with `CERTADILLO_EGRESS_ALLOW`. Team webhooks, discovery sources and provisioning targets are configured by people outside the platform team, and without a list a webhook URL can point anywhere the server can reach. With the list set, every outbound call (alert webhooks, Slack, Jira, ServiceNow, the SCEP validation webhook, DNS provider APIs, upstream CAs, Vault, cloud certificate stores, the IdP's JWKS, audit sinks) must go to a listed destination, redirects included:
+
+```bash
+CERTADILLO_EGRESS_ALLOW='hooks.slack.com,*.bank.internal,vault.bank.internal:8200,10.20.0.0/16,api.digicert.com'
+```
+
+Cloud instance-metadata addresses (169.254.169.254 and friends) are refused even without a list, unless listed. A refused call fails with `egress_denied` and counts in `certadillo_egress_denied_total{purpose}`. ACME http-01 validation, TLS discovery scans, SSH and the AWS SDK are not covered; use a network policy for those.
 
 ## Schema upgrades
 

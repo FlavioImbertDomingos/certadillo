@@ -244,7 +244,7 @@ integrity.
 | P1 | No built-in key passphrase; ceremony policy allowlists key parameters | Done |
 | P2 | Container hardening (non-root, read-only filesystem, dropped capabilities) | Done: both compose files; `no-new-privileges` and a pids limit too |
 | P1 | Supply chain: image pinned by digest, hash-pinned dependencies, pip-audit, signed release images with an SBOM attestation, parser fuzzing | Done; see [SECURITY.md](SECURITY.md#supply-chain) |
-| P2 | Per-principal rate limits, egress restrictions | To do |
+| P2 | Per-principal rate limits, egress restrictions | Done: request limits per role, an issuance limit per app across every protocol, an outbound HTTP allow-list that also refuses cloud metadata addresses |
 
 ## For the public demo
 

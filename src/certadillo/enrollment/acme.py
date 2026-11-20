@@ -51,6 +51,7 @@ from certadillo.db import (
     as_utc,
 )
 from certadillo.enrollment import acme_dns, ari
+from certadillo.ratelimit import RateLimited
 from certadillo.policy.engine import PolicyError, domain_allowed
 from certadillo.services import Actor, Platform
 
@@ -59,8 +60,8 @@ ERR = "urn:ietf:params:acme:error:"
 
 
 class AcmeError(Exception):
-    def __init__(self, kind: str, detail: str, status: int = 400):
-        self.kind, self.detail, self.status = kind, detail, status
+    def __init__(self, kind: str, detail: str, status: int = 400, retry_after: int | None = None):
+        self.kind, self.detail, self.status, self.retry_after = kind, detail, status, retry_after
 
 
 def b64u(data: bytes) -> str:
@@ -136,11 +137,14 @@ def _problem(p: Platform, request: Request, e: AcmeError) -> Response:
     p.s.rollback()  # the consumed nonce was already committed in _parse
     fresh = new_nonce(p)
     p.commit()
+    headers = {"Replay-Nonce": fresh, "Link": f'<{base(request)}/directory>;rel="index"'}
+    if e.retry_after:
+        headers["Retry-After"] = str(e.retry_after)
     return JSONResponse(
         {"type": ERR + e.kind, "detail": e.detail, "status": e.status},
         status_code=e.status,
         media_type="application/problem+json",
-        headers={"Replay-Nonce": fresh, "Link": f'<{base(request)}/directory>;rel="index"'},
+        headers=headers,
     )
 
 
@@ -542,6 +546,8 @@ async def finalize(order_id: int, request: Request, p: Platform = Depends(platfo
             o.error = str(e)
             p.commit()
             raise AcmeError("badCSR", str(e)) from None
+        except RateLimited as e:  # RFC 8555 section 6.6: the order stays ready, retry later
+            raise AcmeError("rateLimited", str(e), 429, e.retry_after) from None
         if not isinstance(result, Certificate):
             raise AcmeError("unauthorized", "this profile needs dual control; use the REST API", 403)
         o.certificate_id = result.id

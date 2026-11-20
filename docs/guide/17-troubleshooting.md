@@ -31,6 +31,9 @@ A rejected request returns every rule that failed (REST: `422`, EST: `400` with 
 
 ## Common problems
 
+HTTP 429 `rate_limited`: the principal or the app reached `CERTADILLO_RATE_LIMITS` or `CERTADILLO_ISSUANCE_LIMIT`. Wait for `Retry-After`, or raise the limit if the load is expected (a mass renewal). HTTP 502 `egress_denied`: an outbound call went to a host not in `CERTADILLO_EGRESS_ALLOW`; add it if it is legitimate.
+
+
 **401 missing or invalid API key.** The key is wrong, deactivated, or belongs to an app that is still `pending_approval` or was `rejected`.
 
 **403 on a read endpoint with an app key.** App keys can only see their own app and certificates. Use a staff key for inventory-wide views.

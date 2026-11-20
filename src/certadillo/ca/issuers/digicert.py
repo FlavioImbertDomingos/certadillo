@@ -12,6 +12,8 @@ from __future__ import annotations
 import time
 
 import httpx
+
+from certadillo import egress
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 
@@ -36,7 +38,7 @@ class DigiCertIssuer:
 
     def _http(self) -> httpx.Client:
         key = credentials.resolve(self.cfg["api_key_ref"], self.settings)
-        return httpx.Client(base_url=self.cfg.get("api_url", API), timeout=30, transport=self.transport,
+        return egress.client("upstream-ca", base_url=self.cfg.get("api_url", API), timeout=30, transport=self.transport,
                             headers={"X-DC-DEVKEY": key, "Content-Type": "application/json"})
 
     @staticmethod

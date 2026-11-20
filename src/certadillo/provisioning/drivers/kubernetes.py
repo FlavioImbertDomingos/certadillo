@@ -10,6 +10,8 @@ import ssl
 
 import httpx
 
+from certadillo import egress
+
 from certadillo.provisioning.drivers import register
 from certadillo.provisioning.drivers.base import Driver, InstallBundle, ProvisioningError, safe_name
 
@@ -41,7 +43,7 @@ class KubernetesDriver(Driver):
         if self.config.get("ca_cert"):
             verify = ssl.create_default_context(cadata=self.config["ca_cert"])
         headers = {"Authorization": f"Bearer {self.secret}"} if self.secret else {}
-        return httpx.Client(base_url=self.config["api_server"], headers=headers, verify=verify, timeout=20,
+        return egress.client("provisioning", base_url=self.config["api_server"], headers=headers, verify=verify, timeout=20,
                             transport=self.transport)
 
     def install(self, params: dict, bundle: InstallBundle) -> None:

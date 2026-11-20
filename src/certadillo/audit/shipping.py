@@ -44,6 +44,8 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from certadillo import egress
+
 from certadillo.audit.log import GENESIS, _digest
 from certadillo.db import AuditEvent, AuditShipCursor, as_utc
 
@@ -232,7 +234,7 @@ class HttpSink(Sink):
     def _client(self) -> httpx.Client:
         verify = ssl.create_default_context(cafile=self.settings.audit_ship_cacert) \
             if self.settings.audit_ship_cacert else True
-        return httpx.Client(timeout=20, verify=verify, transport=test_transport["http"])
+        return egress.client("audit-shipping", timeout=20, verify=verify, transport=test_transport["http"])
 
     def send(self, records):
         headers = {"Content-Type": "application/json"}

@@ -54,6 +54,9 @@ class OidcValidator:
         else:
             # PyJWKClient fetches the issuer's keys over HTTPS and caches them,
             # refetching when it sees an unknown key id (key rotation).
+            from certadillo import egress
+
+            egress.check(config.jwks_uri, "oidc-jwks")
             self._jwks = jwt.PyJWKClient(config.jwks_uri, cache_keys=True, lifespan=3600)
 
     def validate(self, token: str) -> dict:

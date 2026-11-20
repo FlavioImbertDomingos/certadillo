@@ -10,6 +10,8 @@ import ssl
 from urllib.parse import quote
 
 import httpx
+
+from certadillo import egress
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 
@@ -51,7 +53,7 @@ class EjbcaIssuer:
                 with open(cp, "w") as fh:
                     fh.write(cert)
                 ctx.load_cert_chain(cp, kp)
-        return httpx.Client(base_url=self.cfg["url"].rstrip("/"), verify=ctx, timeout=30, transport=self.transport)
+        return egress.client("upstream-ca", base_url=self.cfg["url"].rstrip("/"), verify=ctx, timeout=30, transport=self.transport)
 
     def sign(self, csr, decision):
         username = f"certadillo-{(decision.common_name or decision.dns_names[0])}"[:250]

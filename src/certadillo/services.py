@@ -622,6 +622,9 @@ class Platform:
             raise Forbidden(f"app is {app.status}")
         if not integrity.verify(app):
             raise Forbidden("this app failed its integrity check (changed outside Certadillo)")
+        from certadillo.ratelimit import check_issuance
+
+        check_issuance(self.settings, app.name, actor.role)  # every protocol, whoever asks for this app
         profile = profile or app.profile
         if profile != app.profile:
             ISSUANCE_TOTAL.labels(profile=profile, protocol=protocol, result="rejected").inc()

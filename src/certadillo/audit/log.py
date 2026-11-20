@@ -112,13 +112,15 @@ def publish_anchor(anchor: dict, settings, http=None) -> list[str]:
     Lock and the like); a local file alone does not survive host root."""
     import httpx
 
+    from certadillo import egress
+
     done = []
     if settings.audit_anchor_file:
         with open(settings.audit_anchor_file, "a", encoding="utf-8") as fh:
             fh.write(json.dumps(anchor, sort_keys=True) + "\n")
         done.append("file")
     if settings.audit_anchor_url:
-        client = http or httpx.Client(timeout=10)
+        client = http or egress.client("audit-anchor", timeout=10)
         try:
             client.post(settings.audit_anchor_url, json=anchor).raise_for_status()
             done.append("url")

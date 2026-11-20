@@ -12,6 +12,8 @@ from __future__ import annotations
 from typing import Protocol
 
 import httpx
+
+from certadillo import egress
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 
@@ -42,7 +44,7 @@ class VaultPKIBackend:
         headers = {"X-Vault-Token": token}
         if namespace:
             headers["X-Vault-Namespace"] = namespace
-        self.http = client or httpx.Client(timeout=15)
+        self.http = client or egress.client("vault-pki", timeout=15)
         self.headers = headers
 
     def sign(self, csr, decision):

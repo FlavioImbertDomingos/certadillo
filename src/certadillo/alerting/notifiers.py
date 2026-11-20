@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 
 import httpx
 
+from certadillo import egress
+
 from certadillo.observability.metrics import NOTIFICATIONS
 
 log = logging.getLogger("certadillo.alerting")
@@ -45,7 +47,7 @@ class WebhookNotifier(Notifier):
 
     def __init__(self, url: str, client: httpx.Client | None = None):
         self.url = url
-        self.http = client or httpx.Client(timeout=10)
+        self.http = client or egress.client("notifications", timeout=10)
 
     def send(self, alerts):
         payload = {
@@ -71,7 +73,7 @@ class SlackNotifier(Notifier):
 
     def __init__(self, url: str, client: httpx.Client | None = None):
         self.url = url
-        self.http = client or httpx.Client(timeout=10)
+        self.http = client or egress.client("notifications", timeout=10)
 
     def send(self, alerts):
         lines = []
@@ -92,7 +94,7 @@ class JiraNotifier(Notifier):
         self.base = base_url.rstrip("/")
         self.auth = (user, token)
         self.project = project
-        self.http = client or httpx.Client(timeout=15)
+        self.http = client or egress.client("notifications", timeout=15)
 
     def send(self, alerts):
         for a in alerts:
@@ -121,7 +123,7 @@ class ServiceNowNotifier(Notifier):
         self.base = instance_url.rstrip("/")
         self.auth = (user, password)
         self.group = assignment_group
-        self.http = client or httpx.Client(timeout=15)
+        self.http = client or egress.client("notifications", timeout=15)
 
     def send(self, alerts):
         for a in alerts:

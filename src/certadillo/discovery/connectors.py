@@ -11,6 +11,8 @@ import base64
 from typing import Iterator, Protocol
 
 import httpx
+
+from certadillo import egress
 from cryptography import x509
 
 
@@ -25,7 +27,7 @@ class VaultPKIInventory:
 
     def __init__(self, addr: str, token: str, mount: str = "pki", client: httpx.Client | None = None):
         self.addr, self.mount = addr.rstrip("/"), mount
-        self.http = client or httpx.Client(timeout=15)
+        self.http = client or egress.client("discovery", timeout=15)
         self.headers = {"X-Vault-Token": token}
 
     def collect(self):
@@ -44,7 +46,7 @@ class KubernetesTLSSecrets:
 
     def __init__(self, api_server: str, token: str, ca_bundle: str | bool = True, client: httpx.Client | None = None):
         self.api = api_server.rstrip("/")
-        self.http = client or httpx.Client(timeout=15, verify=ca_bundle)
+        self.http = client or egress.client("discovery", timeout=15, verify=ca_bundle)
         self.headers = {"Authorization": f"Bearer {token}"}
 
     def collect(self):

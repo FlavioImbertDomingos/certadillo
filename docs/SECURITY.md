@@ -94,14 +94,13 @@ These are listed so nobody deploys the MVP to production thinking they are handl
 
 1. API-key authentication is still the default and is single-factor. Configure the OIDC/JWT support (Entra ID, Vault, or any OIDC issuer) so access uses short-lived tokens from your IdP instead; see [Zero-trust access](guide/21-zero-trust-auth.md). Keep one break-glass admin key for when the IdP is unreachable. A browser SSO flow for the console is still to come.
 2. EST client-certificate authentication depends on the load balancer: its shared secret must stay secret, and it must overwrite the client-certificate header on every request. mTLS between the load balancer and Certadillo would remove the shared secret; it is not built in.
-3. ACME `http-01` validation follows redirects and uses the platform's network position (it runs off the event loop, so a slow target only delays its own order). dns-01 trusts whatever the configured resolvers answer, from one vantage point. Restrict egress, point the DNS views at resolvers you control, or use `ra-scope` mode for purely internal names.
+3. ACME `http-01` validation follows redirects and uses the platform's network position (it runs off the event loop, so a slow target only delays its own order). dns-01 trusts whatever the configured resolvers answer, from one vantage point. `CERTADILLO_EGRESS_ALLOW` does not cover it (the names are already limited to the app's approved scope); restrict it with a network policy, point the DNS views at resolvers you control, or use `ra-scope` mode for purely internal names.
 4. Secret columns (EAB HMAC keys, CMP secrets, team webhooks) are encrypted at rest, by default with a key derived from `CERTADILLO_KEY_PASSPHRASE`. Someone who has both the database and the passphrase can read them; use `CERTADILLO_FIELD_CIPHER=vault` to keep that key in Vault Transit.
-5. No rate limiting. Put the API behind a gateway with per-principal limits.
+5. Rate limits (`CERTADILLO_RATE_LIMITS`, `CERTADILLO_ISSUANCE_LIMIT`) are kept in memory on each replica, so with N replicas a principal gets up to N times the limit, and a restart resets them. Unauthenticated endpoints (OCSP, CRL, ACME directory and nonces) are not limited here; put them behind the load balancer's own limits.
 6. The SSH CA key is a software key. Move it to the HSM (OpenSSH supports PKCS#11 CA keys through `ssh-keygen -D`) or to Vault's SSH engine.
-7. The housekeeping loop runs in every replica. Run it in one replica or as a CronJob until leader election lands.
-8. Each HSM signature opens a new PKCS#11 session. Fine for hundreds of certificates a minute, not for bulk reissuance.
-9. SCEP challenges are single use and expire (default 60 minutes), and a failed request still consumes its challenge. Single-DES request envelopes are refused unless `CERTADILLO_SCEP_ALLOW_DES=true`; run SCEP behind HTTPS either way.
-10. `certadillo init` creates the root online. Production roots come from an offline key ceremony (see the runbook).
+7. HSM signing is one call at a time per replica (python-pkcs11 initializes the library without OS locking). Fine for hundreds of certificates a minute; add replicas for bulk reissuance.
+8. SCEP challenges are single use and expire (default 60 minutes), and a failed request still consumes its challenge. Single-DES request envelopes are refused unless `CERTADILLO_SCEP_ALLOW_DES=true`; run SCEP behind HTTPS either way.
+9. `certadillo init` creates the root online. Production roots come from an offline key ceremony (see the runbook).
 
 ## Reporting a vulnerability
 
