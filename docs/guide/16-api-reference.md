@@ -25,6 +25,8 @@ Authenticate with `X-API-Key: <key>` or `Authorization: Bearer <key>`. Errors ar
 | `GET` | `/api/v1/approvals` | admin, operator, approver, auditor; app (own) | list approvals (`status=pending`) |
 | `POST` | `/api/v1/approvals/{approval_id}/approve` | approver | approve; runs the action |
 | `POST` | `/api/v1/approvals/{approval_id}/reject` | approver | reject |
+| `POST` | `/api/v1/integrations/servicenow/onboarding` | admin, operator | onboard an app from an approved ServiceNow catalog request (RITM) |
+| `GET` | `/api/v1/integrations/servicenow/requests` | admin, operator, approver, auditor | requests from ServiceNow, their status and undelivered work notes |
 | `POST` | `/api/v1/certificates` | app; admin, operator with app_id | request a certificate from a CSR |
 | `GET` | `/api/v1/certificates` | any authenticated (apps see their own) | list: `status`, `source`, `app_id`, `expiring_within_days`, `renewal_due`, `limit` |
 | `GET` | `/api/v1/certificates/{cert_id}` | any authenticated (apps see their own) | one certificate with PEM |

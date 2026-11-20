@@ -15,8 +15,8 @@ interface it plugs into so contributors can pick one up.
 | [Phase 7: enterprise CLM features](#phase-7-enterprise-clm-features) | Core features, console, code signing and SSH key discovery done; IIS/NetScaler/Key Vault push, native signing clients, SSH key rotation and follow-ups open | 7 of 14 |
 | [Phase 4: workload identity](#phase-4-workload-identity) | Not started | 0 of 3 |
 | [Phase 5: post-quantum](#phase-5-post-quantum) | ML-DSA issuance and the agility drill done; composite certificates and hybrid key exchange tracking open | 2 of 4 |
-| [Phase 6: production hardening](#phase-6-production-hardening) | Done except the ServiceNow catalog item | 7 of 8 |
-| Total | | 41 of 65 |
+| [Phase 6: production hardening](#phase-6-production-hardening) | Done | 8 of 8 |
+| Total | | 42 of 65 |
 
 Below, every item is marked done (shipped and tested) or open (not built
 yet). GitHub shows them as ticked and empty checkboxes, the knowledge base as
@@ -298,4 +298,11 @@ Shipped November 2026, on pyca/cryptography 50. See [Post-quantum](guide/27-post
   `CERTADILLO_DB_SCHEMA`, python-oracledb in the image, and a CI job that runs
   the whole suite on Oracle Database 23ai Free (and on PostgreSQL 16). See
   [Oracle Database](guide/15-administration.md#oracle-database).
-- [ ] ServiceNow catalog item for self-service onboarding, with the approval recorded in both systems.
+- [x] **ServiceNow catalog item** (November 2026) for self-service
+  onboarding. An approved RITM is sent to
+  `POST /api/v1/integrations/servicenow/onboarding`; the ServiceNow approval
+  is required and recorded, Certadillo's dual control still applies (and the
+  person the item is for cannot approve it), and every decision goes back to
+  the RITM as a work note, retried until delivered. Catalog variables and a
+  ServiceNow script in `automation/servicenow`. See
+  [onboarding from ServiceNow](guide/03-onboarding.md#from-the-servicenow-catalog).

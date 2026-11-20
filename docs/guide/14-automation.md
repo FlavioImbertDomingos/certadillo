@@ -70,6 +70,10 @@ Import-CertadilloInventory -StorePath Cert:\LocalMachine\My      # push a Window
 Get-CertadilloAlert
 ```
 
+## ServiceNow
+
+A catalog item lets teams request an app through ServiceNow; its approval and Certadillo's are both recorded, and Certadillo writes its decisions back to the RITM. See [automation/servicenow](../../automation/servicenow/README.md) and [onboarding](03-onboarding.md#from-the-servicenow-catalog).
+
 ## CI pipelines
 
 Any pipeline can call the REST API. A GitHub Actions step that issues a short-lived client certificate for an integration test:

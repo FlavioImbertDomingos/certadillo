@@ -473,6 +473,9 @@ class Platform:
         me = self.s.query(Principal).filter_by(name=actor.name).one_or_none()
         if me is not None and me.created_by == req.requested_by:
             raise Forbidden("maker-checker: this approver credential was issued by the requester")
+        from certadillo.integrations import servicenow
+
+        servicenow.check_approver(self, req, actor)
         if approve:
             self._still_valid(req)
         req.status = "approved" if approve else "rejected"
@@ -489,6 +492,7 @@ class Platform:
             from certadillo.codesign import service as codesign
 
             codesign.reject(self, req.payload["request_id"], actor.name)
+        servicenow.on_decision(self, req)
         return req
 
     def _still_valid(self, req: ApprovalRequest) -> None:

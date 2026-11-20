@@ -384,6 +384,25 @@ class ConsoleSession(Base):
     last_seen_at: Mapped[datetime] = mapped_column(TZDateTime, default=utcnow)
 
 
+class ServiceNowRequest(Base):
+    """An onboarding request that came from the ServiceNow catalog item. It
+    links the requested item (RITM) to the app it created, and queues the work
+    notes that tell ServiceNow what Certadillo decided."""
+
+    __tablename__ = "servicenow_requests"
+    ritm: Mapped[str] = mapped_column(String(40), primary_key=True)  # RITM0012345
+    sys_id: Mapped[str] = mapped_column(String(64))
+    app_id: Mapped[int] = mapped_column(Integer, index=True)
+    approval_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    requested_for: Mapped[str] = mapped_column(String(255))
+    snow_approved_by: Mapped[str] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(32))  # pending_approval | active | rejected
+    notes_pending: Mapped[list[str]] = mapped_column(PortableJSON, default=list)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TZDateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(TZDateTime, default=utcnow)
+
+
 class ScepTransaction(Base):
     """A SCEP request waiting for a second person (dual-control profiles). The
     client polls with CertPoll (GetCertInitial) until it is approved or rejected."""

@@ -70,6 +70,12 @@ The Onboard tab walks the same four steps: team, application, approval, credenti
 
 ![Onboarding wizard](../screenshots/ui-onboard.png)
 
+## From the ServiceNow catalog
+
+Where requests already go through ServiceNow, teams can ask for an app with a catalog item instead. ServiceNow runs its own approval; when the item is approved, a ServiceNow flow sends the answers to `POST /api/v1/integrations/servicenow/onboarding` and Certadillo onboards the app exactly as above. A production scope still waits for a Certadillo approver, who may not be the person the item was requested for. Certadillo writes each step back to the RITM as a work note (received, waiting for approval #N, approved or rejected and by whom), so the ticket shows both decisions. Credentials are never written to the ticket.
+
+The catalog item's variables, the ServiceNow script and the setup steps are in [automation/servicenow](../../automation/servicenow/README.md).
+
 ## After onboarding
 
 - The app's certificates appear in the inventory with its team and classification.

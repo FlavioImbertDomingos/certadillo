@@ -159,7 +159,7 @@ All settings are environment variables.
 | `CERTADILLO_EXPIRY_WARNING_DAYS` / `_CRITICAL_DAYS` | `30` / `7` | caps for the lifetime-scaled thresholds |
 | `CERTADILLO_WEBHOOK_URLS` / `_SLACK_WEBHOOK_URLS` | | global alert channels |
 | `CERTADILLO_JIRA_URL` / `_USER` / `_TOKEN` / `_PROJECT` | project `PKI` | Jira issues for critical alerts |
-| `CERTADILLO_SNOW_URL` / `_USER` / `_PASSWORD` / `_ASSIGNMENT_GROUP` | group `PKI Operations` | ServiceNow incidents |
+| `CERTADILLO_SNOW_URL` / `_USER` / `_PASSWORD` / `_ASSIGNMENT_GROUP` | group `PKI Operations` | ServiceNow incidents for critical alerts, and work notes on catalog requests ([onboarding from ServiceNow](03-onboarding.md#from-the-servicenow-catalog)) |
 | `CERTADILLO_RUNBOOK_URL` | GitHub runbook | base URL for alert runbook links |
 
 ## Running several replicas

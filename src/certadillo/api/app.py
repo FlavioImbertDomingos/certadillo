@@ -131,6 +131,28 @@ class AppIn(BaseModel):
     folder_id: int | None = None
 
 
+class ServiceNowApprovalIn(BaseModel):
+    state: str
+    approved_by: str = Field(min_length=1, max_length=255)
+    approved_at: str | None = None
+
+
+class ServiceNowOnboardingIn(BaseModel):
+    """The catalog item's answers, sent by the ServiceNow flow once the RITM is approved there."""
+
+    ritm: str = Field(pattern=r"^RITM\d{4,20}$")
+    sys_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    requested_for: str = Field(min_length=1, max_length=255)
+    team: str
+    app_name: str = Field(min_length=2, max_length=120, pattern=r"^[a-z0-9][a-z0-9-]+$")
+    environment: str
+    profile: str
+    allowed_domains: list[str]
+    data_classification: str = "internal"
+    folder_id: int | None = None
+    snow_approval: ServiceNowApprovalIn
+
+
 class PrincipalIn(BaseModel):
     name: str
     role: str
@@ -365,6 +387,14 @@ def _run_housekeeping() -> dict:
             renew_due(p)
         except Exception:  # noqa: BLE001 - one bad target must not stop CRLs and alerts
             log.exception("push provisioning cycle failed")
+            p.s.rollback()
+        try:
+            from certadillo.integrations import servicenow
+
+            servicenow.flush_notes(p.s, rt.settings)
+            p.commit()
+        except Exception:  # noqa: BLE001
+            log.exception("servicenow work notes failed")
             p.s.rollback()
         return reconcile(p.s, rt.settings, rt.policies, build_global_notifiers(rt.settings))
 
@@ -756,6 +786,7 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
                 who: Actor = Depends(actor)):
         r = p.decide(who, approval_id, True, body.comment if body else None)
         p.commit()
+        _flush_servicenow(p)
         return approval_json(r)
 
     @app.post("/api/v1/approvals/{approval_id}/reject", tags=["governance"])
@@ -763,7 +794,40 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
                who: Actor = Depends(actor)):
         r = p.decide(who, approval_id, False, body.comment if body else None)
         p.commit()
+        _flush_servicenow(p)
         return approval_json(r)
+
+    # ---------------------------------------------------------- ServiceNow catalog item
+    def _flush_servicenow(p: Platform) -> None:
+        """Send queued RITM work notes now; housekeeping retries whatever fails."""
+        from certadillo.integrations import servicenow
+
+        try:
+            servicenow.flush_notes(p.s, p.settings)
+            p.commit()
+        except Exception:  # noqa: BLE001 - never fail the caller's request over a work note
+            log.exception("servicenow work notes")
+            p.s.rollback()
+
+    @app.post("/api/v1/integrations/servicenow/onboarding", tags=["onboarding"])
+    def servicenow_onboarding(body: ServiceNowOnboardingIn, p: Platform = Depends(platform),
+                              who: Actor = Depends(actor)):
+        """Called by the ServiceNow flow when a catalog request is approved there."""
+        from certadillo.integrations import servicenow
+
+        row, app_row, _ = servicenow.submit(p, who, body.model_dump())
+        p.commit()
+        _flush_servicenow(p)
+        return {**servicenow.request_json(row), "app": app_json(app_row)}
+
+    @app.get("/api/v1/integrations/servicenow/requests", tags=["onboarding"])
+    def servicenow_requests(p: Platform = Depends(platform), who: Actor = Depends(actor)):
+        from certadillo.db import ServiceNowRequest
+        from certadillo.integrations import servicenow
+
+        who.require("admin", "operator", "approver", "auditor")
+        rows = p.s.query(ServiceNowRequest).order_by(ServiceNowRequest.created_at.desc()).all()
+        return [servicenow.request_json(r) for r in rows]
 
     # ---------------------------------------------------------- certificates
     @app.post("/api/v1/certificates", tags=["certificates"])
