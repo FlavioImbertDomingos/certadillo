@@ -1,12 +1,12 @@
 # syntax=docker/dockerfile:1
 # Base image pinned by digest; Dependabot (docker) moves the pin.
-FROM python:3.12-slim@sha256:b18b261e1b4974b4f321451ad5251ded85abb22c2b8b262da527dda1d031ab30 AS build
+FROM python:3.15-slim@sha256:8c13a3f37a6a5b71498228e902c4b9f51c1f7900d49fabf71f9a650c6120e0d0 AS build
 WORKDIR /src
 COPY pyproject.toml README.md ./
 COPY src ./src
 RUN pip install --no-cache-dir build && python -m build --wheel --outdir /dist
 
-FROM python:3.12-slim@sha256:b18b261e1b4974b4f321451ad5251ded85abb22c2b8b262da527dda1d031ab30
+FROM python:3.15-slim@sha256:8c13a3f37a6a5b71498228e902c4b9f51c1f7900d49fabf71f9a650c6120e0d0
 # softhsm2 gives a PKCS#11 token for labs and CI; production mounts the
 # vendor PKCS#11 library (Luna, nShield, CloudHSM) instead.
 RUN apt-get update \
