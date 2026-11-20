@@ -14,15 +14,17 @@
   <span class="muted" id="who"></span>
   <span class="sp"></span>
   <a href="/kb/" class="kb-link">Knowledge base</a>
+  <button id="sso" class="primary hide">Sign in with SSO</button>
   <input id="apikey" type="password" placeholder="API key" autocomplete="off">
   <button id="connect" class="primary">Connect</button>
+  <button id="logout" class="hide">Sign out</button>
 </header>
 <nav id="tabs"></nav>
 <main>
   <section id="view-overview">
     <div class="hero">
       <img id="mascot" src="/static/dilly.svg" alt="Dilly the armadillo">
-      <div class="bubble" id="bubble">Hi, I'm Dilly. Paste an API key above and I'll check on your certificates.</div>
+      <div class="bubble" id="bubble">Hi, I'm Dilly. Sign in or paste an API key above and I'll check on your certificates.</div>
     </div>
     <div class="kpis" id="kpis"></div>
     <div class="grid2">

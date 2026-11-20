@@ -87,11 +87,11 @@ def make_settings(tmp_path, **kw) -> Settings:
             reset_test_db(TEST_DB_URL)
             _reset_for.add(str(tmp_path))
         kw["db_url"] = TEST_DB_URL
+    kw.setdefault("base_url", "http://testserver")
     return Settings(
         data_dir=tmp_path,
         bootstrap_admin_key="admin-key",
         bootstrap_approver_key="approver-key",
-        base_url="http://testserver",
         **kw,
     )
 

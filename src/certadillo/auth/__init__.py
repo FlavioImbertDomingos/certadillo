@@ -6,7 +6,13 @@ reused across requests, so keys are not refetched on every call.
 """
 from __future__ import annotations
 
-from certadillo.auth.base import ApiKeyAuthenticator, Authenticator, Credential, OidcAuthenticator
+from certadillo.auth.base import (
+    ApiKeyAuthenticator,
+    Authenticator,
+    Credential,
+    OidcAuthenticator,
+    SessionAuthenticator,
+)
 from certadillo.auth.oidc import OidcConfig, OidcValidator
 
 __all__ = ["Credential", "Authenticator", "build_authenticators", "oidc_config_from_settings"]
@@ -59,6 +65,8 @@ def build_authenticators(settings, jwk_client=None) -> list[Authenticator]:
     if cfg is not None:
         chain.append(OidcAuthenticator(OidcValidator(cfg, jwk_client=jwk_client)))
     chain.append(ApiKeyAuthenticator())
+    if settings.sso_client_id:
+        chain.append(SessionAuthenticator())
 
     if jwk_client is None:
         _cache[key] = chain

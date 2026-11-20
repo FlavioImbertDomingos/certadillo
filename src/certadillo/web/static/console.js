@@ -45,8 +45,11 @@ function errorText(body, text) {
   if (body && typeof body === "object") return body.message || (typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail || body));
   return text;
 }
+// With single sign-on the session cookie authenticates; the CSRF header proves the request came from this page.
 async function api(path, opts = {}) {
-  const r = await fetch(path, {...opts, headers: {"X-API-Key": KEY, "Content-Type": "application/json", ...(opts.headers || {})}});
+  const auth = KEY ? {"X-API-Key": KEY} : {};
+  const r = await fetch(path, {...opts, credentials: "same-origin",
+    headers: {...auth, "X-Certadillo-CSRF": "1", "Content-Type": "application/json", ...(opts.headers || {})}});
   const text = await r.text();
   let body; try { body = JSON.parse(text); } catch { body = text; }
   if (!r.ok) {
@@ -64,21 +67,40 @@ function show(tab) {
   try { sessionStorage.setItem("cdl_tab", tab); } catch (e) { /* ignore */ }
   const loaders = {overview: loadOverview, onboard: loadOnboard, inventory: loadInventory, approvals: loadApprovals, discovery: loadDiscovery,
     provisioning: loadProvisioning, policy: loadPolicy, issuers: loadIssuers, signing: loadSigning, sshkeys: loadSshKeys, audit: loadAudit, reports: loadReports};
-  if (KEY && loaders[tab]) loaders[tab]().catch(e => toast(e.message));
+  if ((KEY || SESSION) && loaders[tab]) loaders[tab]().catch(e => toast(e.message));
 }
 document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => show(b.dataset.tab));
 
+let SESSION = false, SSO = false;
+function signedIn(me) {
+  $("#who").textContent = `${me.name} (${me.role})`;
+  document.body.classList.toggle("ro", !["admin", "operator"].includes(me.role));  // hide changes this role cannot make
+  document.body.classList.toggle("noadmin", me.role !== "admin");
+  SESSION = me.via === "session";
+  ["#apikey", "#connect"].forEach(s => $(s).classList.toggle("hide", SESSION));
+  $("#sso").classList.toggle("hide", SESSION || !SSO);
+  $("#logout").classList.toggle("hide", !SESSION);
+}
 $("#connect").onclick = async () => {
   KEY = $("#apikey").value.trim();
   try { sessionStorage.setItem("cdl_key", KEY); } catch (e) { /* ignore */ }
-  try {
-    const me = await api("/api/v1/me"); $("#who").textContent = `${me.name} (${me.role})`;
-    document.body.classList.toggle("ro", !["admin", "operator"].includes(me.role));  // hide changes this role cannot make
-    document.body.classList.toggle("noadmin", me.role !== "admin");
-  }
+  try { signedIn(await api("/api/v1/me")); }
   catch (e) { $("#who").textContent = "invalid key"; return; }
   show(currentTab());
 };
+$("#sso").onclick = () => { window.location.assign("/auth/login"); };
+$("#logout").onclick = async () => {
+  try { await api("/auth/logout", {method: "POST"}); } catch (e) { /* the session may already be gone */ }
+  window.location.assign("/");
+};
+// single sign-on: offer the button, and pick up an existing session cookie without asking for a key
+fetch("/auth/config").then(r => r.json()).then(async cfg => {
+  if (!cfg.sso) return;
+  SSO = true;
+  if (!SESSION) $("#sso").classList.remove("hide");
+  if (KEY) return;
+  try { signedIn(await api("/api/v1/me")); show(currentTab()); } catch (e) { /* not signed in yet */ }
+}).catch(() => {});
 function currentTab() { try { return sessionStorage.getItem("cdl_tab") || "overview"; } catch (e) { return "overview"; } }
 
 const pill = s => html`<span class="pill ${s}">${s}</span>`;

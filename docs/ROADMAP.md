@@ -10,13 +10,13 @@ interface it plugs into so contributors can pick one up.
 | [Phase 2: enrollment coverage](#phase-2-enrollment-coverage) | Core done, extras open | 4 of 8 |
 | [Phase 3: Windows and AD CS](#phase-3-windows-and-ad-cs) | Core done, auto-enrollment open | 3 of 4 |
 | [Phase 3: more issuers and inventory connectors](#phase-3-more-issuers-and-inventory-connectors) | Four issuers and keycensus done; Google CAS and four inventory imports open | 5 of 10 |
-| [Phase 3.5: zero-trust access](#phase-35-zero-trust-access) | Done (console SSO is in Phase 6) | 4 of 4 |
+| [Phase 3.5: zero-trust access](#phase-35-zero-trust-access) | Done (console SSO shipped in Phase 6) | 4 of 4 |
 | [Security hardening](#security-hardening-from-the-threat-model) | Done except a separate signing service | 9 of 10 |
 | [Phase 7: enterprise CLM features](#phase-7-enterprise-clm-features) | Core features, console, code signing and SSH key discovery done; IIS/NetScaler/Key Vault push, native signing clients, SSH key rotation and follow-ups open | 7 of 14 |
 | [Phase 4: workload identity](#phase-4-workload-identity) | Not started | 0 of 3 |
 | [Phase 5: post-quantum](#phase-5-post-quantum) | ML-DSA issuance and the agility drill done; composite certificates and hybrid key exchange tracking open | 2 of 4 |
-| [Phase 6: production hardening](#phase-6-production-hardening) | Migrations, Oracle, leader election, HSM session reuse, rate limits, egress and tracing done; console SSO, Helm/Terraform and ServiceNow open | 5 of 8 |
-| Total | | 39 of 65 |
+| [Phase 6: production hardening](#phase-6-production-hardening) | Done except Helm/Terraform and the ServiceNow catalog item | 6 of 8 |
+| Total | | 40 of 65 |
 
 Below, every item is marked done (shipped and tested) or open (not built
 yet). GitHub shows them as ticked and empty checkboxes, the knowledge base as
@@ -105,7 +105,7 @@ everything else the bank runs. See [Zero-trust access](guide/21-zero-trust-auth.
   becomes the IdP subject; dual control, scope and the audit trail are
   unchanged.
 
-Browser single sign-on for the console builds on this and is listed in Phase 6.
+Browser single sign-on for the console builds on this; it shipped in Phase 6.
 
 ## Security hardening from the threat model
 
@@ -249,7 +249,13 @@ Shipped November 2026, on pyca/cryptography 50. See [Post-quantum](guide/27-post
 
 ## Phase 6: production hardening
 
-- [ ] Console single sign-on on top of the zero-trust access work in Phase 3.5.
+- [x] **Console single sign-on** (November 2026), on top of Phase 3.5.
+  OpenID Connect authorization code flow with PKCE run by the server, ID
+  token checked against the issuer's keys (audience, nonce, expiry) and
+  mapped with the same role map; an HttpOnly, SameSite=Strict session cookie
+  whose hash is stored, with absolute and idle timeouts; CSRF header and
+  same-origin checks on changes; sign-in and sign-out audited. See
+  [console single sign-on](guide/21-zero-trust-auth.md#console-single-sign-on).
 - [x] **Leader election and HSM session reuse** (November 2026). Every
   replica runs the background loops, but housekeeping and audit shipping run
   only on the holder of a lease row (portable across PostgreSQL, Oracle and

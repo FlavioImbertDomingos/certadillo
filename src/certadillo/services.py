@@ -56,6 +56,7 @@ class Actor:
     name: str
     role: str
     app_id: int | None = None
+    via: str = ""  # "session" for a console single sign-on cookie (CSRF checks apply)
 
     def require(self, *roles: str) -> None:
         if self.role not in roles:

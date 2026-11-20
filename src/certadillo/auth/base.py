@@ -19,6 +19,7 @@ class Credential:
 
     api_key: str | None = None
     bearer: str | None = None
+    session: str | None = None  # the console's single sign-on cookie
 
 
 class Authenticator(Protocol):
@@ -39,6 +40,24 @@ class ApiKeyAuthenticator:
         if not key:
             return None
         return platform.authenticate(key)
+
+
+class SessionAuthenticator:
+    """The console's single sign-on session cookie (see auth/sso.py)."""
+
+    name = "session"
+
+    def authenticate(self, cred: Credential, platform):
+        from certadillo.auth import sso
+
+        if not cred.session or cred.api_key or cred.bearer:
+            return None  # an explicit credential always wins over the cookie
+        row = sso.lookup(platform.s, platform.settings, cred.session)
+        if row is None:
+            return None
+        from certadillo.services import Actor
+
+        return Actor(name=f"idp:{row.subject}", role=row.role, app_id=None, via="session")
 
 
 class OidcAuthenticator:

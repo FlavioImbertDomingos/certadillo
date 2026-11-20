@@ -100,6 +100,28 @@ CERTADILLO_OIDC_ROLE_MAP="pki-admins=admin"
 CERTADILLO_OIDC_CLOCK_SKEW=60               # seconds of leeway on exp/nbf/iat
 ```
 
+## Console single sign-on
+
+People can sign in to the web console through the same IdP instead of pasting an API key. Certadillo runs the OpenID Connect authorization code flow with PKCE itself, so the browser never holds a token: it only gets a session cookie.
+
+```bash
+# on top of the OIDC settings above
+CERTADILLO_SSO_CLIENT_ID=<the console's client id at the IdP>
+CERTADILLO_SSO_CLIENT_SECRET=<if the IdP issued one; PKCE works without>
+CERTADILLO_BASE_URL=https://pki.bank.example     # the redirect URI is $BASE_URL/auth/callback
+CERTADILLO_SSO_SESSION_HOURS=8                   # absolute session lifetime
+CERTADILLO_SSO_IDLE_MINUTES=60                   # signed out after this long without a request
+```
+
+Register `https://pki.bank.example/auth/callback` as the redirect URI. With Entra (`CERTADILLO_OIDC_PROVIDER=entra`) the authorize and token endpoints come from the tenant; with any other issuer they come from its discovery document, or set `CERTADILLO_SSO_AUTHORIZE_URL` and `_TOKEN_URL`. The ID token is validated against the issuer's keys with the console's client id as the audience, its nonce is checked, and its role claim goes through the same `CERTADILLO_OIDC_ROLE_MAP` as bearer tokens. For Entra, assign the app roles to the console's app registration so they appear in the ID token. App, agent and gateway roles cannot sign in.
+
+The console then shows "Sign in with SSO". After sign-in:
+
+- the cookie is HttpOnly, SameSite=Strict, and Secure when the base URL is HTTPS; it holds a random token whose hash is the only thing stored, so a copy of the database cannot be used to log in;
+- every change made with the cookie must carry the `X-Certadillo-CSRF` header and come from Certadillo's own origin, which a page on another site cannot arrange;
+- sign-in and sign-out are in the audit trail (`console.login`, `console.logout`) under `idp:<subject>`, like every action taken in the session;
+- an API key or bearer token on a request always wins over the cookie, so scripts are unaffected.
+
 ## What stays the same
 
 Dual control, per-app scope, the policy engine and the audit trail are
@@ -113,7 +135,6 @@ each action to the person or workload the IdP authenticated.
 - Certadillo fetches the issuer's JWKS over HTTPS and caches it, refetching when
   it sees a new key id (so key rotation needs no restart). The host running
   Certadillo must be able to reach the issuer's JWKS URL.
-- Console single sign-on (a browser login flow) builds on this token validation
-  and is tracked in the roadmap; today the token is presented on the API.
+- Console single sign-on (above) reuses this validation and role mapping.
 - Keep at least one break-glass admin API key for the case where the IdP is
   unreachable.

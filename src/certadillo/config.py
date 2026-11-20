@@ -101,6 +101,14 @@ class Settings:
     # "claimvalue=role;claimvalue=role", e.g. "PKI-Admins=admin;PKI-Approvers=approver"
     oidc_role_map: dict[str, str] = field(default_factory=lambda: _pairs("OIDC_ROLE_MAP"))
     oidc_clock_skew: int = field(default_factory=lambda: int(_env("OIDC_CLOCK_SKEW", "60") or 60))
+    # console single sign-on (authorization code + PKCE) on top of the OIDC settings above
+    sso_client_id: str | None = field(default_factory=lambda: _env("SSO_CLIENT_ID"))
+    sso_client_secret: str | None = field(default_factory=lambda: _env("SSO_CLIENT_SECRET"))
+    sso_scopes: str = field(default_factory=lambda: _env("SSO_SCOPES", "openid profile email") or "openid profile email")
+    sso_authorize_url: str | None = field(default_factory=lambda: _env("SSO_AUTHORIZE_URL"))
+    sso_token_url: str | None = field(default_factory=lambda: _env("SSO_TOKEN_URL"))
+    sso_session_hours: int = field(default_factory=lambda: int(_env("SSO_SESSION_HOURS", "8") or 8))
+    sso_idle_minutes: int = field(default_factory=lambda: int(_env("SSO_IDLE_MINUTES", "60") or 60))
     oidc_entra_tenant: str | None = field(default_factory=lambda: _env("OIDC_ENTRA_TENANT"))
     oidc_vault_issuer: str | None = field(default_factory=lambda: _env("OIDC_VAULT_ISSUER"))
     # Integrity seals: HMAC key for principals, approvals and certificate status.

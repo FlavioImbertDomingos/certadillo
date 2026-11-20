@@ -99,6 +99,8 @@ All settings are environment variables.
 | `CERTADILLO_RATE_LIMITS` | `app=600/m;operator=1200/m;...` | API requests per principal, by role; `0` turns a role's limit off |
 | `CERTADILLO_ISSUANCE_LIMIT` | `500/h` | certificates per app per period, across REST, ACME, EST, SCEP and CMP; `0` turns it off |
 | `CERTADILLO_EGRESS_ALLOW` | | outbound HTTP allow-list: hosts, `*.suffix`, `host:port`, CIDR. Empty allows everything except cloud metadata addresses |
+| `CERTADILLO_SSO_CLIENT_ID` / `_SSO_CLIENT_SECRET` | | console single sign-on; see [zero-trust access](21-zero-trust-auth.md#console-single-sign-on) |
+| `CERTADILLO_SSO_SESSION_HOURS` / `_SSO_IDLE_MINUTES` | `8` / `60` | console session lifetime and idle timeout |
 | `CERTADILLO_TRACING` | `off` | `otlp` sends OpenTelemetry traces to the collector named by `OTEL_EXPORTER_OTLP_ENDPOINT`; `console` prints them |
 | `CERTADILLO_LEADER_LEASE_CYCLES` | `3` | with several replicas, a background task's lease lasts this many of its intervals; a dead leader is replaced after that |
 | `CERTADILLO_DB_AUTO_MIGRATE` | `true` | upgrade the schema at start-up; `false` refuses to start on an out-of-date schema, for deployments that run `certadillo db migrate` as their own step |

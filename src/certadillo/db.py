@@ -370,6 +370,20 @@ class Lease(Base):
     expires_at: Mapped[datetime] = mapped_column(TZDateTime)
 
 
+class ConsoleSession(Base):
+    """A browser session for the web console, created after single sign-on.
+    The cookie holds a random token; only its SHA-256 is stored, so a copy of
+    the database cannot be replayed as a login."""
+
+    __tablename__ = "console_sessions"
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    subject: Mapped[str] = mapped_column(String(255))
+    role: Mapped[str] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(TZDateTime, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(TZDateTime, index=True)
+    last_seen_at: Mapped[datetime] = mapped_column(TZDateTime, default=utcnow)
+
+
 class ScepTransaction(Base):
     """A SCEP request waiting for a second person (dual-control profiles). The
     client polls with CertPoll (GetCertInitial) until it is approved or rejected."""

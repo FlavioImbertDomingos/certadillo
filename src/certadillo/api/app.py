@@ -554,10 +554,66 @@ def create_app(settings: Settings | None = None, background: bool = True) -> Fas
     def metrics():
         return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
+    # ---------------------------------------------------------- console single sign-on
+    from certadillo.auth import sso as sso_mod
+
+    def _cookie_secure() -> bool:
+        return get_runtime().settings.base_url.startswith("https://")
+
+    @app.get("/auth/config", include_in_schema=False)
+    def sso_config():
+        s = get_runtime().settings
+        return {"sso": sso_mod.enabled(s), "login_url": "/auth/login" if sso_mod.enabled(s) else None,
+                "provider": (s.oidc_provider or "oidc") if sso_mod.enabled(s) else None}
+
+    @app.get("/auth/login", include_in_schema=False)
+    def sso_login():
+        s = get_runtime().settings
+        if not sso_mod.enabled(s):
+            raise NotFound("single sign-on is not configured (CERTADILLO_SSO_CLIENT_ID and the OIDC settings)")
+        url, tx = sso_mod.login_redirect(s)
+        resp = RedirectResponse(url, status_code=302)
+        resp.set_cookie(sso_mod.TX_COOKIE, tx, max_age=sso_mod.TX_SECONDS, path="/auth", httponly=True,
+                        secure=_cookie_secure(), samesite="lax")  # lax: the IdP sends the browser back cross-site
+        return resp
+
+    @app.get("/auth/callback", include_in_schema=False)
+    def sso_callback(request: Request, code: str = "", state: str = "", error: str = "",
+                     p: Platform = Depends(platform)):
+        s = p.settings
+        if error:
+            return PlainTextResponse(f"Sign-in was not completed: {error[:200]}", 400)
+        try:
+            subject, role = sso_mod.complete(s, code, state, request.cookies.get(sso_mod.TX_COOKIE))
+        except sso_mod.SsoError as exc:
+            p.note_auth_failure("sso", str(exc))
+            p.commit()
+            return PlainTextResponse(f"Sign-in failed: {exc}", 403)
+        token = sso_mod.create_session(p.s, s, subject, role)
+        record(p.s, f"idp:{subject}", "console.login", f"idp:{subject}", {"role": role, "via": "sso"})
+        p.commit()
+        resp = RedirectResponse("/", status_code=302)
+        resp.delete_cookie(sso_mod.TX_COOKIE, path="/auth")
+        resp.set_cookie(sso_mod.SESSION_COOKIE, token, max_age=s.sso_session_hours * 3600, path="/", httponly=True,
+                        secure=_cookie_secure(), samesite="strict")
+        return resp
+
+    @app.post("/auth/logout", include_in_schema=False)
+    def sso_logout(request: Request, p: Platform = Depends(platform)):
+        if request.headers.get(sso_mod.CSRF_HEADER) != "1":
+            raise Forbidden("logout needs the X-Certadillo-CSRF header")
+        row = sso_mod.end_session(p.s, request.cookies.get(sso_mod.SESSION_COOKIE))
+        if row is not None:
+            record(p.s, f"idp:{row.subject}", "console.logout", f"idp:{row.subject}", {})
+        p.commit()
+        resp = JSONResponse({"logged_out": row is not None})
+        resp.delete_cookie(sso_mod.SESSION_COOKIE, path="/")
+        return resp
+
     # ---------------------------------------------------------- identity
     @app.get("/api/v1/me", tags=["identity"])
     def me(who: Actor = Depends(actor)):
-        return {"name": who.name, "role": who.role, "app_id": who.app_id}
+        return {"name": who.name, "role": who.role, "app_id": who.app_id, "via": who.via or "credential"}
 
     @app.post("/api/v1/principals", status_code=201, tags=["identity"])
     def create_principal(body: PrincipalIn, p: Platform = Depends(platform), who: Actor = Depends(actor)):

@@ -38,7 +38,9 @@ def _credential(request: Request):
             api_key = api_key or (pw or None)
         except Exception:  # noqa: S110 - a malformed Basic header is simply no credential
             pass
-    return Credential(api_key=api_key, bearer=bearer)
+    from certadillo.auth.sso import SESSION_COOKIE
+
+    return Credential(api_key=api_key, bearer=bearer, session=request.cookies.get(SESSION_COOKIE))
 
 
 def actor(request: Request, p: Platform = Depends(platform)) -> Actor:
@@ -48,5 +50,12 @@ def actor(request: Request, p: Platform = Depends(platform)) -> Actor:
     if a is None:
         raise HTTPException(401, "missing or invalid credential",
                             headers={"WWW-Authenticate": 'Bearer, Basic realm="certadillo"'})
+    if a.via == "session" and request.method not in ("GET", "HEAD", "OPTIONS"):
+        from certadillo.auth import sso
+
+        # a cookie rides along on cross-site requests; the header and Origin do not
+        if request.headers.get(sso.CSRF_HEADER) != "1" or not sso.same_origin(p.settings,
+                                                                                 request.headers.get("origin")):
+            raise HTTPException(403, "a console session needs the X-Certadillo-CSRF header and a same-origin request")
     check_request(p.settings, a.name, a.role)
     return a
