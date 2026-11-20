@@ -1,0 +1,103 @@
+# Certadillo Helm chart. Everything the server reads comes from environment
+# variables (see docs/guide/15-administration.md); this file maps the common
+# ones and passes anything else through `env`.
+
+image:
+  repository: ghcr.io/flavioimbertdomingos/certadillo
+  tag: ""            # defaults to the chart's appVersion; pin a digest in production
+  digest: ""         # e.g. sha256:...; verify it first with cosign (docs/SECURITY.md#supply-chain)
+  pullPolicy: IfNotPresent
+
+# More than one replica needs `persistence.accessMode: ReadWriteMany` (EFS,
+# Azure Files, Filestore, NFS): replicas share the data directory, which holds
+# the OCSP responder keys, the audit-shipping signing key and, with software
+# keys, the CA keys. Background work runs on one replica at a time (leases).
+replicaCount: 1
+
+baseUrl: https://pki.example.com   # CERTADILLO_BASE_URL: published in AIA, CDP and ACME URLs
+orgName: Example Bank
+
+# Secrets are referenced, never put in values. The secret must have the keys
+# named here (create it with External Secrets, Sealed Secrets or kubectl).
+existingSecret: certadillo
+secretKeys:
+  dbUrl: db-url                    # postgresql+psycopg://... or oracle+oracledb://...
+  keyPassphrase: key-passphrase
+  bootstrapAdminKey: bootstrap-admin-key        # optional key in the secret
+  bootstrapApproverKey: bootstrap-approver-key  # optional key in the secret
+
+database:
+  schema: ""        # CERTADILLO_DB_SCHEMA when the app user is not the owner (db harden)
+  # The schema is upgraded by a pre-install/pre-upgrade Job, before new pods
+  # start; the pods themselves run with CERTADILLO_DB_AUTO_MIGRATE=false.
+  migrationJob:
+    enabled: true
+    # a separate owner credential for DDL; empty uses secretKeys.dbUrl
+    ownerSecretKey: ""
+    backoffLimit: 2
+
+signer: software    # software | pkcs11 | vault-transit (vault and HSM settings go in env)
+
+# Any other CERTADILLO_* (or OTEL_*) setting.
+env: {}
+#  CERTADILLO_EGRESS_ALLOW: "hooks.slack.com,*.bank.internal"
+#  CERTADILLO_TRACING: otlp
+#  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability:4318
+envFromSecrets: []   # extra secrets loaded whole with envFrom
+
+policies: ""         # a policy file (profiles); empty uses the built-in default_policies.yaml
+
+persistence:
+  enabled: true
+  accessMode: ReadWriteOnce
+  size: 2Gi
+  storageClass: ""
+  existingClaim: ""
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: pki.example.com
+  tlsSecret: ""
+
+resources:
+  requests: {cpu: 250m, memory: 384Mi}
+  limits: {memory: 1Gi}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile: {type: RuntimeDefault}
+
+securityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities: {drop: [ALL]}
+
+# Restrict traffic at the network layer as well as with CERTADILLO_EGRESS_ALLOW
+# (which covers HTTP only; SSH provisioning and the AWS SDK need this).
+networkPolicy:
+  enabled: false
+  ingressFrom: []    # peers allowed to reach port 8080; empty allows any
+  egressTo: []       # extra egress peers (database, HSM, Vault, webhooks), as NetworkPolicy peers
+  allowDns: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+serviceMonitor:
+  enabled: false     # needs the Prometheus Operator CRDs
+  interval: 30s
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podAnnotations: {}

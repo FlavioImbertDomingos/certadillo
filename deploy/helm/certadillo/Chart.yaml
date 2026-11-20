@@ -1,0 +1,9 @@
+apiVersion: v2
+name: certadillo
+description: Open source PKI and certificate lifecycle platform for regulated environments
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://certadillo.com
+sources: [https://github.com/FlavioImbertDomingos/certadillo]
+keywords: [pki, certificates, acme, est, scep, cmp, clm]

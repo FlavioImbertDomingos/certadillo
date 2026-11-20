@@ -15,8 +15,8 @@ interface it plugs into so contributors can pick one up.
 | [Phase 7: enterprise CLM features](#phase-7-enterprise-clm-features) | Core features, console, code signing and SSH key discovery done; IIS/NetScaler/Key Vault push, native signing clients, SSH key rotation and follow-ups open | 7 of 14 |
 | [Phase 4: workload identity](#phase-4-workload-identity) | Not started | 0 of 3 |
 | [Phase 5: post-quantum](#phase-5-post-quantum) | ML-DSA issuance and the agility drill done; composite certificates and hybrid key exchange tracking open | 2 of 4 |
-| [Phase 6: production hardening](#phase-6-production-hardening) | Done except Helm/Terraform and the ServiceNow catalog item | 6 of 8 |
-| Total | | 40 of 65 |
+| [Phase 6: production hardening](#phase-6-production-hardening) | Done except the ServiceNow catalog item | 7 of 8 |
+| Total | | 41 of 65 |
 
 Below, every item is marked done (shipped and tested) or open (not built
 yet). GitHub shows them as ticked and empty checkboxes, the knowledge base as
@@ -276,7 +276,15 @@ Shipped November 2026, on pyca/cryptography 50. See [Post-quantum](guide/27-post
   and out (outbound calls carry it), `traceresponse` on every response,
   trace ids in the JSON logs; OTLP export from the `otel` extra, included in
   the image. See [traces](guide/13-alerting-observability.md#traces).
-- [ ] Helm chart and a Terraform module (EKS or ECS, RDS PostgreSQL, CloudHSM).
+- [x] **Helm chart and Terraform module** (November 2026). The chart
+  (`deploy/helm/certadillo`) runs the migration as a pre-upgrade Job,
+  hardens the pods, refuses several replicas without shared storage, and
+  has optional Ingress, NetworkPolicy and ServiceMonitor. The Terraform
+  module (`deploy/terraform/aws-ecs`) builds ECS Fargate behind an internal
+  ALB, RDS PostgreSQL, an encrypted EFS data directory, Secrets Manager
+  secrets and optional CloudHSM access. CI lints and renders the chart
+  through kubeconform and runs `terraform validate` and `terraform test`
+  (mocked providers).
 - [x] **Alembic migrations** (November 2026). A baseline revision for the
   current schema, `certadillo db migrate` and `db status`, upgrade at start-up
   under a PostgreSQL advisory lock (or `CERTADILLO_DB_AUTO_MIGRATE=false` to

@@ -41,6 +41,15 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
 | Prometheus | http://localhost:9090 |
 | Alertmanager | http://localhost:9093 |
 
+## Option 3: Kubernetes or AWS
+
+For a real deployment, start from one of these. Both run the schema migration before the new version starts, harden the containers, and keep secrets out of the configuration.
+
+| Target | Where | Notes |
+| --- | --- | --- |
+| Kubernetes | [deploy/helm/certadillo](../../deploy/helm/certadillo/README.md) | `helm install`; a pre-upgrade migration Job, optional Ingress, NetworkPolicy, ServiceMonitor |
+| AWS | [deploy/terraform/aws-ecs](../../deploy/terraform/aws-ecs/README.md) | ECS Fargate, RDS PostgreSQL, EFS, Secrets Manager, an internal ALB; CloudHSM optional |
+
 ## Your first certificate
 
 ```bash

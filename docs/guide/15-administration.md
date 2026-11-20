@@ -164,7 +164,7 @@ All settings are environment variables.
 
 ## Running several replicas
 
-Run as many API replicas as you like behind a load balancer; they share only the database. Background work is coordinated through leases: every replica runs the housekeeping loop (CRLs, OCSP signer rotation, discovery, push provisioning, alerts) and the audit shipper, but only the replica holding the lease for a task does it, so a CRL is signed once per cycle and an alert is sent once. If the leader stops, another replica takes over within `CERTADILLO_LEADER_LEASE_CYCLES` cycles; a clean shutdown hands over at once.
+Run as many API replicas as you like behind a load balancer. They share the database and the data directory (`CERTADILLO_DATA_DIR`), which must be on shared storage (EFS, Azure Files, NFS): it holds the OCSP responder keys, the audit-shipping signing key and, with software signing, the CA keys. The [Helm chart](../../deploy/helm/certadillo/README.md) refuses several replicas on a ReadWriteOnce volume, and the [Terraform module](../../deploy/terraform/aws-ecs/README.md) mounts EFS. Background work is coordinated through leases: every replica runs the housekeeping loop (CRLs, OCSP signer rotation, discovery, push provisioning, alerts) and the audit shipper, but only the replica holding the lease for a task does it, so a CRL is signed once per cycle and an alert is sent once. If the leader stops, another replica takes over within `CERTADILLO_LEADER_LEASE_CYCLES` cycles; a clean shutdown hands over at once.
 
 ```bash
 curl -s "${A[@]}" $S/api/v1/leaders

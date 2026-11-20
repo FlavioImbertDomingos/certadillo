@@ -60,10 +60,11 @@ Every row below has automated tests. "Interop" means a third-party client was ru
 | Databases | SQLite for labs; PostgreSQL or Oracle Database in production, each with the append-only audit guard and a least-privilege application role (`certadillo db harden`). Alembic migrations applied at start-up (PostgreSQL advisory lock) or as a separate `certadillo db migrate` step; databases from before migrations are adopted in place | The whole suite runs on PostgreSQL 16 and Oracle Database 23ai Free in CI; `tests/test_migrations.py`, `tests/test_db_harden.py` |
 | Crypto agility / PQC | ML-DSA-65 and ML-DSA-87 (FIPS 204) issuing CAs, offline roots and leaf certificates, with ML-DSA signed CRLs and OCSP; crypto-agility drills that move certificates to a new issuing CA through ARI and time it to 100%, naming whatever keeps an app on the old CA; CycloneDX 1.6 CBOM with NIST security levels, PQC readiness report, CA-outlives-2035 check | `tests/test_post_quantum.py`, `tests/test_agility_drill.py`, `test_reports` |
 | Web console | Overview, onboarding wizard, inventory, approvals, discovery findings and sources, push provisioning (add targets and installations, push now, run steps), the policy tree (create and edit folders, move apps, effective policy per app), issuers, code signing, static SSH keys, audit and shipping, reports and crypto-agility drills. Every change goes through the same approval flow as the API; buttons a role cannot use are hidden; HTML only through an escaping template under a Trusted Types CSP | `tests/test_web_security.py`; screens checked in a browser for admin, operator and auditor |
+| Deployment | Docker Compose for labs; a Helm chart (migration Job, hardened pods, NetworkPolicy, ServiceMonitor) and a Terraform module for AWS (ECS Fargate, RDS, EFS, Secrets Manager, internal ALB, optional CloudHSM) | `scripts/check-deploy.sh` in CI: kubeconform on the rendered chart, `terraform validate` and `terraform test` |
 | Automation | CLI (`cert request`, `cert renew-if-due`), Ansible role, PowerShell module, Python demo seeder | Ansible and PowerShell run against a live server |
 | Upstream issuers | Certadillo's policy in front of other CAs: any ACME CA (Let's Encrypt and others, dns-01 through RFC 2136 or an HTTP hook, EAB), DigiCert CertCentral, AWS Private CA, EJBCA, and HashiCorp Vault / OpenBao PKI; routed per profile or per policy folder; the returned certificate must match the requested key and approved names | Pebble with real dns-01, moto for AWS PCA, API fakes for DigiCert and EJBCA: `tests/test_issuers.py` |
 
-Not built yet, with the design written down: Venafi / DigiCert / Keyfactor inventory connectors, push to IIS, NetScaler and Azure Key Vault, native signing clients (signtool, jarsigner, cosign), SSH key rotation, Windows auto-enrollment through CEP/CES, a SPIRE UpstreamAuthority, a Helm chart, composite ML-DSA + ECDSA certificates, and ML-DSA keys in an HSM. See [docs/ROADMAP.md](docs/ROADMAP.md).
+Not built yet, with the design written down: Venafi / DigiCert / Keyfactor inventory connectors, push to IIS, NetScaler and Azure Key Vault, native signing clients (signtool, jarsigner, cosign), SSH key rotation, Windows auto-enrollment through CEP/CES, a SPIRE UpstreamAuthority, composite ML-DSA + ECDSA certificates, and ML-DSA keys in an HSM. See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Quick start
 
@@ -129,7 +130,7 @@ src/certadillo/
   web/static/    console and mascot
   migrations/    Alembic revisions (the schema's history)
 Dockerfile       container image (SoftHSM2 and OpenSC included)
-deploy/          compose stack, Prometheus rules, Alertmanager, Grafana
+deploy/          compose stack, Helm chart, Terraform module (AWS ECS), Prometheus rules, Alertmanager, Grafana
 automation/      Ansible role, PowerShell module
 scripts/         demo seeder; certbot, EST, SCEP interop tests; a toy DNS server for dns-01
 docs/            architecture, runbook, security model, HSM guide, roadmap, standards map

@@ -1,0 +1,88 @@
+{{- if and (gt (int .Values.replicaCount) 1) .Values.persistence.enabled (eq .Values.persistence.accessMode "ReadWriteOnce") (not .Values.persistence.existingClaim) }}
+{{- fail "replicaCount > 1 needs persistence.accessMode ReadWriteMany: replicas share the data directory (OCSP responder keys, audit-shipping key, software CA keys)" }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "certadillo.fullname" . }}
+  labels: {{- include "certadillo.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels: {{- include "certadillo.selector" . | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  template:
+    metadata:
+      labels: {{- include "certadillo.selector" . | nindent 8 }}
+      annotations:
+        checksum/policies: {{ .Values.policies | sha256sum }}
+        {{- with .Values.podAnnotations }}{{ toYaml . | nindent 8 }}{{ end }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: certadillo
+          image: {{ include "certadillo.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["serve", "--port", "8080"]
+          env:
+            {{- include "certadillo.env" . | nindent 12 }}
+            - name: CERTADILLO_DB_AUTO_MIGRATE
+              value: {{ ternary "false" "true" .Values.database.migrationJob.enabled | quote }}
+            - name: CERTADILLO_BOOTSTRAP_ADMIN_KEY
+              valueFrom: {secretKeyRef: {name: {{ .Values.existingSecret }}, key: {{ .Values.secretKeys.bootstrapAdminKey }}, optional: true}}
+            - name: CERTADILLO_BOOTSTRAP_APPROVER_KEY
+              valueFrom: {secretKeyRef: {name: {{ .Values.existingSecret }}, key: {{ .Values.secretKeys.bootstrapApproverKey }}, optional: true}}
+          {{- with .Values.envFromSecrets }}
+          envFrom:
+            {{- range . }}
+            - secretRef: {name: {{ . }}}
+            {{- end }}
+          {{- end }}
+          ports:
+            - {name: http, containerPort: 8080}
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 20
+            failureThreshold: 3
+          startupProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 2
+            failureThreshold: 60
+          securityContext: {{- toYaml .Values.securityContext | nindent 12 }}
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/certadillo}
+            - {name: tmp, mountPath: /tmp}
+            {{- if .Values.policies }}
+            - {name: policies, mountPath: /etc/certadillo, readOnly: true}
+            {{- end }}
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim: {claimName: {{ .Values.persistence.existingClaim | default (include "certadillo.fullname" .) }}}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}
+        {{- if .Values.policies }}
+        - name: policies
+          configMap: {name: {{ include "certadillo.fullname" . }}-policies}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}

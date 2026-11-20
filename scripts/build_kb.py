@@ -143,7 +143,10 @@ TOURS = {
 FILE_TO_SLUG = {src.split("/")[-1]: slug for slug, src, *_ in PAGES if src}
 
 
-def rewrite_links(h: str) -> str:
+REPO_BLOB = "https://github.com/FlavioImbertDomingos/certadillo/blob/main/"
+
+
+def rewrite_links(h: str, src: Path | None = None) -> str:
     def link(m):
         target, anchor = m.group(1), m.group(2)
         name = target.split("/")[-1]
@@ -155,6 +158,19 @@ def rewrite_links(h: str) -> str:
 
     h = re.sub(r'href="((?:\.\./|\./)?(?:guide/)?[A-Za-z0-9_.-]+\.md)(#[A-Za-z0-9_-]+)?"', link, h)
     h = re.sub(r'src="(?:\.\./)?screenshots/([^"]+)"', r'src="img/\1"', h)
+    if src is not None:
+        # anything else relative (README, deploy/, scripts/) points at the file on GitHub
+        base = src.parent.resolve()
+
+        def repo(m):
+            target = (base / m.group(1)).resolve()
+            try:
+                rel = target.relative_to(ROOT)
+            except ValueError:
+                return m.group(0)
+            return f'href="{REPO_BLOB}{rel.as_posix()}{m.group(2) or ""}"'
+
+        h = re.sub(r'href="((?:\.\./|\./)[^"#:]+)(#[^"]*)?"', repo, h)
     return h
 
 
@@ -166,7 +182,7 @@ def render_md(path: Path) -> tuple[str, str]:
     body = re.sub(r"<li>(<p>)?\[x\] ", r'<li class="kb-task kb-task-done">\1<span class="kb-tick">Done</span> ', body)
     body = re.sub(r"<li>(<p>)?\[ \] ", r'<li class="kb-task kb-task-open">\1<span class="kb-tick">Open</span> ', body)
     title = re.search(r"<h1[^>]*>(.*?)</h1>", body)
-    return rewrite_links(body), html.unescape(re.sub("<[^>]+>", "", title.group(1))) if title else path.stem
+    return rewrite_links(body, path), html.unescape(re.sub("<[^>]+>", "", title.group(1))) if title else path.stem
 
 
 def split_for_scene(h: str) -> tuple[str, str]:

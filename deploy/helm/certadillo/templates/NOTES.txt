@@ -1,0 +1,14 @@
+Certadillo {{ .Chart.AppVersion }} is starting ({{ .Values.replicaCount }} replica(s)).
+
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "certadillo.fullname" . }}
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "certadillo.fullname" . }} 8080:{{ .Values.service.port }}
+
+The console is at {{ .Values.baseUrl }} (or http://localhost:8080 through the port-forward).
+{{- if .Values.database.migrationJob.enabled }}
+The schema was migrated by the {{ include "certadillo.fullname" . }}-migrate job before the pods started.
+{{- end }}
+{{- if eq .Values.signer "software" }}
+
+CA keys are software keys on the data volume. For production, use an HSM
+(signer: pkcs11) or Vault Transit (signer: vault-transit); see docs/HSM.md.
+{{- end }}

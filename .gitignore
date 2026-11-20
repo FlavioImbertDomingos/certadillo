@@ -11,3 +11,7 @@ deploy/.env
 .ruff_cache/
 build/
 .DS_Store
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
