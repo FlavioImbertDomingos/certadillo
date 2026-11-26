@@ -32,7 +32,7 @@ jobs:
           curl -fsSLO "https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_SHA256SUMS"
           grep "linux_amd64.zip" "vault_${VAULT_VERSION}_SHA256SUMS" | sha256sum -c -
           unzip -q "vault_${VAULT_VERSION}_linux_amd64.zip" vault && sudo mv vault /usr/local/bin/ && vault version
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version: stable
       - name: Pebble, the ACME test CA, for the upstream issuer tests
@@ -137,7 +137,7 @@ jobs:
         run: PORT=8081 bash scripts/interop-scep.sh
       - name: certbot dns-01 wildcard, ARI-driven renewal, unregister
         run: PORT=8082 bash scripts/interop-acme-dns.sh
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version: stable
       - name: GlobalSign estclient through nginx -> enroll, re-enroll by certificate, serverkeygen, IDevID
@@ -183,7 +183,7 @@ jobs:
           ignore-unfixed: true
           format: sarif
           output: trivy.sarif
-      - uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+      - uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
         with:
           sarif_file: trivy.sarif
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
